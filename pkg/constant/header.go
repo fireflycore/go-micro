@@ -8,15 +8,15 @@ const (
 	AppLanguage = "app-language"
 	AppVersion  = "app-version"
 
-	FFTraceId  = "ff-trace-id"
-	FFSession  = "ff-session"
-	FFUserId   = "ff-user-id"
-	FFAppId    = "ff-app-id"
-	FFTenantId = "ff-tenant-id"
-	FFClientIp = "ff-client-ip"
+	TraceId  = "trace-id"
+	Session  = "session"
+	UserId   = "user-id"
+	AppId    = "app-id"
+	TenantId = "tenant-id"
+	ClientIp = "client-ip"
 
-	FFRoleIds = "ff-role-ids"
-	FFOrgIds  = "ff-org-ids"
+	RoleIds = "role-ids"
+	OrgIds  = "org-ids"
 
 	GrpcGatewayAuth = "grpc-gateway-auth"
 	HttpGatewayAuth = "http-gateway-auth"

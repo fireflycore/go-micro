@@ -41,30 +41,30 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	raw = &UserContextMeta{}
 
-	raw.Session, err = ParseMetaKey(md, constant.FFSession)
+	raw.Session, err = ParseMetaKey(md, constant.Session)
 	if err != nil {
 		return nil, err
 	}
-	raw.ClientIp, err = ParseMetaKey(md, constant.FFClientIp)
-	if err != nil {
-		return nil, err
-	}
-
-	raw.UserId, err = ParseMetaKey(md, constant.FFUserId)
-	if err != nil {
-		return nil, err
-	}
-	raw.AppId, err = ParseMetaKey(md, constant.FFAppId)
-	if err != nil {
-		return nil, err
-	}
-	raw.TenantId, err = ParseMetaKey(md, constant.FFTenantId)
+	raw.ClientIp, err = ParseMetaKey(md, constant.ClientIp)
 	if err != nil {
 		return nil, err
 	}
 
-	raw.RoleIds = md.Get(constant.FFRoleIds)
-	raw.OrgIds = md.Get(constant.FFOrgIds)
+	raw.UserId, err = ParseMetaKey(md, constant.UserId)
+	if err != nil {
+		return nil, err
+	}
+	raw.AppId, err = ParseMetaKey(md, constant.AppId)
+	if err != nil {
+		return nil, err
+	}
+	raw.TenantId, err = ParseMetaKey(md, constant.TenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	raw.RoleIds = md.Get(constant.RoleIds)
+	raw.OrgIds = md.Get(constant.OrgIds)
 
 	return raw, nil
 }
@@ -73,7 +73,7 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 func ParseClientContextMeta(md metadata.MD) (raw *ClientContextMeta, err error) {
 	raw = &ClientContextMeta{}
 
-	raw.ClientIp, err = ParseMetaKey(md, constant.FFClientIp)
+	raw.ClientIp, err = ParseMetaKey(md, constant.ClientIp)
 	if err != nil {
 		return nil, err
 	}
