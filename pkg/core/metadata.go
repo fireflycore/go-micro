@@ -3,26 +3,27 @@ package micro
 import (
 	"errors"
 	"fmt"
+	"github.com/lhdhtrc/micro-go/pkg/constant"
 	"google.golang.org/grpc/metadata"
 )
 
 // UserContextMeta 用户上下文元信息
 type UserContextMeta struct {
+	Session  string `json:"session"`
+	ClientIp string `json:"client_ip"`
+
 	UserId   string `json:"user_id"`
 	AppId    string `json:"app_id"`
 	TenantId string `json:"tenant_id"`
 
-	Session  string `json:"session"`
-	ClientIp string `json:"client_ip"`
-
-	AppRoleIds []string `json:"app_role_ids"`
-	AppOrgIds  []string `json:"app_org_ids"`
+	RoleIds []string `json:"role_ids"`
+	OrgIds  []string `json:"org_ids"`
 }
 
 type ClientContextMeta struct {
-	Lang       string `json:"lang"`
-	ClientIp   string `json:"client_ip"`
-	AppVersion string `json:"app_version"`
+	ClientIp    string `json:"client_ip"`
+	AppVersion  string `json:"app_version"`
+	AppLanguage string `json:"app_language"`
 }
 
 // ParseMetaKey 解析元信息key
@@ -40,30 +41,30 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	raw = &UserContextMeta{}
 
-	raw.Session, err = ParseMetaKey(md, "session")
+	raw.Session, err = ParseMetaKey(md, constant.FFSession)
 	if err != nil {
 		return nil, err
 	}
-	raw.ClientIp, err = ParseMetaKey(md, "client-ip")
-	if err != nil {
-		return nil, err
-	}
-
-	raw.UserId, err = ParseMetaKey(md, "user-id")
-	if err != nil {
-		return nil, err
-	}
-	raw.AppId, err = ParseMetaKey(md, "app-id")
-	if err != nil {
-		return nil, err
-	}
-	raw.TenantId, err = ParseMetaKey(md, "tenant-id")
+	raw.ClientIp, err = ParseMetaKey(md, constant.FFClientIp)
 	if err != nil {
 		return nil, err
 	}
 
-	raw.AppRoleIds = md.Get("app-role-ids")
-	raw.AppOrgIds = md.Get("app-org-ids")
+	raw.UserId, err = ParseMetaKey(md, constant.FFUserId)
+	if err != nil {
+		return nil, err
+	}
+	raw.AppId, err = ParseMetaKey(md, constant.FFAppId)
+	if err != nil {
+		return nil, err
+	}
+	raw.TenantId, err = ParseMetaKey(md, constant.FFTenantId)
+	if err != nil {
+		return nil, err
+	}
+
+	raw.RoleIds = md.Get(constant.FFRoleIds)
+	raw.OrgIds = md.Get(constant.FFOrgIds)
 
 	return raw, nil
 }
@@ -71,15 +72,16 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 // ParseClientContextMeta 解析客户端上下文元信息
 func ParseClientContextMeta(md metadata.MD) (raw *ClientContextMeta, err error) {
 	raw = &ClientContextMeta{}
-	raw.Lang, err = ParseMetaKey(md, "lang")
+
+	raw.ClientIp, err = ParseMetaKey(md, constant.FFClientIp)
 	if err != nil {
 		return nil, err
 	}
-	raw.ClientIp, err = ParseMetaKey(md, "client-ip")
+	raw.AppVersion, err = ParseMetaKey(md, constant.AppVersion)
 	if err != nil {
 		return nil, err
 	}
-	raw.AppVersion, err = ParseMetaKey(md, "app-version")
+	raw.AppLanguage, err = ParseMetaKey(md, constant.AppLanguage)
 	if err != nil {
 		return nil, err
 	}
