@@ -1,3 +1,4 @@
+// Package constant 定义微服务通用 header/metadata key。
 package constant
 
 const (
