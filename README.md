@@ -2,7 +2,7 @@
 Minimal core components of microservices.
 
 ### How to use it?
-`go get github.com/lhdhtrc/micro-go`
+`go get github.com/fireflycore/go-micro`
 
 ### Finally
 - If you feel good, click on star.

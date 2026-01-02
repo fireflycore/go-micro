@@ -3,9 +3,11 @@ package etcd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+
+	micro "github.com/fireflycore/go-micro"
 	"github.com/lhdhtrc/func-go/array"
-	micro "github.com/lhdhtrc/micro-go/pkg/core"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -19,6 +21,25 @@ import (
 //   - *DiscoverInstance: 服务发现实例
 //   - error: 错误信息
 func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance, error) {
+	if client == nil {
+		return nil, errors.New("etcd client is nil")
+	}
+	if config == nil {
+		return nil, errors.New("service config is nil")
+	}
+	if meta == nil {
+		meta = &micro.Meta{}
+	}
+	if config.Namespace == "" {
+		config.Namespace = "micro"
+	}
+	if config.Network == nil {
+		config.Network = &micro.Network{}
+	}
+	if config.Kernel == nil {
+		config.Kernel = &micro.Kernel{}
+	}
+
 	// 创建可取消的上下文，用于优雅关闭
 	ctx, cancel := context.WithCancel(context.Background())
 

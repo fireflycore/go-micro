@@ -1,9 +1,9 @@
 package micro
 
 import (
-	"errors"
 	"fmt"
-	"github.com/lhdhtrc/micro-go/pkg/constant"
+
+	"github.com/fireflycore/go-micro/constant"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -31,7 +31,7 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 	val := md.Get(key)
 
 	if len(val) == 0 {
-		return "", errors.New(fmt.Sprintf("%s parse error", key))
+		return "", fmt.Errorf("%s parse error", key)
 	}
 
 	return val[0], nil

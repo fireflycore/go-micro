@@ -1,4 +1,4 @@
-module github.com/lhdhtrc/micro-go
+module github.com/fireflycore/go-micro
 
 go 1.25.1
 

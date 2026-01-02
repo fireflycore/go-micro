@@ -3,13 +3,37 @@ package etcd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	micro "github.com/lhdhtrc/micro-go/pkg/core"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"time"
+
+	micro "github.com/fireflycore/go-micro"
+	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance, error) {
+	if client == nil {
+		return nil, errors.New("etcd client is nil")
+	}
+	if config == nil {
+		return nil, errors.New("service config is nil")
+	}
+	if meta == nil {
+		meta = &micro.Meta{}
+	}
+	if config.Namespace == "" {
+		config.Namespace = "micro"
+	}
+	if config.TTL == 0 {
+		config.TTL = 10
+	}
+	if config.Network == nil {
+		config.Network = &micro.Network{}
+	}
+	if config.Kernel == nil {
+		config.Kernel = &micro.Kernel{}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	instance := &RegisterInstance{
@@ -41,6 +65,10 @@ type RegisterInstance struct {
 }
 
 func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
+	if service == nil {
+		return errors.New("service node is nil")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
