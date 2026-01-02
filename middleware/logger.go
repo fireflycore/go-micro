@@ -7,12 +7,13 @@ import (
 	"strconv"
 	"time"
 
-	micro "github.com/fireflycore/go-micro"
+	micro "github.com/fireflycore/go-micro/core"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
+// GrpcAccessLogger 返回一个 gRPC Unary 拦截器，用于输出访问日志。
 func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		start := time.Now()
@@ -41,7 +42,10 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 			loggerMap["response"] = string(response)
 
 			loggerMap["duration"] = elapsed.Microseconds()
-			loggerMap["status"] = 200
+			loggerMap["status"] = status
+			if err != nil {
+				loggerMap["error"] = err.Error()
+			}
 
 			loggerMap["ip"], _ = micro.ParseMetaKey(md, "client-ip")
 
@@ -49,23 +53,11 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 			loggerMap["client_name"], _ = micro.ParseMetaKey(md, "client-name")
 
 			systemType, se := micro.ParseMetaKey(md, "system-type")
-			if se == nil {
-				loggerMap["system_type"] = 0
-			} else {
-				loggerMap["system_type"], _ = strconv.ParseInt(systemType, 10, 32)
-			}
+			loggerMap["system_type"] = parseInt32OrZero(systemType, se)
 			clientType, ce := micro.ParseMetaKey(md, "client-type")
-			if ce == nil {
-				loggerMap["client_type"] = 0
-			} else {
-				loggerMap["client_type"], _ = strconv.ParseInt(clientType, 10, 32)
-			}
+			loggerMap["client_type"] = parseInt32OrZero(clientType, ce)
 			deviceFormFactor, de := micro.ParseMetaKey(md, "device-form-factor")
-			if de == nil {
-				loggerMap["device_form_factor"] = deviceFormFactor
-			} else {
-				loggerMap["device_form_factor"] = 0
-			}
+			loggerMap["device_form_factor"] = parseInt32OrZero(deviceFormFactor, de)
 
 			loggerMap["system_version"], _ = micro.ParseMetaKey(md, "system-version")
 			loggerMap["client_version"], _ = micro.ParseMetaKey(md, "client-version")
@@ -85,4 +77,15 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 
 		return resp, err
 	}
+}
+
+func parseInt32OrZero(raw string, err error) int64 {
+	if err != nil {
+		return 0
+	}
+	v, pe := strconv.ParseInt(raw, 10, 32)
+	if pe != nil {
+		return 0
+	}
+	return v
 }
