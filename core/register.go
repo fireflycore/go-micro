@@ -26,13 +26,13 @@ func NewRegisterService(raw []*grpc.ServiceDesc, reg Register) []error {
 	node.ProtoCount = len(raw)
 	node.Methods = make(map[string]bool)
 
-	var errs []error
 	for _, desc := range raw {
 		for _, item := range desc.Methods {
 			node.Methods[fmt.Sprintf("/%s/%s", desc.ServiceName, item.MethodName)] = true
 		}
 	}
 
+	var errs []error
 	if err := reg.Install(node); err != nil {
 		errs = append(errs, err)
 	}
