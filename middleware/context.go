@@ -1,7 +1,9 @@
+// Package middleware 提供 gRPC 中间件能力。
 package middleware
 
 import (
 	"context"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
