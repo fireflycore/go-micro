@@ -2,11 +2,26 @@ package micro
 
 import (
 	"fmt"
+
 	"google.golang.org/grpc"
 )
 
-// NewRegisterService 注册服务集合
+// Register 定义服务注册器的最小能力集合。
+type Register interface {
+	Install(service *ServiceNode) error
+	Uninstall()
+	SustainLease()
+	WithRetryBefore(func())
+	WithRetryAfter(func())
+	WithLog(func(level LogLevel, message string))
+}
+
+// NewRegisterService 将 gRPC ServiceDesc 解析为节点方法集合并执行注册。
 func NewRegisterService(raw []*grpc.ServiceDesc, reg Register) []error {
+	if reg == nil {
+		return []error{ErrRegisterIsNil}
+	}
+
 	node := new(ServiceNode)
 	node.ProtoCount = len(raw)
 	node.Methods = make(map[string]bool)
