@@ -27,14 +27,14 @@ func WithRemoteInvoke[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T
 	// 2. 检查响应对象是否有效
 	respValue := reflect.ValueOf(resp)
 	if respValue.Kind() == reflect.Ptr && respValue.IsNil() {
-		return zero, errors.New("remote response is nil")
+		return zero, ErrRemoteResponseIsNil
 	}
 
 	// 3. 检查状态码
 	if code := resp.GetCode(); code != 200 {
 		msg := resp.GetMessage()
 		if msg == "" {
-			msg = "remote call failed"
+			return zero, ErrRemoteCallFailed
 		}
 		return zero, errors.New(msg)
 	}
