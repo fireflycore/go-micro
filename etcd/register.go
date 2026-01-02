@@ -1,3 +1,4 @@
+// Package etcd 提供基于 etcd 的服务注册与服务发现实现。
 package etcd
 
 import (
@@ -7,10 +8,11 @@ import (
 	"fmt"
 	"time"
 
-	micro "github.com/fireflycore/go-micro"
+	micro "github.com/fireflycore/go-micro/core"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+// NewRegister 创建基于 etcd 的服务注册实例。
 func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance, error) {
 	if client == nil {
 		return nil, errors.New("etcd client is nil")
@@ -49,6 +51,7 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 	return instance, err
 }
 
+// RegisterInstance 表示一次注册会话，使用 etcd lease 维持存活。
 type RegisterInstance struct {
 	meta   *micro.Meta
 	config *micro.ServiceConf
@@ -64,6 +67,7 @@ type RegisterInstance struct {
 	log         func(level micro.LogLevel, message string)
 }
 
+// Install 将服务节点写入注册中心，并绑定到当前 lease。
 func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	if service == nil {
 		return errors.New("service node is nil")
@@ -72,9 +76,33 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	s.config.Kernel.Language = "Golang"
+	if s.config.Kernel != nil && s.config.Kernel.Language == "" {
+		s.config.Kernel.Language = "Golang"
+	}
 
-	service.Meta = s.meta
+	effectiveMeta := s.meta
+	if effectiveMeta == nil {
+		effectiveMeta = &micro.Meta{}
+	}
+	if service.Meta != nil {
+		if effectiveMeta.AppId == "" {
+			effectiveMeta.AppId = service.Meta.AppId
+		}
+		if effectiveMeta.Env == "" {
+			effectiveMeta.Env = service.Meta.Env
+		}
+		if effectiveMeta.Version == "" {
+			effectiveMeta.Version = service.Meta.Version
+		}
+	}
+	if effectiveMeta.AppId == "" {
+		return errors.New("meta.app_id is empty")
+	}
+	if effectiveMeta.Env == "" {
+		return errors.New("meta.env is empty")
+	}
+
+	service.Meta = effectiveMeta
 	service.Kernel = s.config.Kernel
 	service.Network = s.config.Network
 	service.LeaseId = int(s.lease)
@@ -82,26 +110,28 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 
 	val, _ := json.Marshal(service)
 
-	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.config.Namespace, s.meta.Env, service.Meta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
+	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.config.Namespace, effectiveMeta.Env, effectiveMeta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
 	return err
 }
+
+// Uninstall 撤销 lease 并停止续约。
 func (s *RegisterInstance) Uninstall() {
 	defer s.cancel()
 	_, _ = s.client.Revoke(context.Background(), s.lease)
 	return
 }
 
-// WithLog 日志记录
+// WithLog 设置内部日志输出回调。
 func (s *RegisterInstance) WithLog(handle func(level micro.LogLevel, message string)) {
 	s.log = handle
 }
 
-// WithRetryBefore 重试之前执行
+// WithRetryBefore 设置重试前回调。
 func (s *RegisterInstance) WithRetryBefore(handle func()) {
 	s.retryBefore = handle
 }
 
-// WithRetryAfter 重试之后执行
+// WithRetryAfter 设置重试成功后回调。
 func (s *RegisterInstance) WithRetryAfter(handle func()) {
 	s.retryAfter = handle
 }
@@ -120,33 +150,60 @@ func (s *RegisterInstance) initLease() error {
 	return nil
 }
 
-// SustainLease 保持租约
+// SustainLease 持续续约，直到上下文被取消。
 func (s *RegisterInstance) SustainLease() {
-	lease, _ := s.client.KeepAlive(s.ctx, s.lease)
-
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
-		case _, ok := <-lease:
-			if !ok {
-				s.retry()
+		default:
+		}
+
+		leaseCh, err := s.client.KeepAlive(s.ctx, s.lease)
+		if err != nil || leaseCh == nil {
+			if !s.retryLease() {
 				return
 			}
-			if s.retryCount != 0 {
-				s.retryCount = 0
+			continue
+		}
+
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case _, ok := <-leaseCh:
+				if !ok {
+					if !s.retryLease() {
+						return
+					}
+					goto next
+				}
+				if s.retryCount != 0 {
+					s.retryCount = 0
+				}
 			}
 		}
+	next:
 	}
 }
 
-// retry 服务重试
-func (s *RegisterInstance) retry() {
-	if s.retryCount < s.config.MaxRetry {
+func (s *RegisterInstance) retryLease() bool {
+	if s.config.MaxRetry == 0 {
+		return false
+	}
+
+	for s.retryCount < s.config.MaxRetry {
 		if s.retryBefore != nil {
 			s.retryBefore()
 		}
-		time.Sleep(5 * time.Second)
+
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case <-s.ctx.Done():
+			timer.Stop()
+			return false
+		case <-timer.C:
+		}
 
 		s.retryCount++
 		if s.log != nil {
@@ -154,11 +211,13 @@ func (s *RegisterInstance) retry() {
 		}
 
 		if err := s.initLease(); err != nil {
-			s.retry()
-		} else {
-			if s.retryAfter != nil {
-				s.retryAfter()
-			}
+			continue
 		}
+		if s.retryAfter != nil {
+			s.retryAfter()
+		}
+		return true
 	}
+
+	return false
 }

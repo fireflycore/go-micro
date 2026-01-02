@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
-	micro "github.com/fireflycore/go-micro"
+	micro "github.com/fireflycore/go-micro/core"
 	"github.com/lhdhtrc/func-go/array"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -75,6 +76,8 @@ type DiscoverInstance struct {
 
 	methods micro.ServiceMethods  // 服务方法映射表 (method -> appId)
 	service micro.ServiceDiscover // 服务发现数据 (appId -> []ServiceNode)
+
+	mu sync.RWMutex
 }
 
 // GetService 根据服务方法名获取对应的服务节点列表
@@ -85,13 +88,21 @@ type DiscoverInstance struct {
 //   - []*micro.ServiceNode: 服务节点列表
 //   - error: 错误信息，当服务方法不存在时返回错误
 func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
-	// 通过方法名获取对应的应用ID
-	appId, err := s.methods.GetAppId(sm)
-	if err != nil {
-		return nil, err
+	s.mu.RLock()
+	appId, ok := s.methods[sm]
+	if !ok {
+		s.mu.RUnlock()
+		return nil, errors.New("service method not exists")
 	}
-	// 根据应用ID获取所有服务节点
-	return s.service.GetNodes(appId)
+
+	nodes, ok := s.service[appId]
+	if !ok {
+		s.mu.RUnlock()
+		return nil, errors.New("service node not exists")
+	}
+	out := append([]*micro.ServiceNode(nil), nodes...)
+	s.mu.RUnlock()
+	return out, nil
 }
 
 // Watcher 启动服务发现监控
@@ -99,7 +110,7 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 // 通常在单独的goroutine中调用
 func (s *DiscoverInstance) Watcher() {
 	// 创建etcd监听器，监控指定命名空间和环境下的所有键值变化
-	watchKey := fmt.Sprintf("/%s/%s", s.config.Namespace, s.meta.Env)
+	watchKey := fmt.Sprintf("%s/%s", s.config.Namespace, s.meta.Env)
 	wc := s.client.Watch(s.ctx, watchKey, clientv3.WithPrefix(), clientv3.WithPrevKV())
 
 	// 持续处理监控事件
@@ -129,8 +140,8 @@ func (s *DiscoverInstance) WithLog(handle func(level micro.LogLevel, message str
 // 返回:
 //   - error: 初始化过程中发生的错误
 func (s *DiscoverInstance) bootstrap() error {
-	// 从etcd获取指定命名空间下的所有键值对
-	res, err := s.client.Get(s.ctx, s.config.Namespace, clientv3.WithPrefix())
+	// 从etcd获取指定命名空间、环境下的所有键值对
+	res, err := s.client.Get(s.ctx, fmt.Sprintf("%s/%s", s.config.Namespace, s.meta.Env), clientv3.WithPrefix())
 	if err != nil {
 		return err
 	}
@@ -140,12 +151,15 @@ func (s *DiscoverInstance) bootstrap() error {
 		var val micro.ServiceNode
 		// 反序列化服务节点信息
 		if err = json.Unmarshal(item.Value, &val); err == nil {
-			// 解析服务方法映射
-			val.ParseMethod(s.methods)
+			if val.Meta == nil || val.Meta.AppId == "" || val.Meta.Env == "" {
+				continue
+			}
 			appId := val.Meta.AppId
 
-			// 由于Lease ID全局唯一，直接添加即可
-			s.service[appId] = append(s.service[appId], &val)
+			s.mu.Lock()
+			val.ParseMethod(s.methods)
+			s.upsertNodeLocked(appId, &val)
+			s.mu.Unlock()
 		}
 	}
 
@@ -182,52 +196,39 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 		}
 		return
 	}
+	if val.Meta == nil || val.Meta.AppId == "" || val.Meta.Env == "" {
+		return
+	}
 
-	// 解析服务方法映射
+	s.mu.Lock()
 	val.ParseMethod(s.methods)
-
-	// 根据事件类型进行相应处理
 	switch e.Type {
 	case clientv3.EventTypePut: // 新增或更新服务节点
-		s.handlePutEvent(val.Meta.AppId, &val)
+		s.upsertNodeLocked(val.Meta.AppId, &val)
 	case clientv3.EventTypeDelete: // 删除服务节点
-		s.handleDeleteEvent(val.Meta.AppId, &val)
+		s.deleteNodeLocked(val.Meta.AppId, &val)
 	}
+	s.mu.Unlock()
 }
 
-// handlePutEvent 处理服务注册/更新事件
-// 当有新的服务注册或现有服务更新时调用
-// Lease ID 在 etcd 中是全局唯一的，即使同时启动多个相同服务也不会重复
-// 参数:
-//   - appId: 应用ID
-//   - newNode: 新的服务节点信息
-func (s *DiscoverInstance) handlePutEvent(appId string, newNode *micro.ServiceNode) {
-	// 将新节点插入到切片开头，使其具有更高优先级（最近注册的服务优先）
-	s.service[appId] = append([]*micro.ServiceNode{newNode}, s.service[appId]...)
+func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.ServiceNode) {
+	nodes := s.service[appId]
+	nodes = array.Filter(nodes, func(_ int, item *micro.ServiceNode) bool {
+		return item.LeaseId != newNode.LeaseId
+	})
+	s.service[appId] = append([]*micro.ServiceNode{newNode}, nodes...)
 
-	// 记录服务更新日志
 	if s.log != nil {
 		s.log(micro.Info, fmt.Sprintf("Service updated: %s, leaseId: %d, nodes count: %d", appId, newNode.LeaseId, len(s.service[appId])))
 	}
 }
 
-// handleDeleteEvent 处理服务删除事件
-// 当服务节点下线或被删除时调用
-// 基于全局唯一的Lease ID来精确删除对应节点
-// 参数:
-//   - appId: 应用ID
-//   - removedNode: 要移除的服务节点信息
-func (s *DiscoverInstance) handleDeleteEvent(appId string, removedNode *micro.ServiceNode) {
-	// 记录删除前的节点数量
+func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.ServiceNode) {
 	originalCount := len(s.service[appId])
-
-	// 基于Lease ID过滤掉要删除的节点
-	// Lease ID全局唯一，确保精确删除
-	s.service[appId] = array.Filter(s.service[appId], func(index int, item *micro.ServiceNode) bool {
+	s.service[appId] = array.Filter(s.service[appId], func(_ int, item *micro.ServiceNode) bool {
 		return item.LeaseId != removedNode.LeaseId
 	})
 
-	// 记录服务删除日志
 	if s.log != nil {
 		remainingCount := len(s.service[appId])
 		if originalCount != remainingCount {
@@ -235,9 +236,13 @@ func (s *DiscoverInstance) handleDeleteEvent(appId string, removedNode *micro.Se
 		}
 	}
 
-	// 如果该服务没有节点了，清理空数组以避免内存泄漏
 	if len(s.service[appId]) == 0 {
 		delete(s.service, appId)
+		for sm, owner := range s.methods {
+			if owner == appId {
+				delete(s.methods, sm)
+			}
+		}
 		if s.log != nil {
 			s.log(micro.Info, fmt.Sprintf("Service %s has no nodes, removed from discovery", appId))
 		}

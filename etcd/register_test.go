@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	micro "github.com/fireflycore/go-micro"
+	micro "github.com/fireflycore/go-micro/core"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
