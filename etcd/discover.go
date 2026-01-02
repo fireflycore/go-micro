@@ -100,6 +100,7 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 		s.mu.RUnlock()
 		return nil, errors.New("service node not exists")
 	}
+	// 返回 slice 的副本，避免调用方持有内部切片导致并发读写风险；节点指针本身仍共享。
 	out := append([]*micro.ServiceNode(nil), nodes...)
 	s.mu.RUnlock()
 	return out, nil

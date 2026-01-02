@@ -2,8 +2,11 @@ package micro
 
 // Discovery 定义服务发现实现的最小能力集合。
 type Discovery interface {
+	// GetService 根据方法名返回可用节点列表。
 	GetService(name string) ([]*ServiceNode, error)
+	// Watcher 启动监听并持续刷新本地缓存。
 	Watcher()
+	// Unwatch 停止监听并释放相关资源。
 	Unwatch()
 }
 

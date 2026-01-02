@@ -35,6 +35,7 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 		return "", fmt.Errorf(MetaKeyParseErrorFormat, key)
 	}
 
+	// gRPC metadata 同一个 key 允许多个值；这里约定取第一个值作为主值。
 	return val[0], nil
 }
 
@@ -42,6 +43,7 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	raw = &UserContextMeta{}
 
+	// 这些字段作为鉴权/审计的基础上下文，缺失时直接返回错误，避免下游以“空值”继续执行。
 	raw.Session, err = ParseMetaKey(md, constant.Session)
 	if err != nil {
 		return nil, err
@@ -64,6 +66,7 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 		return nil, err
 	}
 
+	// Role/Org 属于可选上下文：允许缺失，缺省为 nil/空切片，由上层按需处理。
 	raw.RoleIds = md.Get(constant.RoleIds)
 	raw.OrgIds = md.Get(constant.OrgIds)
 
@@ -74,6 +77,7 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 func ParseClientContextMeta(md metadata.MD) (raw *ClientContextMeta, err error) {
 	raw = &ClientContextMeta{}
 
+	// 客户端上下文用于版本灰度/埋点等场景；缺失时返回错误便于调用方显式兜底。
 	raw.ClientIp, err = ParseMetaKey(md, constant.ClientIp)
 	if err != nil {
 		return nil, err

@@ -28,6 +28,7 @@ func NewRegisterService(raw []*grpc.ServiceDesc, reg Register) []error {
 
 	for _, desc := range raw {
 		for _, item := range desc.Methods {
+			// 方便网关层面快速验证该节点是否有此接口/方法
 			node.Methods[fmt.Sprintf("/%s/%s", desc.ServiceName, item.MethodName)] = true
 		}
 	}

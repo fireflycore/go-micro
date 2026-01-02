@@ -1,3 +1,4 @@
+// Package micro 提供微服务注册/发现所需的核心结构与基础工具。
 package micro
 
 import (
@@ -35,6 +36,7 @@ type Network struct {
 
 // GetInternalNetworkIp 获取本机对外优选 IP（用于内网地址上报）。
 func GetInternalNetworkIp() string {
+	// 通过建立 UDP “伪连接”获取本机路由选路后的本地地址，不会真正发送业务数据。
 	dial, err := net.Dial("udp", "114.114.114.114:80")
 	if err != nil {
 		return "127.0.0.1"

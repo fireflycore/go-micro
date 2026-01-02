@@ -26,12 +26,14 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 		elapsed := time.Since(start)
 
 		if err != nil {
+			// 这里用粗粒度状态码做统一聚合（成功/失败），避免与 gRPC status code 绑定过深。
 			status = 400
 		}
 
 		if handle != nil {
 			loggerMap := make(map[string]interface{})
 
+			// method 字段保持与既有日志采集协议一致（历史字段，值固定）。
 			loggerMap["method"] = 5
 			loggerMap["path"] = info.FullMethod
 
@@ -65,6 +67,7 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 
 			traceId, le := micro.ParseMetaKey(md, "trace-id")
 			if le != nil {
+				// 兼容上游未透传 trace_id 的场景，保证每条日志至少可被唯一关联。
 				traceId = uuid.New().String()
 			}
 			loggerMap["trace_id"] = traceId

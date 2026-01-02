@@ -9,9 +9,9 @@ type ServiceConf struct {
 	// 内核
 	Kernel *Kernel `json:"kernel"`
 
-	// 最大重试次数
+	// 最大重试次数（0 表示不重试）
 	MaxRetry uint32 `json:"max_retry"`
-	// 心跳间隔
+	// 心跳/租约 TTL（秒）
 	TTL uint32 `json:"ttl"`
 }
 

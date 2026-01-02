@@ -16,21 +16,22 @@ type RemoteResponse[T any] interface {
 // T: 业务数据类型
 // R: 响应类型，必须实现 RemoteResponse[T] 接口
 func WithRemoteInvoke[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T, error) {
-	var zero T // 创建数据类型的零值
+	var zero T
 
-	// 1. 执行远程调用
+	// 1. 先透传网络/框架层错误：这类错误通常包含重试/降级所需的信息。
 	resp, err := callFunc()
 	if err != nil {
 		return zero, err
 	}
 
-	// 2. 检查响应对象是否有效
+	// 2. 防御“带类型的 nil”：
+	// 在泛型 + interface 约束下，resp 可能是 *T(nil) 但接口值不为 nil，直接使用会 panic。
 	respValue := reflect.ValueOf(resp)
 	if respValue.Kind() == reflect.Ptr && respValue.IsNil() {
 		return zero, ErrRemoteResponseIsNil
 	}
 
-	// 3. 检查状态码
+	// 3. 统一以 code=200 表示成功，非 200 视为业务失败并优先返回服务端 message。
 	if code := resp.GetCode(); code != 200 {
 		msg := resp.GetMessage()
 		if msg == "" {
@@ -39,7 +40,7 @@ func WithRemoteInvoke[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T
 		return zero, errors.New(msg)
 	}
 
-	// 4. 获取业务数据
+	// 4. 成功时仅返回业务数据，调用方不需要关心响应封装结构。
 	data := resp.GetData()
 
 	return data, nil
