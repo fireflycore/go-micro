@@ -19,6 +19,14 @@ const (
 	RoleIds = "role-ids"
 	OrgIds  = "org-ids"
 
+	SystemName       = "system-name"
+	ClientName       = "client-name"
+	SystemType       = "system-type"
+	ClientType       = "client-type"
+	DeviceFormFactor = "device-form-factor"
+	SystemVersion    = "system-version"
+	ClientVersion    = "client-version"
+
 	GrpcGatewayAuth = "grpc-gateway-auth"
 	HttpGatewayAuth = "http-gateway-auth"
 )
