@@ -1,4 +1,4 @@
-package micro
+package rpc
 
 import (
 	"errors"
