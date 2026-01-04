@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	micro "github.com/fireflycore/go-micro/core"
+	"github.com/fireflycore/go-micro/logger"
+	micro "github.com/fireflycore/go-micro/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -64,7 +65,7 @@ type RegisterInstance struct {
 	retryCount  uint32
 	retryBefore func()
 	retryAfter  func()
-	log         func(level micro.LogLevel, message string)
+	log         func(level logger.LogLevel, message string)
 }
 
 // Install 将服务节点写入注册中心，并绑定到当前 lease。
@@ -122,7 +123,7 @@ func (s *RegisterInstance) Uninstall() {
 }
 
 // WithLog 设置内部日志输出回调。
-func (s *RegisterInstance) WithLog(handle func(level micro.LogLevel, message string)) {
+func (s *RegisterInstance) WithLog(handle func(level logger.LogLevel, message string)) {
 	s.log = handle
 }
 
@@ -207,7 +208,7 @@ func (s *RegisterInstance) retryLease() bool {
 
 		s.retryCount++
 		if s.log != nil {
-			s.log(micro.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.config.MaxRetry))
+			s.log(logger.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.config.MaxRetry))
 		}
 
 		if err := s.initLease(); err != nil {

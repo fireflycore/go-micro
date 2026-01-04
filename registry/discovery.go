@@ -1,4 +1,4 @@
-package micro
+package registry
 
 // Discovery 定义服务发现实现的最小能力集合。
 type Discovery interface {

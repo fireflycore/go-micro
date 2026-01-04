@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"sync"
 
-	micro "github.com/fireflycore/go-micro/core"
+	"github.com/fireflycore/go-micro/logger"
+	micro "github.com/fireflycore/go-micro/registry"
 	"github.com/lhdhtrc/func-go/array"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
@@ -72,7 +73,7 @@ type DiscoverInstance struct {
 	ctx    context.Context    // 上下文，用于控制生命周期
 	cancel context.CancelFunc // 取消函数，用于停止监控
 
-	log func(level micro.LogLevel, message string) // 日志记录函数
+	log func(level logger.LogLevel, message string) // 日志记录函数
 
 	methods micro.ServiceMethods  // 服务方法映射表 (method -> appId)
 	service micro.ServiceDiscover // 服务发现数据 (appId -> []ServiceNode)
@@ -132,7 +133,7 @@ func (s *DiscoverInstance) Unwatch() {
 // WithLog 设置日志记录函数
 // 参数:
 //   - handle: 日志处理函数，接收日志级别和消息内容
-func (s *DiscoverInstance) WithLog(handle func(level micro.LogLevel, message string)) {
+func (s *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message string)) {
 	s.log = handle
 }
 
@@ -166,7 +167,7 @@ func (s *DiscoverInstance) bootstrap() error {
 
 	// 记录初始化完成日志
 	if s.log != nil {
-		s.log(micro.Info, fmt.Sprintf("Bootstrap completed, discovered %d services", len(s.service)))
+		s.log(logger.Info, fmt.Sprintf("Bootstrap completed, discovered %d services", len(s.service)))
 	}
 
 	return nil
@@ -193,7 +194,7 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 	if err := json.Unmarshal(tv, &val); err != nil {
 		// 记录反序列化错误
 		if s.log != nil {
-			s.log(micro.Error, fmt.Sprintf("Failed to unmarshal service node: %s", err.Error()))
+			s.log(logger.Error, fmt.Sprintf("Failed to unmarshal service node: %s", err.Error()))
 		}
 		return
 	}
@@ -220,7 +221,7 @@ func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.Service
 	s.service[appId] = append([]*micro.ServiceNode{newNode}, nodes...)
 
 	if s.log != nil {
-		s.log(micro.Info, fmt.Sprintf("Service updated: %s, leaseId: %d, nodes count: %d", appId, newNode.LeaseId, len(s.service[appId])))
+		s.log(logger.Info, fmt.Sprintf("Service updated: %s, leaseId: %d, nodes count: %d", appId, newNode.LeaseId, len(s.service[appId])))
 	}
 }
 
@@ -233,7 +234,7 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 	if s.log != nil {
 		remainingCount := len(s.service[appId])
 		if originalCount != remainingCount {
-			s.log(micro.Info, fmt.Sprintf("Service removed: %s, leaseId: %d, nodes count: %d -> %d", appId, removedNode.LeaseId, originalCount, remainingCount))
+			s.log(logger.Info, fmt.Sprintf("Service removed: %s, leaseId: %d, nodes count: %d -> %d", appId, removedNode.LeaseId, originalCount, remainingCount))
 		}
 	}
 
@@ -245,7 +246,7 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 			}
 		}
 		if s.log != nil {
-			s.log(micro.Info, fmt.Sprintf("Service %s has no nodes, removed from discovery", appId))
+			s.log(logger.Info, fmt.Sprintf("Service %s has no nodes, removed from discovery", appId))
 		}
 	}
 }

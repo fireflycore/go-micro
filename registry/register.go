@@ -1,8 +1,9 @@
-package micro
+package registry
 
 import (
 	"fmt"
 
+	"github.com/fireflycore/go-micro/logger"
 	"google.golang.org/grpc"
 )
 
@@ -13,7 +14,7 @@ type Register interface {
 	SustainLease()
 	WithRetryBefore(func())
 	WithRetryAfter(func())
-	WithLog(func(level LogLevel, message string))
+	WithLog(func(level logger.LogLevel, message string))
 }
 
 // NewRegisterService 将 gRPC ServiceDesc 解析为节点方法集合并执行注册。

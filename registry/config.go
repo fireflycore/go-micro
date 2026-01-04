@@ -1,4 +1,4 @@
-package micro
+package registry
 
 // ServiceConf 服务注册/服务发现配置。
 type ServiceConf struct {

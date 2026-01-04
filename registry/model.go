@@ -1,5 +1,4 @@
-// Package micro 提供微服务注册/发现所需的核心结构与基础工具。
-package micro
+package registry
 
 import (
 	"net"

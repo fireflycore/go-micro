@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	micro "github.com/fireflycore/go-micro/core"
+	micro "github.com/fireflycore/go-micro/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-func TestDiscover(t *testing.T) {
+func TestRegister(t *testing.T) {
 	endpointsEnv := os.Getenv("ETCD_ENDPOINTS")
 	if endpointsEnv == "" {
 		t.Skip("ETCD_ENDPOINTS is empty")
@@ -35,20 +35,31 @@ func TestDiscover(t *testing.T) {
 		Kernel:    &micro.Kernel{},
 		Namespace: "test-namespace",
 		TTL:       10,
-		MaxRetry:  3,
+		MaxRetry:  0,
 	}
 
-	dis, err := NewDiscover(cli, &micro.Meta{
+	meta := &micro.Meta{
 		AppId:   "test-service",
 		Env:     "prod",
 		Version: "v0.0.1",
-	}, config)
+	}
+
+	reg, err := NewRegister(cli, meta, config)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer reg.Uninstall()
 
-	go dis.Watcher()
+	service := &micro.ServiceNode{
+		Methods: map[string]bool{
+			"/test.Service/Ping": true,
+		},
+	}
 
+	if err := reg.Install(service); err != nil {
+		t.Fatal(err)
+	}
+
+	go reg.SustainLease()
 	time.Sleep(100 * time.Millisecond)
-	dis.Unwatch()
 }

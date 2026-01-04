@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	micro "github.com/fireflycore/go-micro/core"
+	"github.com/fireflycore/go-micro/rpc"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -50,30 +50,30 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 				loggerMap["error"] = err.Error()
 			}
 
-			loggerMap["ip"], _ = micro.ParseMetaKey(md, constant.ClientIp)
+			loggerMap["ip"], _ = rpc.ParseMetaKey(md, constant.ClientIp)
 
-			loggerMap["system_name"], _ = micro.ParseMetaKey(md, constant.SystemName)
-			loggerMap["client_name"], _ = micro.ParseMetaKey(md, constant.ClientName)
+			loggerMap["system_name"], _ = rpc.ParseMetaKey(md, constant.SystemName)
+			loggerMap["client_name"], _ = rpc.ParseMetaKey(md, constant.ClientName)
 
-			systemType, se := micro.ParseMetaKey(md, constant.SystemType)
+			systemType, se := rpc.ParseMetaKey(md, constant.SystemType)
 			loggerMap["system_type"] = parseInt32OrZero(systemType, se)
-			clientType, ce := micro.ParseMetaKey(md, constant.ClientType)
+			clientType, ce := rpc.ParseMetaKey(md, constant.ClientType)
 			loggerMap["client_type"] = parseInt32OrZero(clientType, ce)
-			deviceFormFactor, de := micro.ParseMetaKey(md, constant.DeviceFormFactor)
+			deviceFormFactor, de := rpc.ParseMetaKey(md, constant.DeviceFormFactor)
 			loggerMap["device_form_factor"] = parseInt32OrZero(deviceFormFactor, de)
 
-			loggerMap["system_version"], _ = micro.ParseMetaKey(md, constant.SystemVersion)
-			loggerMap["client_version"], _ = micro.ParseMetaKey(md, constant.ClientVersion)
-			loggerMap["app_version"], _ = micro.ParseMetaKey(md, constant.AppVersion)
+			loggerMap["system_version"], _ = rpc.ParseMetaKey(md, constant.SystemVersion)
+			loggerMap["client_version"], _ = rpc.ParseMetaKey(md, constant.ClientVersion)
+			loggerMap["app_version"], _ = rpc.ParseMetaKey(md, constant.AppVersion)
 
-			traceId, le := micro.ParseMetaKey(md, constant.TraceId)
+			traceId, le := rpc.ParseMetaKey(md, constant.TraceId)
 			if le != nil {
 				// 兼容上游未透传 trace_id 的场景，保证每条日志至少可被唯一关联。
 				traceId = uuid.New().String()
 			}
 			loggerMap["trace_id"] = traceId
-			loggerMap["user_id"], _ = micro.ParseMetaKey(md, constant.UserId)
-			loggerMap["app_id"], _ = micro.ParseMetaKey(md, constant.AppId)
+			loggerMap["user_id"], _ = rpc.ParseMetaKey(md, constant.UserId)
+			loggerMap["app_id"], _ = rpc.ParseMetaKey(md, constant.AppId)
 
 			b, _ := json.Marshal(loggerMap)
 			handle(b, fmt.Sprintf("[%s] [GRPC]:[%s] [%s]-[%d]\n", time.Now().Format(time.DateTime), info.FullMethod, elapsed.String(), status))
