@@ -1,10 +1,10 @@
 package registry
 
-// ServiceMethods 服务方法映射（method -> appId）。
-type ServiceMethods map[string]string
+// ServiceMethod 服务方法映射（method -> appId）。
+type ServiceMethod map[string]string
 
 // GetAppId 根据 gRPC 方法名返回归属的 appId。
-func (s ServiceMethods) GetAppId(sm string) (string, error) {
+func (s ServiceMethod) GetAppId(sm string) (string, error) {
 	if v, ok := s[sm]; ok {
 		return v, nil
 	}
