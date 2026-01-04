@@ -4,7 +4,6 @@ package etcd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -13,13 +12,32 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+// RegisterInstance 表示一次注册会话，使用 etcd lease 维持存活。
+type RegisterInstance struct {
+	meta   *micro.Meta
+	config *micro.ServiceConf
+	client *clientv3.Client
+	lease  clientv3.LeaseID
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	retryCount  uint32
+	retryBefore func()
+	retryAfter  func()
+	log         func(level logger.LogLevel, message string)
+
+	// lastNode 缓存最后一次注册的服务节点信息，用于断线重连
+	lastNode *micro.ServiceNode
+}
+
 // NewRegister 创建基于 etcd 的服务注册实例。
 func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance, error) {
 	if client == nil {
-		return nil, errors.New("etcd client is nil")
+		return nil, ErrClientIsNil
 	}
 	if config == nil {
-		return nil, errors.New("service config is nil")
+		return nil, micro.ErrServiceConfigIsNil
 	}
 	if meta == nil {
 		meta = &micro.Meta{}
@@ -52,30 +70,11 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 	return instance, err
 }
 
-// RegisterInstance 表示一次注册会话，使用 etcd lease 维持存活。
-type RegisterInstance struct {
-	meta   *micro.Meta
-	config *micro.ServiceConf
-	client *clientv3.Client
-	lease  clientv3.LeaseID
-
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	retryCount  uint32
-	retryBefore func()
-	retryAfter  func()
-	log         func(level logger.LogLevel, message string)
-}
-
 // Install 将服务节点写入注册中心，并绑定到当前 lease。
 func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	if service == nil {
-		return errors.New("service node is nil")
+		return micro.ErrServiceNodeIsNil
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
 
 	if s.config.Kernel != nil && s.config.Kernel.Language == "" {
 		s.config.Kernel.Language = "Golang"
@@ -97,10 +96,10 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 		}
 	}
 	if effectiveMeta.AppId == "" {
-		return errors.New("meta.app_id is empty")
+		return micro.ErrMetaAppIdIsEmpty
 	}
 	if effectiveMeta.Env == "" {
-		return errors.New("meta.env is empty")
+		return micro.ErrMetaEnvIsEmpty
 	}
 
 	service.Meta = effectiveMeta
@@ -109,9 +108,24 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	service.LeaseId = int(s.lease)
 	service.RunDate = time.Now().Format(time.DateTime)
 
-	val, _ := json.Marshal(service)
+	// 缓存节点信息，用于重试
+	s.lastNode = service
 
-	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.config.Namespace, effectiveMeta.Env, effectiveMeta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
+	return s.register()
+}
+
+// register 执行实际的 etcd put 操作
+func (s *RegisterInstance) register() error {
+	if s.lastNode == nil {
+		return nil
+	}
+
+	val, _ := json.Marshal(s.lastNode)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+
+	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.config.Namespace, s.lastNode.Meta.Env, s.lastNode.Meta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
 	return err
 }
 
@@ -211,12 +225,28 @@ func (s *RegisterInstance) retryLease() bool {
 			s.log(logger.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.config.MaxRetry))
 		}
 
+		// 重新获取 lease
 		if err := s.initLease(); err != nil {
 			continue
 		}
+
+		// 获取新 lease 成功后，必须重新注册服务数据
+		// 因为旧 lease 过期后，数据会被 etcd 删除
+		if s.lastNode != nil {
+			// 更新 leaseId
+			s.lastNode.LeaseId = int(s.lease)
+			if err := s.register(); err != nil {
+				if s.log != nil {
+					s.log(logger.Error, fmt.Sprintf("etcd re-register failed: %v", err))
+				}
+				continue
+			}
+		}
+
 		if s.retryAfter != nil {
 			s.retryAfter()
 		}
+
 		return true
 	}
 
