@@ -4,7 +4,6 @@ package consul
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -14,13 +13,32 @@ import (
 	"github.com/hashicorp/consul/api"
 )
 
+// DiscoverInstance 服务发现实例
+type DiscoverInstance struct {
+	meta   *micro.Meta
+	config *micro.ServiceConf
+	client *api.Client
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	log func(level logger.LogLevel, message string)
+
+	method  micro.ServiceMethod
+	service micro.ServiceDiscover
+
+	watchers map[string]context.CancelFunc // 管理每个服务的 watcher
+
+	mu sync.RWMutex
+}
+
 // NewDiscover 创建服务发现实例
 func NewDiscover(client *api.Client, meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance, error) {
 	if client == nil {
-		return nil, errors.New("consul client is nil")
+		return nil, ErrClientIsNil
 	}
 	if config == nil {
-		return nil, errors.New("service config is nil")
+		return nil, micro.ErrServiceConfigIsNil
 	}
 	if meta == nil {
 		meta = &micro.Meta{}
@@ -44,7 +62,7 @@ func NewDiscover(client *api.Client, meta *micro.Meta, config *micro.ServiceConf
 		cancel:  cancel,
 		client:  client,
 		config:  config,
-		methods: make(micro.ServiceMethods),
+		method:  make(micro.ServiceMethod),
 		service: make(micro.ServiceDiscover),
 
 		watchers: make(map[string]context.CancelFunc),
@@ -56,38 +74,19 @@ func NewDiscover(client *api.Client, meta *micro.Meta, config *micro.ServiceConf
 	return instance, err
 }
 
-// DiscoverInstance 服务发现实例
-type DiscoverInstance struct {
-	meta   *micro.Meta
-	config *micro.ServiceConf
-	client *api.Client
-
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	log func(level logger.LogLevel, message string)
-
-	methods micro.ServiceMethods
-	service micro.ServiceDiscover
-
-	watchers map[string]context.CancelFunc // 管理每个服务的 watcher
-
-	mu sync.RWMutex
-}
-
 // GetService 根据服务方法名获取对应的服务节点列表
 func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	s.mu.RLock()
-	appId, ok := s.methods[sm]
+	appId, ok := s.method[sm]
 	if !ok {
 		s.mu.RUnlock()
-		return nil, errors.New("service method not exists")
+		return nil, micro.ErrServiceMethodNotExists
 	}
 
 	nodes, ok := s.service[appId]
 	if !ok {
 		s.mu.RUnlock()
-		return nil, errors.New("service node not exists")
+		return nil, micro.ErrServiceNodeNotExists
 	}
 	out := append([]*micro.ServiceNode(nil), nodes...)
 	s.mu.RUnlock()
@@ -269,7 +268,7 @@ func (s *DiscoverInstance) updateServiceNodes(serviceName string, entries []*api
 		s.service[serviceName] = nodes
 		// 更新 methods 映射
 		for _, node := range nodes {
-			node.ParseMethod(s.methods)
+			node.ParseMethod(s.method)
 		}
 		if s.log != nil {
 			s.log(logger.Info, fmt.Sprintf("Service updated: %s, nodes count: %d", serviceName, len(nodes)))
