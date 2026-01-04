@@ -43,7 +43,7 @@ type DiscoverInstance struct {
 
 // NewDiscover 创建基于 Kubernetes 的服务发现实例。
 // 它会监控当前 Namespace 下带有 micro.app_id 标签的 Service。
-func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance, error) {
+func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, error) {
 	// 1. 尝试获取 K8s 配置 (In-Cluster 或 KubeConfig)
 	k8sConfig, err := rest.InClusterConfig()
 	if err != nil {

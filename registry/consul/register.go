@@ -36,7 +36,7 @@ type RegisterInstance struct {
 }
 
 // NewRegister 创建基于 consul 的服务注册实例。
-func NewRegister(client *api.Client, meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance, error) {
+func NewRegister(client *api.Client, meta *micro.Meta, config *micro.ServiceConf) (micro.Register, error) {
 	if client == nil {
 		return nil, ErrClientIsNil
 	}

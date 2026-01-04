@@ -39,7 +39,7 @@ type DiscoverInstance struct {
 // 返回:
 //   - *DiscoverInstance: 服务发现实例
 //   - error: 错误信息
-func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance, error) {
+func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, error) {
 	if client == nil {
 		return nil, ErrClientIsNil
 	}

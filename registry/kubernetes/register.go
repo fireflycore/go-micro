@@ -16,7 +16,7 @@ type RegisterInstance struct {
 
 // NewRegister 创建基于 Kubernetes 的服务注册适配器。
 // 在 K8s 模式下，这是一个 No-Op 实现，因为 Pod 生命周期由 K8s 管理。
-func NewRegister(meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance, error) {
+func NewRegister(meta *micro.Meta, config *micro.ServiceConf) (micro.Register, error) {
 	return &RegisterInstance{
 		meta:   meta,
 		config: config,
