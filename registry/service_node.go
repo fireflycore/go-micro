@@ -13,7 +13,7 @@ type ServiceNode struct {
 }
 
 // ParseMethod 将节点方法映射写入方法表（method -> appId）。
-func (ist *ServiceNode) ParseMethod(s ServiceMethods) {
+func (ist *ServiceNode) ParseMethod(s ServiceMethod) {
 	if ist.Meta == nil || ist.Meta.AppId == "" {
 		return
 	}
