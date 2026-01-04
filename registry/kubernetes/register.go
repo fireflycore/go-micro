@@ -8,6 +8,12 @@ import (
 	micro "github.com/fireflycore/go-micro/registry"
 )
 
+type RegisterInstance struct {
+	meta   *micro.Meta
+	config *micro.ServiceConf
+	log    func(level logger.LogLevel, message string)
+}
+
 // NewRegister 创建基于 Kubernetes 的服务注册适配器。
 // 在 K8s 模式下，这是一个 No-Op 实现，因为 Pod 生命周期由 K8s 管理。
 func NewRegister(meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance, error) {
@@ -15,12 +21,6 @@ func NewRegister(meta *micro.Meta, config *micro.ServiceConf) (*RegisterInstance
 		meta:   meta,
 		config: config,
 	}, nil
-}
-
-type RegisterInstance struct {
-	meta   *micro.Meta
-	config *micro.ServiceConf
-	log    func(level logger.LogLevel, message string)
 }
 
 // Install 不执行任何操作。
