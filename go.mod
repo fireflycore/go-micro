@@ -5,7 +5,7 @@ go 1.25.3
 require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.33.0
-	github.com/lhdhtrc/func-go v0.3.1
+	github.com/lhdhtrc/func-go v0.3.2
 	go.etcd.io/etcd/client/v3 v3.6.6
 	google.golang.org/grpc v1.77.0
 	k8s.io/api v0.35.0
