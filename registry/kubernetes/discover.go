@@ -3,7 +3,6 @@ package kubernetes
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,6 +25,22 @@ const (
 	AnnotationVersion = "micro.version"
 )
 
+type DiscoverInstance struct {
+	meta   *micro.Meta
+	config *micro.ServiceConf
+	client *kubernetes.Clientset
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	log func(level logger.LogLevel, message string)
+
+	method  micro.ServiceMethod
+	service micro.ServiceDiscover
+
+	mu sync.RWMutex
+}
+
 // NewDiscover 创建基于 Kubernetes 的服务发现实例。
 // 它会监控当前 Namespace 下带有 micro.app_id 标签的 Service。
 func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance, error) {
@@ -35,17 +50,17 @@ func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance
 		// Fallback to kubeconfig (local dev)
 		k8sConfig, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get k8s config: %v", err)
+			return nil, fmt.Errorf(ErrConfigFailedFormat, err)
 		}
 	}
 
 	clientset, err := kubernetes.NewForConfig(k8sConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create k8s client: %v", err)
+		return nil, fmt.Errorf(ErrClientFailedFormat, err)
 	}
 
 	if config == nil {
-		return nil, errors.New("service config is nil")
+		return nil, micro.ErrServiceConfigIsNil
 	}
 	if config.Namespace == "" {
 		config.Namespace = "default" // Default K8s namespace
@@ -59,12 +74,12 @@ func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance
 		client:  clientset,
 		ctx:     ctx,
 		cancel:  cancel,
-		methods: make(micro.ServiceMethods),
+		method:  make(micro.ServiceMethod),
 		service: make(micro.ServiceDiscover),
 	}
 
 	// 初始化加载
-	if err := d.bootstrap(); err != nil {
+	if err = d.bootstrap(); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -72,34 +87,18 @@ func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance
 	return d, nil
 }
 
-type DiscoverInstance struct {
-	meta   *micro.Meta
-	config *micro.ServiceConf
-	client *kubernetes.Clientset
-
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	log func(level logger.LogLevel, message string)
-
-	methods micro.ServiceMethods
-	service micro.ServiceDiscover
-
-	mu sync.RWMutex
-}
-
 func (d *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	appId, ok := d.methods[sm]
+	appId, ok := d.method[sm]
 	if !ok {
-		return nil, errors.New("service method not exists")
+		return nil, micro.ErrServiceMethodNotExists
 	}
 
 	nodes, ok := d.service[appId]
 	if !ok {
-		return nil, errors.New("service node not exists")
+		return nil, micro.ErrServiceNodeNotExists
 	}
 
 	// Return a copy
@@ -195,7 +194,7 @@ func (d *DiscoverInstance) updateServiceLocked(svc *corev1.Service) {
 			m = strings.TrimSpace(m)
 			if m != "" {
 				methodMap[m] = true
-				d.methods[m] = appId
+				d.method[m] = appId
 			}
 		}
 	}
@@ -218,7 +217,7 @@ func (d *DiscoverInstance) updateServiceLocked(svc *corev1.Service) {
 
 	// 如果使用了 Istio，通常 ClusterIP 就足够了，Envoy 会拦截
 	// 我们也可以直接用 IP，但 DNS 更稳健
-	
+
 	node := &micro.ServiceNode{
 		ProtoCount: 1, // 假定值
 		LeaseId:    0, // K8s 无需 lease
@@ -255,11 +254,11 @@ func (d *DiscoverInstance) deleteServiceLocked(svc *corev1.Service) {
 	}
 
 	delete(d.service, appId)
-	
-	// 清理 methods (需要遍历，效率较低但删除操作不频繁)
-	for m, owner := range d.methods {
+
+	// 清理 method (需要遍历，效率较低但删除操作不频繁)
+	for m, owner := range d.method {
 		if owner == appId {
-			delete(d.methods, m)
+			delete(d.method, m)
 		}
 	}
 
