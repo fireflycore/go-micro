@@ -3,7 +3,6 @@ package etcd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -12,6 +11,24 @@ import (
 	"github.com/lhdhtrc/func-go/array"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+// DiscoverInstance 服务发现实例
+// 负责服务的注册、发现和监控
+type DiscoverInstance struct {
+	meta   *micro.Meta        // 服务元数据信息
+	config *micro.ServiceConf // 服务配置信息
+	client *clientv3.Client   // etcd客户端实例
+
+	ctx    context.Context    // 上下文，用于控制生命周期
+	cancel context.CancelFunc // 取消函数，用于停止监控
+
+	log func(level logger.LogLevel, message string) // 日志记录函数
+
+	method  micro.ServiceMethod   // 服务方法映射表 (method -> appId)
+	service micro.ServiceDiscover // 服务发现数据 (appId -> []ServiceNode)
+
+	mu sync.RWMutex
+}
 
 // NewDiscover 创建服务发现实例
 // 参数:
@@ -24,10 +41,10 @@ import (
 //   - error: 错误信息
 func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (*DiscoverInstance, error) {
 	if client == nil {
-		return nil, errors.New("etcd client is nil")
+		return nil, ErrClientIsNil
 	}
 	if config == nil {
-		return nil, errors.New("service config is nil")
+		return nil, micro.ErrServiceConfigIsNil
 	}
 	if meta == nil {
 		meta = &micro.Meta{}
@@ -53,7 +70,7 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 		cancel:  cancel,
 		client:  client,
 		config:  config,
-		methods: make(micro.ServiceMethods),
+		method:  make(micro.ServiceMethod),
 		service: make(micro.ServiceDiscover),
 	}
 
@@ -61,24 +78,6 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 	err := instance.bootstrap()
 
 	return instance, err
-}
-
-// DiscoverInstance 服务发现实例
-// 负责服务的注册、发现和监控
-type DiscoverInstance struct {
-	meta   *micro.Meta        // 服务元数据信息
-	config *micro.ServiceConf // 服务配置信息
-	client *clientv3.Client   // etcd客户端实例
-
-	ctx    context.Context    // 上下文，用于控制生命周期
-	cancel context.CancelFunc // 取消函数，用于停止监控
-
-	log func(level logger.LogLevel, message string) // 日志记录函数
-
-	methods micro.ServiceMethods  // 服务方法映射表 (method -> appId)
-	service micro.ServiceDiscover // 服务发现数据 (appId -> []ServiceNode)
-
-	mu sync.RWMutex
 }
 
 // GetService 根据服务方法名获取对应的服务节点列表
@@ -90,16 +89,16 @@ type DiscoverInstance struct {
 //   - error: 错误信息，当服务方法不存在时返回错误
 func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	s.mu.RLock()
-	appId, ok := s.methods[sm]
+	appId, ok := s.method[sm]
 	if !ok {
 		s.mu.RUnlock()
-		return nil, errors.New("service method not exists")
+		return nil, micro.ErrServiceMethodNotExists
 	}
 
 	nodes, ok := s.service[appId]
 	if !ok {
 		s.mu.RUnlock()
-		return nil, errors.New("service node not exists")
+		return nil, micro.ErrServiceNodeNotExists
 	}
 	// 返回 slice 的副本，避免调用方持有内部切片导致并发读写风险；节点指针本身仍共享。
 	out := append([]*micro.ServiceNode(nil), nodes...)
@@ -159,7 +158,7 @@ func (s *DiscoverInstance) bootstrap() error {
 			appId := val.Meta.AppId
 
 			s.mu.Lock()
-			val.ParseMethod(s.methods)
+			val.ParseMethod(s.method)
 			s.upsertNodeLocked(appId, &val)
 			s.mu.Unlock()
 		}
@@ -203,7 +202,7 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 	}
 
 	s.mu.Lock()
-	val.ParseMethod(s.methods)
+	val.ParseMethod(s.method)
 	switch e.Type {
 	case clientv3.EventTypePut: // 新增或更新服务节点
 		s.upsertNodeLocked(val.Meta.AppId, &val)
@@ -240,9 +239,9 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 
 	if len(s.service[appId]) == 0 {
 		delete(s.service, appId)
-		for sm, owner := range s.methods {
+		for sm, owner := range s.method {
 			if owner == appId {
-				delete(s.methods, sm)
+				delete(s.method, sm)
 			}
 		}
 		if s.log != nil {
