@@ -3,6 +3,7 @@ module github.com/fireflycore/go-micro
 go 1.25.3
 
 require (
+	github.com/fireflycore/go-utils v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.33.0
 	go.etcd.io/etcd/client/v3 v3.6.6
@@ -75,3 +76,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
+
+replace github.com/fireflycore/go-utils => ../go-utils
