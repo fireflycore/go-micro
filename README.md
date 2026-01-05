@@ -42,7 +42,6 @@ _ = s
 - [middleware](./middleware/README.md)：gRPC 中间件
 - [logger](./logger/README.md)：日志级别定义
 - [constant](./constant/README.md)：通用常量
-- [utils](./utils/README.md)：工具函数
 
 ## 许可证
 
