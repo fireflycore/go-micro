@@ -4,6 +4,7 @@ package etcd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -14,13 +15,14 @@ import (
 
 // RegisterInstance 表示一次注册会话，使用 etcd lease 维持存活。
 type RegisterInstance struct {
-	meta   *micro.Meta
-	config *micro.ServiceConf
-	client *clientv3.Client
-	lease  clientv3.LeaseID
-
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	meta *micro.Meta
+	conf *micro.ServiceConf
+
+	client *clientv3.Client
+	lease  clientv3.LeaseID
 
 	retryCount  uint32
 	retryBefore func()
@@ -32,38 +34,33 @@ type RegisterInstance struct {
 }
 
 // NewRegister 创建基于 etcd 的服务注册实例。
-func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (micro.Register, error) {
+func NewRegister(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceConf) (micro.Register, error) {
 	if client == nil {
-		return nil, ErrClientIsNil
-	}
-	if config == nil {
-		return nil, micro.ErrServiceConfigIsNil
+		return nil, errors.New("etcd client is nil")
 	}
 	if meta == nil {
-		meta = &micro.Meta{}
+		return nil, errors.New("service meta is nil")
 	}
-	if config.Namespace == "" {
-		config.Namespace = "micro"
+	if conf == nil {
+		return nil, errors.New("service conf is nil")
 	}
-	if config.TTL == 0 {
-		config.TTL = 10
+	if conf.Namespace == "" {
+		conf.Namespace = "micro"
 	}
-	if config.Network == nil {
-		config.Network = &micro.Network{}
-	}
-	if config.Kernel == nil {
-		config.Kernel = &micro.Kernel{}
+	if conf.TTL == 0 {
+		conf.TTL = 10
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	instance := &RegisterInstance{
-		ctx:  ctx,
-		meta: meta,
-
-		config: config,
-		client: client,
+		ctx:    ctx,
 		cancel: cancel,
+
+		meta: meta,
+		conf: conf,
+
+		client: client,
 	}
 	err := instance.initLease()
 
@@ -73,11 +70,7 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 // Install 将服务节点写入注册中心，并绑定到当前 lease。
 func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	if service == nil {
-		return micro.ErrServiceNodeIsNil
-	}
-
-	if s.config.Kernel != nil && s.config.Kernel.Language == "" {
-		s.config.Kernel.Language = "Golang"
+		return errors.New("service node is nil")
 	}
 
 	effectiveMeta := s.meta
@@ -103,8 +96,8 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	}
 
 	service.Meta = effectiveMeta
-	service.Kernel = s.config.Kernel
-	service.Network = s.config.Network
+	service.Kernel = s.conf.Kernel
+	service.Network = s.conf.Network
 	service.LeaseId = int(s.lease)
 	service.RunDate = time.Now().Format(time.DateTime)
 
@@ -125,7 +118,7 @@ func (s *RegisterInstance) register() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
-	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.config.Namespace, s.lastNode.Meta.Env, s.lastNode.Meta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
+	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.conf.Namespace, s.lastNode.Meta.Env, s.lastNode.Meta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
 	return err
 }
 
@@ -156,7 +149,7 @@ func (s *RegisterInstance) initLease() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	grant, err := s.client.Grant(ctx, int64(s.config.TTL))
+	grant, err := s.client.Grant(ctx, int64(s.conf.TTL))
 	if err != nil {
 		return err
 	}
@@ -203,11 +196,11 @@ func (s *RegisterInstance) SustainLease() {
 }
 
 func (s *RegisterInstance) retryLease() bool {
-	if s.config.MaxRetry == 0 {
+	if s.conf.MaxRetry == 0 {
 		return false
 	}
 
-	for s.retryCount < s.config.MaxRetry {
+	for s.retryCount < s.conf.MaxRetry {
 		if s.retryBefore != nil {
 			s.retryBefore()
 		}
@@ -222,7 +215,7 @@ func (s *RegisterInstance) retryLease() bool {
 
 		s.retryCount++
 		if s.log != nil {
-			s.log(logger.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.config.MaxRetry))
+			s.log(logger.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.conf.MaxRetry))
 		}
 
 		// 重新获取 lease
