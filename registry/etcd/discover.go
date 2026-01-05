@@ -8,7 +8,7 @@ import (
 
 	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
-	"github.com/fireflycore/go-micro/utils"
+	"github.com/fireflycore/go-utils/slicex"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -212,7 +212,7 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 
 func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.ServiceNode) {
 	nodes := s.service[appId]
-	nodes = utils.FilterSlice(nodes, func(_ int, item *micro.ServiceNode) bool {
+	nodes = slicex.FilterSlice(nodes, func(_ int, item *micro.ServiceNode) bool {
 		return item.LeaseId != newNode.LeaseId
 	})
 	s.service[appId] = append([]*micro.ServiceNode{newNode}, nodes...)
@@ -224,7 +224,7 @@ func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.Service
 
 func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.ServiceNode) {
 	originalCount := len(s.service[appId])
-	s.service[appId] = utils.FilterSlice(s.service[appId], func(_ int, item *micro.ServiceNode) bool {
+	s.service[appId] = slicex.FilterSlice(s.service[appId], func(_ int, item *micro.ServiceNode) bool {
 		return item.LeaseId != removedNode.LeaseId
 	})
 
