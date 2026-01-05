@@ -32,7 +32,15 @@ type DiscoverInstance struct {
 	mu sync.RWMutex
 }
 
-// NewDiscover 创建服务发现实例
+// NewDiscover 创建基于 Consul 的服务发现实例。
+// 参数:
+//   - client: consul客户端实例
+//   - meta: 服务元数据信息
+//   - config: 服务配置信息
+//
+// 返回:
+//   - *DiscoverInstance: 服务发现实例
+//   - error: 错误信息
 func NewDiscover(client *api.Client, meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, error) {
 	if client == nil {
 		return nil, ErrClientIsNil
@@ -74,7 +82,7 @@ func NewDiscover(client *api.Client, meta *micro.Meta, config *micro.ServiceConf
 	return instance, err
 }
 
-// GetService 根据服务方法名获取对应的服务节点列表
+// GetService 根据 gRPC 方法名获取对应的服务节点列表。
 func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	s.mu.RLock()
 	appId, ok := s.method[sm]
@@ -93,18 +101,18 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	return out, nil
 }
 
-// Watcher 启动服务发现监控
+// Watcher 启动服务发现监控。
 func (s *DiscoverInstance) Watcher() {
 	// 1. 启动 Catalog Watcher，监控服务列表变化
 	go s.watchCatalog()
 }
 
-// Unwatch 停止服务发现监控并释放资源
+// Unwatch 停止服务发现监控并释放资源。
 func (s *DiscoverInstance) Unwatch() {
 	s.cancel()
 }
 
-// WithLog 设置日志记录函数
+// WithLog 设置日志回调。
 func (s *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message string)) {
 	s.log = handle
 }

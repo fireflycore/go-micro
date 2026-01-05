@@ -1,3 +1,4 @@
+// Package logger 定义 go-micro 的基础日志级别类型。
 package logger
 
 const (

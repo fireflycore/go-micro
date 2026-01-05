@@ -18,13 +18,17 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// Constants for K8s labels and annotations
+// Label/Annotation 常量约定：用于把 K8s Service 映射为 go-micro ServiceNode。
 const (
-	LabelAppId        = "micro.app_id"
+	// LabelAppId 用于标识 service 归属的 appId（Label：key=appId）。
+	LabelAppId = "micro.app_id"
+	// AnnotationMethods 用于声明该 service 对外暴露的 gRPC 方法集合（逗号分隔）。
 	AnnotationMethods = "micro.methods"
+	// AnnotationVersion 用于声明该 service 的版本信息。
 	AnnotationVersion = "micro.version"
 )
 
+// DiscoverInstance 服务发现实例
 type DiscoverInstance struct {
 	meta   *micro.Meta
 	config *micro.ServiceConf
@@ -44,10 +48,10 @@ type DiscoverInstance struct {
 // NewDiscover 创建基于 Kubernetes 的服务发现实例。
 // 它会监控当前 Namespace 下带有 micro.app_id 标签的 Service。
 func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, error) {
-	// 1. 尝试获取 K8s 配置 (In-Cluster 或 KubeConfig)
+	// 1. 获取 K8s 配置（优先 In-Cluster，其次使用本地 kubeconfig）。
 	k8sConfig, err := rest.InClusterConfig()
 	if err != nil {
-		// Fallback to kubeconfig (local dev)
+		// 回退到本地 kubeconfig（便于本地开发调试）。
 		k8sConfig, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
 		if err != nil {
 			return nil, fmt.Errorf(ErrConfigFailedFormat, err)
@@ -63,7 +67,7 @@ func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, 
 		return nil, micro.ErrServiceConfigIsNil
 	}
 	if config.Namespace == "" {
-		config.Namespace = "default" // Default K8s namespace
+		config.Namespace = "default"
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -87,6 +91,7 @@ func NewDiscover(meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, 
 	return d, nil
 }
 
+// GetService 根据 gRPC 方法名返回可用节点列表。
 func (d *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -101,13 +106,13 @@ func (d *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 		return nil, micro.ErrServiceNodeNotExists
 	}
 
-	// Return a copy
+	// 返回副本，避免调用方修改内部缓存。
 	out := append([]*micro.ServiceNode(nil), nodes...)
 	return out, nil
 }
 
+// Watcher 启动后台监听并持续刷新本地缓存。
 func (d *DiscoverInstance) Watcher() {
-	// 启动 Watch 循环
 	go func() {
 		for {
 			select {
@@ -116,8 +121,7 @@ func (d *DiscoverInstance) Watcher() {
 			default:
 			}
 
-			// Watch Services with label selector
-			// 这里假设所有微服务都打上了 micro.app_id 标签
+			// 监听带有 micro.app_id 标签的 Service（LabelSelector=key 表示 label 存在）。
 			watcher, err := d.client.CoreV1().Services(d.config.Namespace).Watch(d.ctx, metav1.ListOptions{
 				LabelSelector: fmt.Sprintf("%s", LabelAppId),
 			})
@@ -154,16 +158,17 @@ func (d *DiscoverInstance) handleWatch(watcher watch.Interface) {
 	}
 }
 
+// Unwatch 停止监听并释放相关资源。
 func (d *DiscoverInstance) Unwatch() {
 	d.cancel()
 }
 
+// WithLog 设置日志回调。
 func (d *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message string)) {
 	d.log = handle
 }
 
 func (d *DiscoverInstance) bootstrap() error {
-	// List all services
 	services, err := d.client.CoreV1().Services(d.config.Namespace).List(d.ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s", LabelAppId),
 	})
@@ -200,8 +205,8 @@ func (d *DiscoverInstance) updateServiceLocked(svc *corev1.Service) {
 	}
 
 	// 2. 构建 ServiceNode
-	// K8s Service DNS: <svc>.<ns>.svc.cluster.local
-	// Port: 优先取名为 "grpc" 的端口，否则取第一个端口
+	// Service DNS：<svc>.<ns>.svc.cluster.local
+	// Port：优先取名为 "grpc" 的端口，否则取第一个端口
 	var port int32
 	if len(svc.Spec.Ports) > 0 {
 		port = svc.Spec.Ports[0].Port
@@ -215,31 +220,25 @@ func (d *DiscoverInstance) updateServiceLocked(svc *corev1.Service) {
 
 	host := fmt.Sprintf("%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace, port)
 
-	// 如果使用了 Istio，通常 ClusterIP 就足够了，Envoy 会拦截
-	// 我们也可以直接用 IP，但 DNS 更稳健
-
 	node := &micro.ServiceNode{
-		ProtoCount: 1, // 假定值
-		LeaseId:    0, // K8s 无需 lease
+		ProtoCount: 1,
+		LeaseId:    0,
 		RunDate:    svc.CreationTimestamp.Format(time.DateTime),
 		Methods:    methodMap,
 		Network: &micro.Network{
-			Internal: host, // 关键：指向 K8s Service DNS
-			External: host, // 外部通常通过 Ingress，这里简化为相同
+			Internal: host,
+			External: host,
 		},
 		Kernel: &micro.Kernel{
-			Language: "Golang", // 默认
+			Language: "Golang",
 		},
 		Meta: &micro.Meta{
 			AppId:   appId,
-			Env:     d.meta.Env, // 假设同环境
+			Env:     d.meta.Env,
 			Version: svc.Annotations[AnnotationVersion],
 		},
 	}
 
-	// 更新缓存
-	// 注意：在 K8s 中，一个 Service 通常对应一组 Pod，但对外只有一个 Service IP/DNS。
-	// 所以我们这里只维护一个 Node 即可。
 	d.service[appId] = []*micro.ServiceNode{node}
 
 	if d.log != nil {

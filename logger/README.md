@@ -8,9 +8,9 @@
 
 定义了日志级别字符串类型：
 
-- `Info`: 信息 (`info`)
-- `Error`: 错误 (`error`)
-- `Success`: 成功 (`success`)
+- `Info`：信息（`info`）
+- `Error`：错误（`error`）
+- `Success`：成功（`success`）
 
 ### 使用示例
 
@@ -18,6 +18,7 @@
 import "github.com/fireflycore/go-micro/logger"
 
 func Log(level logger.LogLevel, msg string) {
-    // ...
+	_ = level
+	_ = msg
 }
 ```

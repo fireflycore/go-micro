@@ -12,17 +12,37 @@ go get github.com/fireflycore/go-micro
 
 ## 快速开始
 
+以 gRPC 服务为例，常见用法是把中间件注入到 `grpc.Server`：
+
+```go
+import (
+	"fmt"
+
+	"github.com/fireflycore/go-micro/middleware"
+	"google.golang.org/grpc"
+)
+
+s := grpc.NewServer(
+	grpc.ChainUnaryInterceptor(
+		middleware.PropagateIncomingMetadata,
+		middleware.GrpcAccessLogger(func(_ []byte, msg string) {
+			fmt.Println(msg)
+		}),
+	),
+)
+_ = s
+```
 
 ## 模块说明
 
 详细文档请参考各子包目录下的 README：
 
-- [registry](./registry/README.md): 服务发现与注册
-- [rpc](./rpc/README.md): RPC 调用封装
-- [middleware](./middleware/README.md): gRPC 中间件
-- [logger](./logger/README.md): 日志级别定义
-- [constant](./constant/README.md): 通用常量
-- [utils](./utils/README.md): 工具函数
+- [registry](./registry/README.md)：服务发现与注册
+- [rpc](./rpc/README.md)：RPC 调用封装
+- [middleware](./middleware/README.md)：gRPC 中间件
+- [logger](./logger/README.md)：日志级别定义
+- [constant](./constant/README.md)：通用常量
+- [utils](./utils/README.md)：工具函数
 
 ## 许可证
 

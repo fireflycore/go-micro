@@ -13,7 +13,6 @@ import (
 )
 
 // DiscoverInstance 服务发现实例
-// 负责服务的注册、发现和监控
 type DiscoverInstance struct {
 	meta   *micro.Meta        // 服务元数据信息
 	config *micro.ServiceConf // 服务配置信息
@@ -30,7 +29,7 @@ type DiscoverInstance struct {
 	mu sync.RWMutex
 }
 
-// NewDiscover 创建服务发现实例
+// NewDiscover 创建基于 etcd 的服务发现实例。
 // 参数:
 //   - client: etcd客户端实例
 //   - meta: 服务元数据信息
@@ -59,10 +58,10 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 		config.Kernel = &micro.Kernel{}
 	}
 
-	// 创建可取消的上下文，用于优雅关闭
+	// 创建可取消的上下文，用于优雅关闭。
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 初始化服务发现实例
+	// 初始化服务发现实例。
 	instance := &DiscoverInstance{
 		ctx:  ctx,
 		meta: meta,
@@ -74,13 +73,13 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 		service: make(micro.ServiceDiscover),
 	}
 
-	// 执行引导初始化
+	// 执行引导初始化。
 	err := instance.bootstrap()
 
 	return instance, err
 }
 
-// GetService 根据服务方法名获取对应的服务节点列表
+// GetService 根据 gRPC 方法名获取对应的服务节点列表。
 // 参数:
 //   - sm: 服务方法名
 //
@@ -106,18 +105,17 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	return out, nil
 }
 
-// Watcher 启动服务发现监控
-// 该方法会阻塞执行，持续监控etcd中的服务变化
-// 通常在单独的goroutine中调用
+// Watcher 启动服务发现监控。
+// 该方法会阻塞执行，持续监控 etcd 中的服务变化，通常在单独的 goroutine 中调用。
 func (s *DiscoverInstance) Watcher() {
-	// 创建etcd监听器，监控指定命名空间和环境下的所有键值变化
+	// 创建 etcd 监听器，监控指定命名空间和环境下的所有键值变化。
 	watchKey := fmt.Sprintf("%s/%s", s.config.Namespace, s.meta.Env)
 	wc := s.client.Watch(s.ctx, watchKey, clientv3.WithPrefix(), clientv3.WithPrevKV())
 
-	// 持续处理监控事件
+	// 持续处理监控事件。
 	for v := range wc {
 		for _, e := range v.Events {
-			// 将etcd事件适配为服务发现事件
+			// 将 etcd 事件适配为服务发现事件。
 			s.adapter(e)
 		}
 	}

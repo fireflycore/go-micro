@@ -5,14 +5,14 @@ import (
 	"reflect"
 )
 
-// RemoteResponse 定义远程调用响应的标准接口
+// RemoteResponse 定义远程调用响应的标准接口。
 type RemoteResponse[T any] interface {
 	GetCode() uint32    // 获取状态码
 	GetMessage() string // 获取消息文本
 	GetData() T         // 获取业务数据
 }
 
-// WithRemoteInvoke 执行远程调用并处理标准化响应
+// WithRemoteInvoke 执行远程调用并处理标准化响应。
 // T: 业务数据类型
 // R: 响应类型，必须实现 RemoteResponse[T] 接口
 func WithRemoteInvoke[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T, error) {

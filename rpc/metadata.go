@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// UserContextMeta 用户上下文元信息
+// UserContextMeta 表示用户上下文元信息。
 type UserContextMeta struct {
 	Session  string `json:"session"`
 	ClientIp string `json:"client_ip"`
@@ -20,14 +20,14 @@ type UserContextMeta struct {
 	OrgIds  []string `json:"org_ids"`
 }
 
-// ClientContextMeta 客户端上下文元信息
+// ClientContextMeta 表示客户端上下文元信息。
 type ClientContextMeta struct {
 	ClientIp    string `json:"client_ip"`
 	AppVersion  string `json:"app_version"`
 	AppLanguage string `json:"app_language"`
 }
 
-// ParseMetaKey 解析元信息key
+// ParseMetaKey 解析元信息 key。
 func ParseMetaKey(md metadata.MD, key string) (string, error) {
 	val := md.Get(key)
 
@@ -39,7 +39,7 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 	return val[0], nil
 }
 
-// ParseUserContextMeta 解析用户上下文元信息
+// ParseUserContextMeta 解析用户上下文元信息。
 func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	raw = &UserContextMeta{}
 
@@ -73,7 +73,7 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	return raw, nil
 }
 
-// ParseClientContextMeta 解析客户端上下文元信息
+// ParseClientContextMeta 解析客户端上下文元信息。
 func ParseClientContextMeta(md metadata.MD) (raw *ClientContextMeta, err error) {
 	raw = &ClientContextMeta{}
 

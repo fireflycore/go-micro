@@ -8,6 +8,7 @@ import (
 	micro "github.com/fireflycore/go-micro/registry"
 )
 
+// RegisterInstance 服务注册实例
 type RegisterInstance struct {
 	meta   *micro.Meta
 	config *micro.ServiceConf

@@ -1,3 +1,4 @@
+// Package registry 定义服务注册与发现的核心接口与通用模型。
 package registry
 
 import "errors"

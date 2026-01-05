@@ -1,3 +1,4 @@
+// Package rpc 提供标准化的 RPC 调用封装与响应处理工具。
 package rpc
 
 import "errors"
