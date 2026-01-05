@@ -3,6 +3,7 @@ package etcd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -40,22 +41,13 @@ type DiscoverInstance struct {
 //   - error: 错误信息
 func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, error) {
 	if client == nil {
-		return nil, ErrClientIsNil
-	}
-	if config == nil {
-		return nil, micro.ErrServiceConfigIsNil
+		return nil, errors.New("etcd client is nil")
 	}
 	if meta == nil {
-		meta = &micro.Meta{}
+		return nil, errors.New("service meta is nil")
 	}
-	if config.Namespace == "" {
-		config.Namespace = "micro"
-	}
-	if config.Network == nil {
-		config.Network = &micro.Network{}
-	}
-	if config.Kernel == nil {
-		config.Kernel = &micro.Kernel{}
+	if config == nil {
+		return nil, errors.New("service config is nil")
 	}
 
 	// 创建可取消的上下文，用于优雅关闭。
@@ -63,12 +55,14 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 
 	// 初始化服务发现实例。
 	instance := &DiscoverInstance{
-		ctx:  ctx,
-		meta: meta,
+		client: client,
 
-		cancel:  cancel,
-		client:  client,
-		config:  config,
+		ctx:    ctx,
+		cancel: cancel,
+
+		meta:   meta,
+		config: config,
+
 		method:  make(micro.ServiceMethod),
 		service: make(micro.ServiceDiscover),
 	}
