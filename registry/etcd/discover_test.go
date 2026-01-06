@@ -1,14 +1,74 @@
 package etcd
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	micro "github.com/fireflycore/go-micro/registry"
+	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+func TestDiscoverAdapterPutUsesKv(t *testing.T) {
+	ins := &DiscoverInstance{
+		meta:    &micro.Meta{Env: "prod"},
+		conf:    &micro.ServiceConf{Namespace: "test"},
+		method:  make(micro.ServiceMethod),
+		service: make(micro.ServiceDiscover),
+	}
+
+	oldNode := &micro.ServiceNode{
+		LeaseId: 1,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		Methods: map[string]bool{"/svc.Svc/Ping": true},
+	}
+	newNode := &micro.ServiceNode{
+		LeaseId: 2,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		Methods: map[string]bool{"/svc.Svc/Ping": true},
+	}
+	oldVal, err := json.Marshal(oldNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newVal, err := json.Marshal(newNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ins.adapter(&clientv3.Event{
+		Type:   clientv3.EventTypePut,
+		Kv:     &mvccpb.KeyValue{Value: newVal},
+		PrevKv: &mvccpb.KeyValue{Value: oldVal},
+	})
+
+	nodes, ok := ins.service["svc"]
+	if !ok || len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %v", nodes)
+	}
+	if nodes[0].LeaseId != 2 {
+		t.Fatalf("expected leaseId=2, got %d", nodes[0].LeaseId)
+	}
+	if owner := ins.method["/svc.Svc/Ping"]; owner != "svc" {
+		t.Fatalf("expected method owner=svc, got %q", owner)
+	}
+
+	ins.adapter(&clientv3.Event{
+		Type:   clientv3.EventTypeDelete,
+		Kv:     &mvccpb.KeyValue{Value: []byte("ignored")},
+		PrevKv: &mvccpb.KeyValue{Value: newVal},
+	})
+
+	if _, ok := ins.service["svc"]; ok {
+		t.Fatalf("expected service removed")
+	}
+	if _, ok := ins.method["/svc.Svc/Ping"]; ok {
+		t.Fatalf("expected method removed")
+	}
+}
 
 func TestDiscover(t *testing.T) {
 	endpointsEnv := os.Getenv("ETCD_ENDPOINTS")
