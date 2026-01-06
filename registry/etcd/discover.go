@@ -15,19 +15,19 @@ import (
 
 // DiscoverInstance 服务发现实例
 type DiscoverInstance struct {
-	meta   *micro.Meta        // 服务元数据信息
-	config *micro.ServiceConf // 服务配置信息
-	client *clientv3.Client   // etcd客户端实例
+	mu sync.RWMutex
 
 	ctx    context.Context    // 上下文，用于控制生命周期
 	cancel context.CancelFunc // 取消函数，用于停止监控
+	client *clientv3.Client   // etcd客户端实例
 
-	log func(level logger.LogLevel, message string) // 日志记录函数
+	meta *micro.Meta        // 服务元数据信息
+	conf *micro.ServiceConf // 服务配置信息
 
 	method  micro.ServiceMethod   // 服务方法映射表 (method -> appId)
 	service micro.ServiceDiscover // 服务发现数据 (appId -> []ServiceNode)
 
-	mu sync.RWMutex
+	log func(level logger.LogLevel, message string) // 日志记录函数
 }
 
 // NewDiscover 创建基于 etcd 的服务发现实例。
@@ -39,14 +39,14 @@ type DiscoverInstance struct {
 // 返回:
 //   - *DiscoverInstance: 服务发现实例
 //   - error: 错误信息
-func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.ServiceConf) (micro.Discovery, error) {
+func NewDiscover(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceConf) (micro.Discovery, error) {
 	if client == nil {
 		return nil, errors.New("etcd client is nil")
 	}
 	if meta == nil {
 		return nil, errors.New("service meta is nil")
 	}
-	if config == nil {
+	if conf == nil {
 		return nil, errors.New("service config is nil")
 	}
 
@@ -55,13 +55,12 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, config *micro.Servic
 
 	// 初始化服务发现实例。
 	instance := &DiscoverInstance{
-		client: client,
-
 		ctx:    ctx,
 		cancel: cancel,
+		client: client,
 
-		meta:   meta,
-		config: config,
+		meta: meta,
+		conf: conf,
 
 		method:  make(micro.ServiceMethod),
 		service: make(micro.ServiceDiscover),
@@ -103,7 +102,7 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 // 该方法会阻塞执行，持续监控 etcd 中的服务变化，通常在单独的 goroutine 中调用。
 func (s *DiscoverInstance) Watcher() {
 	// 创建 etcd 监听器，监控指定命名空间和环境下的所有键值变化。
-	watchKey := fmt.Sprintf("%s/%s", s.config.Namespace, s.meta.Env)
+	watchKey := fmt.Sprintf("%s/%s", s.conf.Namespace, s.meta.Env)
 	wc := s.client.Watch(s.ctx, watchKey, clientv3.WithPrefix(), clientv3.WithPrevKV())
 
 	// 持续处理监控事件。
@@ -134,7 +133,7 @@ func (s *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message st
 //   - error: 初始化过程中发生的错误
 func (s *DiscoverInstance) bootstrap() error {
 	// 从etcd获取指定命名空间、环境下的所有键值对
-	res, err := s.client.Get(s.ctx, fmt.Sprintf("%s/%s", s.config.Namespace, s.meta.Env), clientv3.WithPrefix())
+	res, err := s.client.Get(s.ctx, fmt.Sprintf("%s/%s", s.conf.Namespace, s.meta.Env), clientv3.WithPrefix())
 	if err != nil {
 		return err
 	}
