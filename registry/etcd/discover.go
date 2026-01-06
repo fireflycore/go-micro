@@ -147,20 +147,20 @@ func (s *DiscoverInstance) Watcher() {
 			}
 
 			if v.Canceled {
-				// Watch 因错误或 compact 被取消：
-				//   - v.Err() != nil：通常是网络 / 权限等异常，可记录日志后退出或重试；
-				//   - CompactRevision > 0：说明 server 已对历史版本做了压缩，需要从 CompactRevision+1 重新 Watch。
 				if s.log != nil && v.Err() != nil {
 					s.log(logger.Error, fmt.Sprintf("etcd watch canceled: %v", v.Err()))
 				}
 				if v.CompactRevision > 0 {
-					// 如果有起始版本，从该版本开始 Watch
 					startRev = v.CompactRevision + 1
-					// 跳出当前 for-range，重建 Watch 流
 					goto restart
 				}
-				// 没有 CompactRevision 的 cancel，直接退出
-				return
+				if v.Header.Revision > 0 {
+					nextRev := v.Header.Revision + 1
+					if nextRev > startRev {
+						startRev = nextRev
+					}
+				}
+				goto restart
 			}
 
 			// 每次收到响应，使用最新的 Header.Revision 推进 startRev，
@@ -236,8 +236,6 @@ func (s *DiscoverInstance) bootstrap() error {
 			appId := val.Meta.AppId
 
 			s.mu.Lock()
-			// 把节点上的所有 Methods 写入 method 映射表
-			val.ParseMethod(s.method)
 			// 将节点合并到 service[appId] 列表中（去重同 leaseId）
 			s.upsertNodeLocked(appId, &val)
 			s.mu.Unlock()
@@ -294,7 +292,6 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 	//   - method：method -> appId，用于通过方法快速定位服务；
 	//   - service：appId -> []*ServiceNode，用于按服务维度存储节点列表。
 	s.mu.Lock()
-	val.ParseMethod(s.method)
 	switch e.Type {
 	case clientv3.EventTypePut: // 新增或更新服务节点
 		s.upsertNodeLocked(val.Meta.AppId, &val)
@@ -313,6 +310,7 @@ func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.Service
 	})
 	// 将新节点插入到列表头部（新节点优先）
 	s.service[appId] = append([]*micro.ServiceNode{newNode}, nodes...)
+	s.refreshMethodsLocked(appId)
 
 	if s.log != nil {
 		s.log(logger.Info, fmt.Sprintf("Service updated: %s, leaseId: %d, nodes count: %d", appId, newNode.LeaseId, len(s.service[appId])))
@@ -337,14 +335,27 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 	if len(s.service[appId]) == 0 {
 		// 如果该服务没有任何节点了，从服务表中移除
 		delete(s.service, appId)
-		for sm, owner := range s.method {
-			if owner == appId {
-				// 清理方法映射表中属于该 appId 的方法
-				delete(s.method, sm)
-			}
+	}
+	s.refreshMethodsLocked(appId)
+
+	if s.log != nil && len(s.service[appId]) == 0 {
+		s.log(logger.Info, fmt.Sprintf("Service %s has no nodes, removed from discovery", appId))
+	}
+}
+
+func (s *DiscoverInstance) refreshMethodsLocked(appId string) {
+	for sm, owner := range s.method {
+		if owner == appId {
+			delete(s.method, sm)
 		}
-		if s.log != nil {
-			s.log(logger.Info, fmt.Sprintf("Service %s has no nodes, removed from discovery", appId))
+	}
+
+	for _, node := range s.service[appId] {
+		if node == nil || node.Meta == nil || node.Meta.AppId == "" {
+			continue
+		}
+		for sm := range node.Methods {
+			s.method[sm] = appId
 		}
 	}
 }
