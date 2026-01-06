@@ -4,7 +4,7 @@ package registry
 import "errors"
 
 var (
-	// ErrClientIsNil 标识客户端为空
+	// ErrClientIsNil 表示客户端为空
 	ErrClientIsNil = "%s client is nil"
 
 	// ErrRegisterIsNil 表示注册器为空。
@@ -22,8 +22,4 @@ var (
 	ErrServiceMetaIsNil = errors.New("service meta is nil")
 	// ErrServiceNodeIsNil 表示服务节点对象为空。
 	ErrServiceNodeIsNil = errors.New("service node is nil")
-	// ErrMetaAppIdIsEmpty 表示元数据 AppId 为空。
-	ErrMetaAppIdIsEmpty = errors.New("元数据 AppId 为空")
-	// ErrMetaEnvIsEmpty 表示元数据 Env 为空。
-	ErrMetaEnvIsEmpty = errors.New("元数据 Env 为空")
 )
