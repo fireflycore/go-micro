@@ -12,7 +12,7 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// RegisterInstance 表示一次注册会话，使用 etcd lease 维持存活。
+// RegisterInstance 基于 etcd 的服务注册实例
 type RegisterInstance struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -23,10 +23,14 @@ type RegisterInstance struct {
 	meta *micro.Meta
 	conf *micro.ServiceConf
 
-	retryCount  uint32
+	// 当前已重试次数
+	retryCount uint32
+	// 重试前的回调
 	retryBefore func()
-	retryAfter  func()
-	log         func(level logger.LogLevel, message string)
+	// 重试成功后的回调
+	retryAfter func()
+
+	log func(level logger.LogLevel, message string)
 
 	// lastNode 缓存最后一次注册的服务节点信息，用于断线重连
 	lastNode *micro.ServiceNode
@@ -43,12 +47,7 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 	if conf == nil {
 		return nil, micro.ErrServiceConfIsNil
 	}
-	if conf.Namespace == "" {
-		conf.Namespace = "micro"
-	}
-	if conf.TTL == 0 {
-		conf.TTL = 10
-	}
+	conf.Bootstrap()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -61,9 +60,13 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 		meta: meta,
 		conf: conf,
 	}
-	err := instance.initLease()
 
-	return instance, err
+	err := instance.initLease()
+	if err != nil {
+		return nil, err
+	}
+
+	return instance, nil
 }
 
 // Install 将服务节点写入注册中心，并绑定到当前 lease。
@@ -72,23 +75,7 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 		return micro.ErrServiceNodeIsNil
 	}
 
-	effectiveMeta := s.meta
-	if effectiveMeta == nil {
-		effectiveMeta = &micro.Meta{}
-	}
-	if service.Meta != nil {
-		if effectiveMeta.AppId == "" {
-			effectiveMeta.AppId = service.Meta.AppId
-		}
-		if effectiveMeta.Env == "" {
-			effectiveMeta.Env = service.Meta.Env
-		}
-		if effectiveMeta.Version == "" {
-			effectiveMeta.Version = service.Meta.Version
-		}
-	}
-
-	service.Meta = effectiveMeta
+	service.Meta = s.meta
 	service.Kernel = s.conf.Kernel
 	service.Network = s.conf.Network
 	service.LeaseId = int(s.lease)
@@ -106,20 +93,24 @@ func (s *RegisterInstance) register() error {
 		return nil
 	}
 
-	val, _ := json.Marshal(s.lastNode)
+	val, err := json.Marshal(s.lastNode)
+	if err != nil {
+		return err
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.conf.Namespace, s.lastNode.Meta.Env, s.lastNode.Meta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
+	_, err = s.client.Put(ctx, fmt.Sprintf("%s/%s/%s/%d", s.conf.Namespace, s.meta.Env, s.meta.AppId, s.lease), string(val), clientv3.WithLease(s.lease))
 	return err
 }
 
 // Uninstall 撤销 lease 并停止续约。
 func (s *RegisterInstance) Uninstall() {
-	defer s.cancel()
-	_, _ = s.client.Revoke(context.Background(), s.lease)
-	return
+	s.cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = s.client.Revoke(ctx, s.lease)
 }
 
 // WithLog 设置内部日志输出回调。
@@ -139,7 +130,7 @@ func (s *RegisterInstance) WithRetryAfter(handle func()) {
 
 // initLease 初始化租约
 func (s *RegisterInstance) initLease() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
 
 	grant, err := s.client.Grant(ctx, int64(s.conf.TTL))
@@ -189,16 +180,13 @@ func (s *RegisterInstance) SustainLease() {
 }
 
 func (s *RegisterInstance) retryLease() bool {
-	if s.conf.MaxRetry == 0 {
-		return false
-	}
-
+	// 在次数未超限前循环重试
 	for s.retryCount < s.conf.MaxRetry {
 		if s.retryBefore != nil {
 			s.retryBefore()
 		}
 
-		timer := time.NewTimer(5 * time.Second)
+		timer := time.NewTimer(time.Duration(s.conf.TTL) * 5 * time.Second)
 		select {
 		case <-s.ctx.Done():
 			timer.Stop()
@@ -207,6 +195,7 @@ func (s *RegisterInstance) retryLease() bool {
 		}
 
 		s.retryCount++
+
 		if s.log != nil {
 			s.log(logger.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.conf.MaxRetry))
 		}
@@ -221,6 +210,7 @@ func (s *RegisterInstance) retryLease() bool {
 		if s.lastNode != nil {
 			// 更新 leaseId
 			s.lastNode.LeaseId = int(s.lease)
+
 			if err := s.register(); err != nil {
 				if s.log != nil {
 					s.log(logger.Error, fmt.Sprintf("etcd re-register failed: %v", err))
@@ -233,6 +223,7 @@ func (s *RegisterInstance) retryLease() bool {
 			s.retryAfter()
 		}
 
+		s.retryCount = 0
 		return true
 	}
 
