@@ -4,7 +4,6 @@ package etcd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -70,7 +69,7 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 // Install 将服务节点写入注册中心，并绑定到当前 lease。
 func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	if service == nil {
-		return errors.New("service node is nil")
+		return micro.ErrServiceNodeIsNil
 	}
 
 	effectiveMeta := s.meta
@@ -87,12 +86,6 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 		if effectiveMeta.Version == "" {
 			effectiveMeta.Version = service.Meta.Version
 		}
-	}
-	if effectiveMeta.AppId == "" {
-		return micro.ErrMetaAppIdIsEmpty
-	}
-	if effectiveMeta.Env == "" {
-		return micro.ErrMetaEnvIsEmpty
 	}
 
 	service.Meta = effectiveMeta
