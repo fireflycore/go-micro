@@ -21,10 +21,10 @@ func (sc *ServiceConf) Bootstrap() {
 	if sc.Namespace == "" {
 		sc.Namespace = constant.DefaultNamespace
 	}
-	if sc.MaxRetry != 0 && sc.MaxRetry < 3 {
+	if sc.MaxRetry < constant.DefaultMaxRetry {
 		sc.MaxRetry = constant.DefaultMaxRetry
 	}
-	if sc.TTL < 10 {
+	if sc.TTL < constant.DefaultTTL {
 		sc.TTL = constant.DefaultTTL
 	}
 
