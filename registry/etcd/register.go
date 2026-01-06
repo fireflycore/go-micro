@@ -18,11 +18,11 @@ type RegisterInstance struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	meta *micro.Meta
-	conf *micro.ServiceConf
-
 	client *clientv3.Client
 	lease  clientv3.LeaseID
+
+	meta *micro.Meta
+	conf *micro.ServiceConf
 
 	retryCount  uint32
 	retryBefore func()
@@ -36,13 +36,13 @@ type RegisterInstance struct {
 // NewRegister 创建基于 etcd 的服务注册实例。
 func NewRegister(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceConf) (micro.Register, error) {
 	if client == nil {
-		return nil, errors.New("etcd client is nil")
+		return nil, fmt.Errorf(micro.ErrClientIsNil, "etcd")
 	}
 	if meta == nil {
-		return nil, errors.New("service meta is nil")
+		return nil, micro.ErrServiceMetaIsNil
 	}
 	if conf == nil {
-		return nil, errors.New("service conf is nil")
+		return nil, micro.ErrServiceConfIsNil
 	}
 	if conf.Namespace == "" {
 		conf.Namespace = "micro"
@@ -57,10 +57,10 @@ func NewRegister(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 		ctx:    ctx,
 		cancel: cancel,
 
+		client: client,
+
 		meta: meta,
 		conf: conf,
-
-		client: client,
 	}
 	err := instance.initLease()
 
