@@ -17,6 +17,7 @@ type ServiceConf struct {
 	TTL uint32 `json:"ttl"`
 }
 
+// Bootstrap 补齐 namespace/ttl/maxRetry/network/kernel 等默认值，避免下游逻辑出现零值陷阱
 func (sc *ServiceConf) Bootstrap() {
 	if sc.Namespace == "" {
 		sc.Namespace = constant.DefaultNamespace
