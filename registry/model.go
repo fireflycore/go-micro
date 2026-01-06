@@ -26,7 +26,7 @@ type Kernel struct {
 func (k *Kernel) Bootstrap() {
 	k.Language = constant.KernelLanguage
 	if k.Version == "" {
-		k.Version = "v0.0.1"
+		k.Version = constant.DefaultVersion
 	}
 }
 
@@ -42,12 +42,12 @@ type Network struct {
 
 func (n *Network) Bootstrap() {
 	if n.SN == "" {
-		n.SN = "firefly-main-network"
+		n.SN = constant.DefaultNetworkSN
 	}
 	if n.Internal == "" {
 		n.Internal = network.GetInternalNetworkIp()
 	}
 	if n.External == "" {
-		n.Internal = "127.0.0.1"
+		n.Internal = constant.DefaultExternalNetworkAddress
 	}
 }
