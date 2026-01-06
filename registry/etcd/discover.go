@@ -3,7 +3,6 @@ package etcd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -41,13 +40,13 @@ type DiscoverInstance struct {
 //   - error: 错误信息
 func NewDiscover(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceConf) (micro.Discovery, error) {
 	if client == nil {
-		return nil, errors.New("etcd client is nil")
+		return nil, fmt.Errorf(micro.ErrClientIsNil, "etcd")
 	}
 	if meta == nil {
-		return nil, errors.New("service meta is nil")
+		return nil, micro.ErrServiceMetaIsNil
 	}
 	if conf == nil {
-		return nil, errors.New("service config is nil")
+		return nil, micro.ErrServiceConfIsNil
 	}
 
 	// 创建可取消的上下文，用于优雅关闭。
