@@ -70,6 +70,80 @@ func TestDiscoverAdapterPutUsesKv(t *testing.T) {
 	}
 }
 
+func TestDiscoverMethodMapRefresh(t *testing.T) {
+	ins := &DiscoverInstance{
+		meta:    &micro.Meta{Env: "prod"},
+		conf:    &micro.ServiceConf{Namespace: "test"},
+		method:  make(micro.ServiceMethod),
+		service: make(micro.ServiceDiscover),
+	}
+
+	n1 := &micro.ServiceNode{
+		LeaseId: 1,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		Methods: map[string]bool{"/svc.Svc/A": true, "/svc.Svc/B": true},
+	}
+	v1, err := json.Marshal(n1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ins.adapter(&clientv3.Event{
+		Type: clientv3.EventTypePut,
+		Kv:   &mvccpb.KeyValue{Value: v1},
+	})
+	if ins.method["/svc.Svc/A"] != "svc" || ins.method["/svc.Svc/B"] != "svc" {
+		t.Fatalf("expected methods A and B mapped to svc, got %#v", ins.method)
+	}
+
+	n1v2 := &micro.ServiceNode{
+		LeaseId: 1,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		Methods: map[string]bool{"/svc.Svc/A": true},
+	}
+	v2, err := json.Marshal(n1v2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ins.adapter(&clientv3.Event{
+		Type: clientv3.EventTypePut,
+		Kv:   &mvccpb.KeyValue{Value: v2},
+	})
+	if ins.method["/svc.Svc/A"] != "svc" {
+		t.Fatalf("expected method A mapped to svc, got %#v", ins.method)
+	}
+	if _, ok := ins.method["/svc.Svc/B"]; ok {
+		t.Fatalf("expected method B removed, got %#v", ins.method)
+	}
+
+	n2 := &micro.ServiceNode{
+		LeaseId: 2,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		Methods: map[string]bool{"/svc.Svc/A": true, "/svc.Svc/C": true},
+	}
+	v3, err := json.Marshal(n2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ins.adapter(&clientv3.Event{
+		Type: clientv3.EventTypePut,
+		Kv:   &mvccpb.KeyValue{Value: v3},
+	})
+	if ins.method["/svc.Svc/C"] != "svc" {
+		t.Fatalf("expected method C mapped to svc, got %#v", ins.method)
+	}
+
+	ins.adapter(&clientv3.Event{
+		Type:   clientv3.EventTypeDelete,
+		PrevKv: &mvccpb.KeyValue{Value: v3},
+	})
+	if _, ok := ins.method["/svc.Svc/C"]; ok {
+		t.Fatalf("expected method C removed after node delete, got %#v", ins.method)
+	}
+	if ins.method["/svc.Svc/A"] != "svc" {
+		t.Fatalf("expected method A still mapped to svc, got %#v", ins.method)
+	}
+}
+
 func TestDiscover(t *testing.T) {
 	endpointsEnv := os.Getenv("ETCD_ENDPOINTS")
 	if endpointsEnv == "" {
