@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
@@ -12,9 +13,9 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// DiscoverInstance 服务发现实例
+// DiscoverInstance 基于 etcd 的服务发现实例。
 type DiscoverInstance struct {
-	mu sync.RWMutex
+	mu sync.RWMutex // 读写锁，用于保护 method 和 service 两个 map
 
 	ctx    context.Context    // 上下文，用于控制生命周期
 	cancel context.CancelFunc // 取消函数，用于停止监控
@@ -27,6 +28,8 @@ type DiscoverInstance struct {
 	service micro.ServiceDiscover // 服务发现数据 (appId -> []ServiceNode)
 
 	log func(level logger.LogLevel, message string) // 日志记录函数
+
+	watchRev int64 // 记录当前 Watch 的起始 revision，用于避免 bootstrap 与 Watch 之间的事件丢失
 }
 
 // NewDiscover 创建基于 etcd 的服务发现实例。
@@ -36,7 +39,7 @@ type DiscoverInstance struct {
 //   - config: 服务配置信息
 //
 // 返回:
-//   - *DiscoverInstance: 服务发现实例
+//   - micro.Discovery: 服务发现接口实现
 //   - error: 错误信息
 func NewDiscover(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceConf) (micro.Discovery, error) {
 	if client == nil {
@@ -48,6 +51,7 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 	if conf == nil {
 		return nil, micro.ErrServiceConfIsNil
 	}
+	conf.Bootstrap()
 
 	// 创建可取消的上下文，用于优雅关闭。
 	ctx, cancel := context.WithCancel(context.Background())
@@ -67,8 +71,11 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 
 	// 执行引导初始化。
 	err := instance.bootstrap()
+	if err != nil {
+		return nil, err
+	}
 
-	return instance, err
+	return instance, nil
 }
 
 // GetService 根据 gRPC 方法名获取对应的服务节点列表。
@@ -79,7 +86,9 @@ func NewDiscover(client *clientv3.Client, meta *micro.Meta, conf *micro.ServiceC
 //   - []*micro.ServiceNode: 服务节点列表
 //   - error: 错误信息，当服务方法不存在时返回错误
 func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
+	// 读锁，允许多个并发读
 	s.mu.RLock()
+	// 从 method 表中查出该方法归属的 appId
 	appId, ok := s.method[sm]
 	if !ok {
 		s.mu.RUnlock()
@@ -93,7 +102,9 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 	}
 	// 返回 slice 的副本，避免调用方持有内部切片导致并发读写风险；节点指针本身仍共享。
 	out := append([]*micro.ServiceNode(nil), nodes...)
+
 	s.mu.RUnlock()
+
 	return out, nil
 }
 
@@ -101,14 +112,83 @@ func (s *DiscoverInstance) GetService(sm string) ([]*micro.ServiceNode, error) {
 // 该方法会阻塞执行，持续监控 etcd 中的服务变化，通常在单独的 goroutine 中调用。
 func (s *DiscoverInstance) Watcher() {
 	// 创建 etcd 监听器，监控指定命名空间和环境下的所有键值变化。
+	// key 结构与注册侧保持一致：/namespace/env/appId/leaseId
 	watchKey := fmt.Sprintf("%s/%s", s.conf.Namespace, s.meta.Env)
-	wc := s.client.Watch(s.ctx, watchKey, clientv3.WithPrefix(), clientv3.WithPrevKV())
 
-	// 持续处理监控事件。
-	for v := range wc {
-		for _, e := range v.Events {
-			// 将 etcd 事件适配为服务发现事件。
-			s.adapter(e)
+	// startRev 表示本次 Watch 的起始 revision：
+	//   - 第一次 Watch：由 bootstrap() 填充（为 Get 时的 revision+1），尽量避免“加载 -> Watch”之间的事件丢失；
+	//   - Watch 运行中：随着事件流推进，不断更新到最新 revision+1；
+	//   - 发生 compact 导致 Watch 被取消时：从 CompactRevision+1 重新 Watch。
+	startRev := s.watchRev
+	for {
+		select {
+		case <-s.ctx.Done():
+			// 外部调用 Unwatch() 或 ctx 被取消时，退出整个监控循环
+			return
+		default:
+		}
+
+		// WithPrefix：监听某个前缀下的所有 key；
+		// WithPrevKV：在删除事件中附带旧值，便于我们反序列化出被删除的 ServiceNode；
+		// WithRev：从指定 revision 开始监听，通常为“上次处理完的 revision+1”。
+		opts := []clientv3.OpOption{clientv3.WithPrefix(), clientv3.WithPrevKV()}
+		if startRev > 0 {
+			opts = append(opts, clientv3.WithRev(startRev))
+		}
+		wc := s.client.Watch(s.ctx, watchKey, opts...)
+
+		// 遍历 Watch 响应流
+		for v := range wc {
+			select {
+			case <-s.ctx.Done():
+				// 外部调用 Unwatch() 或 ctx 被取消时，退出整个监控循环
+				return
+			default:
+			}
+
+			if v.Canceled {
+				// Watch 因错误或 compact 被取消：
+				//   - v.Err() != nil：通常是网络 / 权限等异常，可记录日志后退出或重试；
+				//   - CompactRevision > 0：说明 server 已对历史版本做了压缩，需要从 CompactRevision+1 重新 Watch。
+				if s.log != nil && v.Err() != nil {
+					s.log(logger.Error, fmt.Sprintf("etcd watch canceled: %v", v.Err()))
+				}
+				if v.CompactRevision > 0 {
+					// 如果有起始版本，从该版本开始 Watch
+					startRev = v.CompactRevision + 1
+					// 跳出当前 for-range，重建 Watch 流
+					goto restart
+				}
+				// 没有 CompactRevision 的 cancel，直接退出
+				return
+			}
+
+			// 每次收到响应，使用最新的 Header.Revision 推进 startRev，
+			// 保证即使 Watch 流中断，再次启动时也能从“最后处理过的位置”继续。
+			if v.Header.Revision > 0 {
+				nextRev := v.Header.Revision + 1
+				if nextRev > startRev {
+					// 向前推进起始 revision
+					startRev = nextRev
+				}
+			}
+
+			// 遍历当前响应中的所有事件
+			for _, e := range v.Events {
+				// 将 etcd 事件转换成本地缓存的增删改
+				s.adapter(e)
+			}
+		}
+
+		// restart 标签用于在 compact 后快速跳出当前 for range wc，重新创建新的 Watch 流。
+	restart:
+		// 避免出现高频重试，这里加入一个很小的退避等待。
+		timer := time.NewTimer(200 * time.Millisecond)
+		select {
+		case <-s.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
 		}
 	}
 }
@@ -116,6 +196,7 @@ func (s *DiscoverInstance) Watcher() {
 // Unwatch 停止服务发现监控并释放资源
 // 调用此方法会取消上下文，停止所有的监控goroutine
 func (s *DiscoverInstance) Unwatch() {
+	// 调用 cancel 触发 ctx.Done()，所有使用该 ctx 的协程都会退出
 	s.cancel()
 }
 
@@ -137,18 +218,27 @@ func (s *DiscoverInstance) bootstrap() error {
 		return err
 	}
 
+	// 记录当前的 revision，Watch 时从 revision+1 开始监听，
+	// 以此尽量保证“本次 Get 到的数据”与“后续 Watch 事件”在时间线上连贯。
+	if res.Header != nil {
+		s.watchRev = res.Header.Revision + 1
+	}
+
 	// 遍历所有获取到的键值对
 	for _, item := range res.Kvs {
 		var val micro.ServiceNode
 		// 反序列化服务节点信息
 		if err = json.Unmarshal(item.Value, &val); err == nil {
 			if val.Meta == nil || val.Meta.AppId == "" || val.Meta.Env == "" {
+				// 元信息不完整的节点直接跳过
 				continue
 			}
 			appId := val.Meta.AppId
 
 			s.mu.Lock()
+			// 把节点上的所有 Methods 写入 method 映射表
 			val.ParseMethod(s.method)
+			// 将节点合并到 service[appId] 列表中（去重同 leaseId）
 			s.upsertNodeLocked(appId, &val)
 			s.mu.Unlock()
 		}
@@ -167,14 +257,22 @@ func (s *DiscoverInstance) bootstrap() error {
 // 参数:
 //   - e: etcd事件，包含事件类型和键值信息
 func (s *DiscoverInstance) adapter(e *clientv3.Event) {
-	var (
-		tv []byte
-	)
-
-	// 确定要处理的值数据，删除事件使用前一个值，其他事件使用当前值
-	if e.PrevKv != nil {
+	// 根据事件类型选择合适的值来源：
+	//   - Put：使用最新值 e.Kv.Value；
+	//   - Delete：使用删除前的值 e.PrevKv.Value（开启 WithPrevKV 后 etcd 会携带）。
+	var tv []byte
+	switch e.Type {
+	case clientv3.EventTypeDelete:
+		if e.PrevKv == nil {
+			// 删除事件却没有旧值，无法解析，直接返回
+			return
+		}
 		tv = e.PrevKv.Value
-	} else {
+	default:
+		if e.Kv == nil {
+			// Put 事件却没有新值，同样无法解析，直接返回
+			return
+		}
 		tv = e.Kv.Value
 	}
 
@@ -188,9 +286,13 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 		return
 	}
 	if val.Meta == nil || val.Meta.AppId == "" || val.Meta.Env == "" {
+		// 没有完整元信息的节点，不参与发现
 		return
 	}
 
+	// 基于解析出的 ServiceNode 更新本地缓存：
+	//   - method：method -> appId，用于通过方法快速定位服务；
+	//   - service：appId -> []*ServiceNode，用于按服务维度存储节点列表。
 	s.mu.Lock()
 	val.ParseMethod(s.method)
 	switch e.Type {
@@ -203,10 +305,13 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 }
 
 func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.ServiceNode) {
+	// 取出该 appId 现有节点列表
 	nodes := s.service[appId]
+	// 先用 LeaseId 过滤掉可能存在的同 leaseId 旧节点，避免重复
 	nodes = slicex.FilterSlice(nodes, func(_ int, item *micro.ServiceNode) bool {
 		return item.LeaseId != newNode.LeaseId
 	})
+	// 将新节点插入到列表头部（新节点优先）
 	s.service[appId] = append([]*micro.ServiceNode{newNode}, nodes...)
 
 	if s.log != nil {
@@ -215,12 +320,14 @@ func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.Service
 }
 
 func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.ServiceNode) {
+	// 删除前的节点数
 	originalCount := len(s.service[appId])
 	s.service[appId] = slicex.FilterSlice(s.service[appId], func(_ int, item *micro.ServiceNode) bool {
 		return item.LeaseId != removedNode.LeaseId
 	})
 
 	if s.log != nil {
+		// 删除后的节点数
 		remainingCount := len(s.service[appId])
 		if originalCount != remainingCount {
 			s.log(logger.Info, fmt.Sprintf("Service removed: %s, leaseId: %d, nodes count: %d -> %d", appId, removedNode.LeaseId, originalCount, remainingCount))
@@ -228,9 +335,11 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 	}
 
 	if len(s.service[appId]) == 0 {
+		// 如果该服务没有任何节点了，从服务表中移除
 		delete(s.service, appId)
 		for sm, owner := range s.method {
 			if owner == appId {
+				// 清理方法映射表中属于该 appId 的方法
 				delete(s.method, sm)
 			}
 		}
