@@ -1,5 +1,10 @@
 package registry
 
+import (
+	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-utils/network"
+)
+
 // Meta 服务元信息。
 type Meta struct {
 	// 环境，不同环境的服务不互通
@@ -18,6 +23,13 @@ type Kernel struct {
 	Version string `json:"version"`
 }
 
+func (k *Kernel) Bootstrap() {
+	k.Language = constant.KernelLanguage
+	if k.Version == "" {
+		k.Version = "v0.0.1"
+	}
+}
+
 // Network 定义服务节点上报的网络信息。
 type Network struct {
 	// 网卡唯一标识，用于grpc-gateway流量控制，同sn流量优先
@@ -26,4 +38,16 @@ type Network struct {
 	Internal string `json:"internal"`
 	// 外网地址
 	External string `json:"external"`
+}
+
+func (n *Network) Bootstrap() {
+	if n.SN == "" {
+		n.SN = "firefly-main-network"
+	}
+	if n.Internal == "" {
+		n.Internal = network.GetInternalNetworkIp()
+	}
+	if n.External == "" {
+		n.Internal = "127.0.0.1"
+	}
 }
