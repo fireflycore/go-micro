@@ -48,6 +48,6 @@ func (n *Network) Bootstrap() {
 		n.Internal = network.GetInternalNetworkIp()
 	}
 	if n.External == "" {
-		n.Internal = constant.DefaultExternalNetworkAddress
+		n.External = constant.DefaultExternalNetworkAddress
 	}
 }
