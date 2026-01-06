@@ -16,8 +16,14 @@ func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 	t.Parallel()
 
 	ins := &DiscoverInstance{
-		meta:    &micro.Meta{Env: "prod"},
-		conf:    &micro.ServiceConf{Namespace: "test"},
+		meta: &micro.Meta{Env: "prod"},
+		conf: &micro.ServiceConf{
+			Namespace: "test",
+			Network:   &micro.Network{},
+			Kernel:    &micro.Kernel{},
+			TTL:       10,
+			MaxRetry:  3,
+		},
 		method:  make(micro.ServiceMethod),
 		service: make(micro.ServiceDiscover),
 	}
@@ -43,11 +49,25 @@ func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 	bC, _ := json.Marshal(nodeOtherEnv)
 
 	ins.rebuild([]*api.ServiceEntry{
-		{Service: &api.AgentService{Meta: map[string]string{consulMetaKeyNode: string(bA)}}},
-		{Service: &api.AgentService{Meta: map[string]string{consulMetaKeyNode: string(bB)}}},
-		{Service: &api.AgentService{Meta: map[string]string{consulMetaKeyNode: string(bC)}}},
-		{Service: &api.AgentService{Meta: map[string]string{consulMetaKeyNode: "not-json"}}},
-		{Service: &api.AgentService{Meta: map[string]string{}}},
+		{Service: &api.AgentService{Meta: map[string]string{
+			consulMetaKeyEnv:  "prod",
+			consulMetaKeyNode: string(bA),
+		}}},
+		{Service: &api.AgentService{Meta: map[string]string{
+			consulMetaKeyEnv:  "prod",
+			consulMetaKeyNode: string(bB),
+		}}},
+		{Service: &api.AgentService{Meta: map[string]string{
+			consulMetaKeyEnv:  "dev",
+			consulMetaKeyNode: string(bC),
+		}}},
+		{Service: &api.AgentService{Meta: map[string]string{
+			consulMetaKeyEnv:  "prod",
+			consulMetaKeyNode: "not-json",
+		}}},
+		{Service: &api.AgentService{Meta: map[string]string{
+			consulMetaKeyEnv: "prod",
+		}}},
 		nil,
 	})
 
@@ -94,7 +114,22 @@ func TestNewDiscoverBootstrapUsesHealthService(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Consul-Index", "7")
-		_, _ = w.Write([]byte(`[{"Service":{"Meta":{"` + consulMetaKeyNode + `":` + string(jsonString(string(rawNode))) + `}}}]`))
+		entries := []*api.ServiceEntry{
+			{
+				Service: &api.AgentService{
+					Meta: map[string]string{
+						consulMetaKeyEnv:  "prod",
+						consulMetaKeyNode: string(rawNode),
+					},
+				},
+			},
+		}
+		data, err := json.Marshal(entries)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write(data)
 	}))
 	defer srv.Close()
 
@@ -130,4 +165,3 @@ func jsonString(s string) []byte {
 	b, _ := json.Marshal(s)
 	return b
 }
-
