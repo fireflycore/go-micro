@@ -10,15 +10,17 @@
   - 每个服务实例以一条 `data` 记录存在：
     - key：`<appId>/<leaseId>`；
     - value：序列化后的 `registry.ServiceNode` JSON。
+  - `leaseId` 由注册实例本地生成（纳秒时间戳），用于区分不同进程实例。
 - 发现侧：
   - 从同一个 ConfigMap 中读取并反序列化所有 `ServiceNode`；
   - 构建两种索引：
     - `service: appId -> []*ServiceNode`；
     - `method: grpcMethod -> appId`（用于 `GetService` 快速定位）。
+  - 为模拟 etcd 的 lease 过期语义，会按 `RunDate` + `ServiceConf.TTL` 过滤超时节点，并按 `RunDate` 倒序返回节点（最新心跳优先）。
 - 生命周期：
   - `Register.SustainLease` 周期性覆盖写入自身记录，模拟“租约心跳”；
-  - `Register.Uninstall` 删除自己的 key；
-  - `Discovery.Watcher` 以 `ConfigMap.metadata.resourceVersion` 为游标轮询更新本地缓存。
+  - `Register.Uninstall` best-effort 删除自己的 key；
+  - `Discovery.Watcher` 按 `ServiceConf.TTL/2` 轮询读取 ConfigMap，仅当 `ConfigMap.metadata.resourceVersion` 变化时才重建本地缓存。
 
 ## 与 etcd/consul 的一致性
 
@@ -76,7 +78,7 @@ func newK8sRegister() (registry.Register, error) {
 	conf := &registry.ServiceConf{
 		Namespace: "my-namespace",
 		Network: &registry.Network{
-			// 建议在 K8s 集群内使用 Service DNS 作为内部地址（见下一节 Istio 建议）。
+			// 建议在 K8s 集群内使用 Service DNS 作为内部地址。
 			Internal: "user-service.my-namespace.svc.cluster.local:8080",
 		},
 		Kernel:   &registry.Kernel{},
@@ -125,54 +127,17 @@ func exampleDiscover(disc registry.Discovery) {
 }
 ```
 
-## 在 Kubernetes + Istio 场景下的使用建议
+## Kubernetes + Istio
 
-本实现默认只负责“服务元数据存储与查询”，并不直接操控 Istio CRD。要在企业级 **K8s + Istio** 部署中使用，建议遵循以下约定，使两者协同工作而不是互相干扰。
+关于在 Kubernetes + Istio 场景下的使用建议与最终落地方案，见 [K8S_ISTIO.md](file:///d:/project/firefly/go-micro/registry/kubernetes/K8S_ISTIO.md)。
 
-### 1. 地址：使用 Service DNS，而不是 Pod IP
+## 与 etcd lease 的差异（重要）
 
-- `ServiceConf.Network.Internal`：
-  - 同命名空间：`<svc-name>:<port>`，例如 `user-service:8080`；
-  - 跨命名空间：`<svc>.<ns>.svc.cluster.local:<port>`。
-- `ServiceConf.Network.External`（可选）：
-  - 如果需要给集群外调用方使用，可以配置为 IngressGateway 或外部负载均衡地址。
+etcd 后端依赖 lease，到期后 key 会被自动删除；而 Kubernetes ConfigMap 不具备 TTL 自动过期能力。因此：
 
-这样，调用方拿到 `ServiceNode` 后：
-
-- 使用 `Network.Internal` 建立 gRPC 连接；
-- 连接目标其实是 Kubernetes Service，流量会按常规路径进入 sidecar，由 Istio 按 VirtualService / DestinationRule 做路由和负载均衡；
-- registry 不绕过 mesh，而是“告诉你应该连哪一个 Service”。
-
-### 2. 元信息：与 Pod Label / DestinationRule 对齐
-
-统一以下约定可以让 registry 的元信息与 Istio 配置自然对齐：
-
-- `Meta.AppId`：
-  - 建议与 Pod / Deployment 的 `app` label 一致；
-  - 例如 `app=user-service`。
-- `Meta.Env`：
-  - 建议反映环境信息，可与命名空间或 label `env=prod` 对应；
-  - 同一 env 的服务会共享同一个 ConfigMap。
-- `Meta.Version`：
-  - 建议与 Pod label `version` 或你在 DestinationRule 中使用的 `subset` 语义保持一致；
-  - 例如 `version=v1` / `v2`，对应 `subset: v1` / `subset: v2`。
-
-在此基础上：
-
-- registry 提供的 `ServiceNode` 中已经包含 `Meta.Version` 等信息；
-- 上层可以根据版本/区域等信息决定要打到哪个 subset，并通过 HTTP Header/gRPC metadata 与 Istio 的路由规则结合，实现灰度发布、AB 测试等。
-
-### 3. 控制面访问与 mTLS
-
-client-go clientset 访问的是 Kubernetes APIServer：
-
-- 使用 in-cluster 配置和 ServiceAccount Token；
-- 在大多数 Istio 部署里，访问 APIServer 通常在 mesh 排除列表中；
-- 因此：
-  - 注册/发现侧访问 ConfigMap 的 HTTP 调用不会被 sidecar 拦截；
-  - 不会受到 mesh mTLS 及流量规则影响。
-
-这意味着本模块可以安全地作为“控制面元信息存储”，而数据面流量由 Istio 全权接管。
+- 若服务进程异常退出未执行 `Uninstall`，ConfigMap 中的旧记录可能残留；
+- 本实现通过 `RunDate` 心跳字段模拟“活跃性”，发现侧会按 `RunDate + TTL` 过滤超时节点，避免把流量导向已失活实例；
+- 发现侧不会主动清理 ConfigMap 中的陈旧记录（只做读取过滤）。
 
 ## 什么时候选择 kubernetes 实现
 
