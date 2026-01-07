@@ -6,8 +6,8 @@ require (
 	github.com/fireflycore/go-utils v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.29.1
-	go.etcd.io/etcd/api/v3 v3.6.6
-	go.etcd.io/etcd/client/v3 v3.6.6
+	go.etcd.io/etcd/api/v3 v3.6.7
+	go.etcd.io/etcd/client/v3 v3.6.7
 	google.golang.org/grpc v1.77.0
 	k8s.io/api v0.30.3
 	k8s.io/apimachinery v0.30.3
@@ -51,7 +51,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.6.6 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.6.7 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
