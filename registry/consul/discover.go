@@ -242,14 +242,14 @@ func (s *DiscoverInstance) rebuild(entries []*api.ServiceEntry) {
 		}
 
 		// 进一步过滤非本 SDK 写入的数据：
-		// - 注册侧会写入 ff_env，缺失或不匹配的直接跳过
+		// - 注册侧会写入 env，缺失或不匹配的直接跳过
 		// - 这样即使同名 service 下混入其他注册方式的数据，也不会污染本地缓存
 		env, ok := entry.Service.Meta[consulMetaKeyEnv]
 		if !ok || env != s.meta.Env {
 			continue
 		}
 
-		// 从 Meta 中读取注册侧写入的 ff_node（ServiceNode JSON）
+		// 从 Meta 中读取注册侧写入的 node（ServiceNode JSON）
 		raw, ok := entry.Service.Meta[consulMetaKeyNode]
 		if !ok || raw == "" {
 			continue
@@ -276,7 +276,7 @@ func (s *DiscoverInstance) rebuild(entries []*api.ServiceEntry) {
 	}
 
 	// 第二步：由 nextService 推导 nextMethod（派生索引），保证两者一致
-	for appID, nodes := range nextService {
+	for appId, nodes := range nextService {
 		for _, node := range nodes {
 			// 防御空指针：理论上不会出现，但避免未来改动引入风险
 			if node == nil {
@@ -284,7 +284,7 @@ func (s *DiscoverInstance) rebuild(entries []*api.ServiceEntry) {
 			}
 			// 一个节点的 Methods 是 method -> true 的集合；把它们归属到 appId
 			for sm := range node.Methods {
-				nextMethod[sm] = appID
+				nextMethod[sm] = appId
 			}
 		}
 	}

@@ -15,13 +15,13 @@ import (
 
 const (
 	// consulMetaKeyNode 在 Consul Service.Meta 中保存 ServiceNode 的 JSON。
-	consulMetaKeyNode = "ff_node"
-	// consulMetaKeyAppID 在 Consul Service.Meta 中保存 appId，方便排障与检索。
-	consulMetaKeyAppID = "ff_app_id"
+	consulMetaKeyNode = "node"
+	// consulMetaKeyAppId 在 Consul Service.Meta 中保存 appId，方便排障与检索。
+	consulMetaKeyAppId = "app_id"
 	// consulMetaKeyEnv 在 Consul Service.Meta 中保存 env。
-	consulMetaKeyEnv = "ff_env"
+	consulMetaKeyEnv = "env"
 	// consulMetaKeyVersion 在 Consul Service.Meta 中保存 version。
-	consulMetaKeyVersion = "ff_version"
+	consulMetaKeyVersion = "version"
 )
 
 // RegisterInstance 基于 Consul 的服务注册实例。
@@ -54,13 +54,13 @@ type RegisterInstance struct {
 	// 内部日志回调
 	log func(level logger.LogLevel, message string)
 
-	// leaseID 作为该实例的“租约标识”，用于保持与 etcd 实现一致的 LeaseId 语义。
-	// 注意：Consul 并不提供与 etcd LeaseID 完全等价的概念，这里使用本地生成的稳定标识。
-	leaseID int
-	// serviceID 为本实例在 Consul 中的唯一服务 ID。
-	serviceID string
-	// checkID 为 TTL check 的 ID；Consul 默认以 "service:<serviceID>" 作为服务级 check ID。
-	checkID string
+	// leaseId 作为该实例的“租约标识”，用于保持与 etcd 实现一致的 LeaseId 语义。
+	// 注意：Consul 并不提供与 etcd leaseId 完全等价的概念，这里使用本地生成的稳定标识。
+	leaseId int
+	// serviceId 为本实例在 Consul 中的唯一服务 Id。
+	serviceId string
+	// checkId 为 TTL check 的 Id；Consul 默认以 "service:<serviceId>" 作为服务级 check Id。
+	checkId string
 
 	// lastNode 缓存最后一次注册的服务节点信息，用于重注册时复用。
 	lastNode *micro.ServiceNode
@@ -81,9 +81,9 @@ func NewRegister(client *api.Client, meta *micro.Meta, conf *micro.ServiceConf) 
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	leaseID := int(time.Now().UnixNano())
-	if leaseID == 0 {
-		leaseID = 1
+	leaseId := int(time.Now().UnixNano())
+	if leaseId == 0 {
+		leaseId = 1
 	}
 
 	return &RegisterInstance{
@@ -94,7 +94,7 @@ func NewRegister(client *api.Client, meta *micro.Meta, conf *micro.ServiceConf) 
 		meta:   meta,
 		conf:   conf,
 
-		leaseID: leaseID,
+		leaseId: leaseId,
 	}, nil
 }
 
@@ -116,14 +116,14 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 	service.Meta = s.meta
 	service.Kernel = s.conf.Kernel
 	service.Network = s.conf.Network
-	service.LeaseId = s.leaseID
+	service.LeaseId = s.leaseId
 	service.RunDate = time.Now().Format(time.DateTime)
 
 	s.lastNode = service
 
-	if s.serviceID == "" {
-		s.serviceID = s.newServiceID()
-		s.checkID = "service:" + s.serviceID
+	if s.serviceId == "" {
+		s.serviceId = s.newServiceId()
+		s.checkId = "service:" + s.serviceId
 	}
 
 	return s.register()
@@ -133,11 +133,11 @@ func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
 func (s *RegisterInstance) Uninstall() {
 	s.cancel()
 
-	if s.serviceID == "" {
+	if s.serviceId == "" {
 		return
 	}
 
-	_ = s.client.Agent().ServiceDeregister(s.serviceID)
+	_ = s.client.Agent().ServiceDeregister(s.serviceId)
 }
 
 // SustainLease 维持 TTL 心跳，直到 Uninstall 或调用方主动取消。
@@ -181,11 +181,11 @@ func (s *RegisterInstance) WithLog(handle func(level logger.LogLevel, message st
 	s.log = handle
 }
 
-func (s *RegisterInstance) newServiceID() string {
+func (s *RegisterInstance) newServiceId() string {
 	ns := s.conf.Namespace
 	env := s.meta.Env
-	appID := s.meta.AppId
-	return fmt.Sprintf("%s-%s-%s-%d-%s", ns, env, appID, s.leaseID, uuid.NewString())
+	appId := s.meta.AppId
+	return fmt.Sprintf("%s-%s-%s-%d-%s", ns, env, appId, s.leaseId, uuid.NewString())
 }
 
 func (s *RegisterInstance) serviceName() string {
@@ -204,7 +204,7 @@ func (s *RegisterInstance) register() error {
 	}
 
 	registration := &api.AgentServiceRegistration{
-		ID:      s.serviceID,
+		ID:      s.serviceId,
 		Name:    s.serviceName(),
 		Address: s.conf.Network.Internal,
 		Port:    0,
@@ -214,7 +214,7 @@ func (s *RegisterInstance) register() error {
 		},
 		Meta: map[string]string{
 			consulMetaKeyNode:    string(b),
-			consulMetaKeyAppID:   s.meta.AppId,
+			consulMetaKeyAppId:   s.meta.AppId,
 			consulMetaKeyEnv:     s.meta.Env,
 			consulMetaKeyVersion: s.meta.Version,
 		},
@@ -228,15 +228,15 @@ func (s *RegisterInstance) register() error {
 		return err
 	}
 
-	return s.client.Agent().UpdateTTL(s.checkID, "ok", api.HealthPassing)
+	return s.client.Agent().UpdateTTL(s.checkId, "ok", api.HealthPassing)
 }
 
 // heartbeat 通过 UpdateTTL 续命 TTL check。
 func (s *RegisterInstance) heartbeat() error {
-	if s.checkID == "" {
-		return fmt.Errorf("consul checkID 为空")
+	if s.checkId == "" {
+		return fmt.Errorf("consul checkId is null")
 	}
-	return s.client.Agent().UpdateTTL(s.checkID, "ok", api.HealthPassing)
+	return s.client.Agent().UpdateTTL(s.checkId, "ok", api.HealthPassing)
 }
 
 // retryHeartbeat 当心跳失败时进行退避重试，并尝试重注册服务以恢复可用性。
