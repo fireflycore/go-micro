@@ -3,42 +3,14 @@ package kubernetes
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	micro "github.com/fireflycore/go-micro/registry"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 )
-
-// fakeRoundTripper 用于拦截 HTTP 请求，返回预设响应，方便在单元测试中模拟 Kubernetes API。
-type fakeRoundTripper struct {
-	handle func(req *http.Request) (*http.Response, error)
-}
-
-func (f *fakeRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f.handle(req)
-}
-
-// newFakeClient 构造一个基于 httptest.Server 的 Client，便于在测试中覆盖所有请求。
-func newFakeClient(t *testing.T, handler http.HandlerFunc, namespace string) *Client {
-	t.Helper()
-
-	srv := httptest.NewServer(handler)
-	t.Cleanup(srv.Close)
-
-	httpClient := &http.Client{
-		Transport: srv.Client().Transport,
-		Timeout:   5 * time.Second,
-	}
-
-	client, err := NewClient(srv.URL, "test-token", namespace, httpClient)
-	if err != nil {
-		t.Fatalf("new client: %v", err)
-	}
-	return client
-}
 
 func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 	t.Parallel()
@@ -49,16 +21,19 @@ func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 	nodeA := &micro.ServiceNode{
 		LeaseId: 1,
 		Meta:    &micro.Meta{Env: "prod", AppId: "svcA"},
+		RunDate: time.Now().Format(time.DateTime),
 		Methods: map[string]bool{"/svcA.Svc/Ping": true},
 	}
 	nodeB := &micro.ServiceNode{
 		LeaseId: 2,
 		Meta:    &micro.Meta{Env: "prod", AppId: "svcB"},
+		RunDate: time.Now().Format(time.DateTime),
 		Methods: map[string]bool{"/svcB.Svc/Ping": true},
 	}
 	nodeOtherEnv := &micro.ServiceNode{
 		LeaseId: 3,
 		Meta:    &micro.Meta{Env: "dev", AppId: "svcC"},
+		RunDate: time.Now().Format(time.DateTime),
 		Methods: map[string]bool{"/svcC.Svc/Ping": true},
 	}
 
@@ -66,8 +41,8 @@ func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 	bB, _ := json.Marshal(nodeB)
 	bC, _ := json.Marshal(nodeOtherEnv)
 
-	cm := &configMap{
-		Metadata: configMapMetadata{
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
 			Name:            configMapName("prod"),
 			Namespace:       "test",
 			ResourceVersion: "1",
@@ -93,7 +68,7 @@ func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 		service: make(micro.ServiceDiscover),
 	}
 
-	ins.rebuild(cm)
+	ins.rebuild(cm, cm.ResourceVersion)
 
 	if len(ins.service) != 2 {
 		t.Fatalf("expected 2 services, got %d", len(ins.service))
@@ -110,6 +85,77 @@ func TestDiscoverRebuildBuildsIndices(t *testing.T) {
 	}
 }
 
+func TestDiscoverRebuildFiltersStaleNodesAndSorts(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	nodeStale := &micro.ServiceNode{
+		LeaseId: 1,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		RunDate: now.Add(-20 * time.Second).Format(time.DateTime),
+		Methods: map[string]bool{"/svc.Svc/Ping": true},
+	}
+	nodeOlder := &micro.ServiceNode{
+		LeaseId: 2,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		RunDate: now.Add(-2 * time.Second).Format(time.DateTime),
+		Methods: map[string]bool{"/svc.Svc/Ping": true},
+	}
+	nodeNewer := &micro.ServiceNode{
+		LeaseId: 3,
+		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		RunDate: now.Add(-1 * time.Second).Format(time.DateTime),
+		Methods: map[string]bool{"/svc.Svc/Ping": true},
+	}
+
+	b1, _ := json.Marshal(nodeStale)
+	b2, _ := json.Marshal(nodeOlder)
+	b3, _ := json.Marshal(nodeNewer)
+
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            configMapName("prod"),
+			Namespace:       "test",
+			ResourceVersion: "1",
+		},
+		Data: map[string]string{
+			"svc/1": string(b1),
+			"svc/2": string(b2),
+			"svc/3": string(b3),
+		},
+	}
+
+	ins := &DiscoverInstance{
+		meta: &micro.Meta{Env: "prod"},
+		conf: &micro.ServiceConf{
+			Namespace: "test",
+			Network:   &micro.Network{},
+			Kernel:    &micro.Kernel{},
+			TTL:       10,
+			MaxRetry:  3,
+		},
+		method:  make(micro.ServiceMethod),
+		service: make(micro.ServiceDiscover),
+	}
+
+	ins.rebuild(cm, cm.ResourceVersion)
+
+	nodes := ins.service["svc"]
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes after filtering, got %d", len(nodes))
+	}
+	if nodes[0].LeaseId != 3 {
+		t.Fatalf("expected newest node first, got leaseId=%d", nodes[0].LeaseId)
+	}
+	if nodes[1].LeaseId != 2 {
+		t.Fatalf("expected older node second, got leaseId=%d", nodes[1].LeaseId)
+	}
+	if _, ok := ins.method["/svc.Svc/Ping"]; !ok {
+		t.Fatalf("expected method index to exist")
+	}
+}
+
 func TestNewDiscoverBootstrapAndWatcher(t *testing.T) {
 	t.Parallel()
 
@@ -119,60 +165,36 @@ func TestNewDiscoverBootstrapAndWatcher(t *testing.T) {
 	nodeV1 := &micro.ServiceNode{
 		LeaseId: 1,
 		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		RunDate: time.Now().Format(time.DateTime),
 		Methods: map[string]bool{"/svc.Svc/Ping": true},
 	}
 	nodeV2 := &micro.ServiceNode{
 		LeaseId: 2,
 		Meta:    &micro.Meta{Env: "prod", AppId: "svc"},
+		RunDate: time.Now().Format(time.DateTime),
 		Methods: map[string]bool{"/svc.Svc/Ping": true},
 	}
 
 	b1, _ := json.Marshal(nodeV1)
 	b2, _ := json.Marshal(nodeV2)
 
-	var call int
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		if !strings.Contains(r.URL.Path, "/configmaps/"+configMapName("prod")) {
-			http.NotFound(w, r)
-			return
-		}
+	client := kubefake.NewSimpleClientset()
+	ns := "test"
+	name := configMapName("prod")
 
-		call++
-		var cm configMap
-
-		switch call {
-		case 1:
-			// bootstrap 阶段：返回一个节点
-			cm = configMap{
-				Metadata: configMapMetadata{
-					Name:            configMapName("prod"),
-					Namespace:       "test",
-					ResourceVersion: "1",
-				},
-				Data: map[string]string{
-					"svc/1": string(b1),
-				},
-			}
-		default:
-			// Watcher 阶段：返回两个节点（模拟新增实例）
-			cm = configMap{
-				Metadata: configMapMetadata{
-					Name:            configMapName("prod"),
-					Namespace:       "test",
-					ResourceVersion: "2",
-				},
-				Data: map[string]string{
-					"svc/1": string(b1),
-					"svc/2": string(b2),
-				},
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(&cm)
+	_, err := client.CoreV1().ConfigMaps(ns).Create(context.Background(), &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            name,
+			Namespace:       ns,
+			ResourceVersion: "1",
+		},
+		Data: map[string]string{
+			"svc/1": string(b1),
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("create configmap: %v", err)
 	}
-
-	client := newFakeClient(t, handler, "test")
 
 	conf := &micro.ServiceConf{
 		Namespace: "test",
@@ -202,6 +224,21 @@ func TestNewDiscoverBootstrapAndWatcher(t *testing.T) {
 	defer cancel()
 
 	go disc.Watcher()
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+
+		cm, err := client.CoreV1().ConfigMaps(ns).Get(context.Background(), name, metav1.GetOptions{})
+		if err != nil {
+			return
+		}
+		if cm.Data == nil {
+			cm.Data = map[string]string{}
+		}
+		cm.Data["svc/2"] = string(b2)
+		cm.ResourceVersion = "2"
+		_, _ = client.CoreV1().ConfigMaps(ns).Update(context.Background(), cm, metav1.UpdateOptions{})
+	}()
 
 	// 轮询等待直到节点数更新为 2 或超时。
 	for {
