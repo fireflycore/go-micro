@@ -8,7 +8,7 @@ require (
 	github.com/hashicorp/consul/api v1.29.1
 	go.etcd.io/etcd/api/v3 v3.6.6
 	go.etcd.io/etcd/client/v3 v3.6.6
-	google.golang.org/grpc v1.77.0
+	google.golang.org/grpc v1.78.0
 	k8s.io/api v0.30.3
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
