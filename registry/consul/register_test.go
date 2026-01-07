@@ -131,8 +131,8 @@ func TestRegisterInstallAndUninstall(t *testing.T) {
 	if registered.Meta == nil {
 		t.Fatalf("expected registered.Meta not nil")
 	}
-	if registered.Meta[consulMetaKeyAppID] != "svc" {
-		t.Fatalf("expected meta appId=svc, got %q", registered.Meta[consulMetaKeyAppID])
+	if registered.Meta[consulMetaKeyAppId] != "svc" {
+		t.Fatalf("expected meta appId=svc, got %q", registered.Meta[consulMetaKeyAppId])
 	}
 	if registered.Meta[consulMetaKeyEnv] != "prod" {
 		t.Fatalf("expected meta env=prod, got %q", registered.Meta[consulMetaKeyEnv])
