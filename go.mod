@@ -1,6 +1,6 @@
 module github.com/fireflycore/go-micro
 
-go 1.25.3
+go 1.25.1
 
 require (
 	github.com/fireflycore/go-utils v0.3.5
