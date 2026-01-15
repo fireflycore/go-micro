@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,7 +42,7 @@ type RegisterInstance struct {
 	retryAfter func()
 
 	// log 用于输出实现内部状态（对齐 etcd/consul 的模式）。
-	log func(level logger.LogLevel, message string)
+	log *zap.Logger
 
 	// leaseId 用作该实例的“稳定唯一标识”，用于定位自身在 ConfigMap.data 的 key。
 	// 注意：Kubernetes 没有与 etcd LeaseID 完全等价的概念，这里以本地生成值对齐语义。
@@ -182,8 +182,8 @@ func (s *RegisterInstance) WithRetryAfter(handle func()) {
 }
 
 // WithLog 设置内部日志输出回调。
-func (s *RegisterInstance) WithLog(handle func(level logger.LogLevel, message string)) {
-	s.log = handle
+func (s *RegisterInstance) WithLog(log *zap.Logger) {
+	s.log = log
 }
 
 func (s *RegisterInstance) dataKey() string {
@@ -230,7 +230,7 @@ func (s *RegisterInstance) retryRegister() bool {
 		s.retryCount++
 
 		if s.log != nil {
-			s.log(logger.Info, fmt.Sprintf("kubernetes retry register: %d/%d", s.retryCount, s.conf.MaxRetry))
+			s.log.Info("kubernetes retry register", zap.Uint32("retryCount", s.retryCount), zap.Uint32("maxRetry", s.conf.MaxRetry))
 		}
 
 		// 如果 ConfigMap 被意外删除，先确保它存在再尝试写入。
@@ -240,7 +240,7 @@ func (s *RegisterInstance) retryRegister() bool {
 
 		if err := s.register(); err != nil {
 			if s.log != nil {
-				s.log(logger.Error, fmt.Sprintf("kubernetes re-register failed: %v", err))
+				s.log.Error("kubernetes re-register failed", zap.Error(err))
 			}
 			continue
 		}

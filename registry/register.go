@@ -3,7 +3,7 @@ package registry
 import (
 	"fmt"
 
-	"github.com/fireflycore/go-micro/logger"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
@@ -19,8 +19,8 @@ type Register interface {
 	WithRetryBefore(func())
 	// WithRetryAfter 设置重试成功后回调，用于恢复通知等场景。
 	WithRetryAfter(func())
-	// WithLog 设置内部日志回调，统一输出实现内部状态。
-	WithLog(func(level logger.LogLevel, message string))
+	// WithLog 设置内部日志实例，统一输出实现内部状态。
+	WithLog(*zap.Logger)
 }
 
 // NewRegisterService 将 gRPC ServiceDesc 解析为节点方法集合并执行注册。

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
 	"github.com/google/uuid"
 	"github.com/hashicorp/consul/api"
+	"go.uber.org/zap"
 )
 
 const (
@@ -51,8 +51,7 @@ type RegisterInstance struct {
 	// 重试成功后的回调
 	retryAfter func()
 
-	// 内部日志回调
-	log func(level logger.LogLevel, message string)
+	log *zap.Logger
 
 	// leaseId 作为该实例的“租约标识”，用于保持与 etcd 实现一致的 LeaseId 语义。
 	// 注意：Consul 并不提供与 etcd leaseId 完全等价的概念，这里使用本地生成的稳定标识。
@@ -177,8 +176,8 @@ func (s *RegisterInstance) WithRetryAfter(handle func()) {
 }
 
 // WithLog 设置内部日志输出回调。
-func (s *RegisterInstance) WithLog(handle func(level logger.LogLevel, message string)) {
-	s.log = handle
+func (s *RegisterInstance) WithLog(log *zap.Logger) {
+	s.log = log
 }
 
 func (s *RegisterInstance) newServiceId() string {
@@ -257,12 +256,12 @@ func (s *RegisterInstance) retryHeartbeat() bool {
 		s.retryCount++
 
 		if s.log != nil {
-			s.log(logger.Info, fmt.Sprintf("consul retry heartbeat: %d/%d", s.retryCount, s.conf.MaxRetry))
+			s.log.Info("consul retry heartbeat", zap.Uint32("retryCount", s.retryCount), zap.Uint32("maxRetry", s.conf.MaxRetry))
 		}
 
 		if err := s.register(); err != nil {
 			if s.log != nil {
-				s.log(logger.Error, fmt.Sprintf("consul re-register failed: %v", err))
+				s.log.Error("consul re-register failed", zap.Error(err))
 			}
 			continue
 		}

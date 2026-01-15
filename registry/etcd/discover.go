@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
 	"github.com/fireflycore/go-utils/slicex"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 )
 
 // DiscoverInstance 基于 etcd 的服务发现实例。
@@ -38,8 +38,7 @@ type DiscoverInstance struct {
 	method  micro.ServiceMethod
 	service micro.ServiceDiscover
 
-	// 日志记录函数
-	log func(level logger.LogLevel, message string)
+	log *zap.Logger
 
 	// watchRev 用于衔接 bootstrap() 与 Watcher()：
 	// - bootstrap() 通过一次 Get 拉取快照，同时拿到该次 Get 的 revision
@@ -169,7 +168,7 @@ func (s *DiscoverInstance) Watcher() {
 				// - 网络/鉴权/集群不可用：v.Err() 非空
 				// - compact：CompactRevision > 0，需要从更高 revision 重新 watch
 				if s.log != nil && v.Err() != nil {
-					s.log(logger.Error, fmt.Sprintf("etcd watch canceled: %v", v.Err()))
+					s.log.Error("etcd watch canceled", zap.Error(v.Err()))
 				}
 				// 发生 compact：从压缩点之后开始重放
 				if v.CompactRevision > 0 {
@@ -230,8 +229,8 @@ func (s *DiscoverInstance) Unwatch() {
 // WithLog 设置日志记录函数
 // 参数:
 //   - handle: 日志处理函数，接收日志级别和消息内容
-func (s *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message string)) {
-	s.log = handle
+func (s *DiscoverInstance) WithLog(log *zap.Logger) {
+	s.log = log
 }
 
 // bootstrap 初始化引导
@@ -272,7 +271,7 @@ func (s *DiscoverInstance) bootstrap() error {
 
 	// 记录初始化完成日志
 	if s.log != nil {
-		s.log(logger.Info, fmt.Sprintf("Bootstrap completed, discovered %d services", len(s.service)))
+		s.log.Info("bootstrap completed", zap.Int("services", len(s.service)))
 	}
 
 	return nil
@@ -307,7 +306,7 @@ func (s *DiscoverInstance) adapter(e *clientv3.Event) {
 	var val micro.ServiceNode
 	if err := json.Unmarshal(tv, &val); err != nil {
 		if s.log != nil {
-			s.log(logger.Error, fmt.Sprintf("Failed to unmarshal service node: %s", err.Error()))
+			s.log.Error("failed to unmarshal service node", zap.Error(err))
 		}
 		return
 	}
@@ -341,7 +340,7 @@ func (s *DiscoverInstance) upsertNodeLocked(appId string, newNode *micro.Service
 	s.refreshMethodsLocked(appId)
 
 	if s.log != nil {
-		s.log(logger.Info, fmt.Sprintf("Service updated: %s, leaseId: %d, nodes count: %d", appId, newNode.LeaseId, len(s.service[appId])))
+		s.log.Info("service updated", zap.String("appId", appId), zap.Int("leaseId", newNode.LeaseId), zap.Int("nodesCount", len(s.service[appId])))
 	}
 }
 
@@ -357,7 +356,7 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 		// 删除后的节点数
 		remainingCount := len(s.service[appId])
 		if originalCount != remainingCount {
-			s.log(logger.Info, fmt.Sprintf("Service removed: %s, leaseId: %d, nodes count: %d -> %d", appId, removedNode.LeaseId, originalCount, remainingCount))
+			s.log.Info("service removed", zap.String("appId", appId), zap.Int("leaseId", removedNode.LeaseId), zap.Int("beforeCount", originalCount), zap.Int("afterCount", remainingCount))
 		}
 	}
 
@@ -369,7 +368,7 @@ func (s *DiscoverInstance) deleteNodeLocked(appId string, removedNode *micro.Ser
 	s.refreshMethodsLocked(appId)
 
 	if s.log != nil && len(s.service[appId]) == 0 {
-		s.log(logger.Info, fmt.Sprintf("Service %s has no nodes, removed from discovery", appId))
+		s.log.Info("service has no nodes, removed from discovery", zap.String("appId", appId))
 	}
 }
 

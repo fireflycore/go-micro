@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
 	"github.com/hashicorp/consul/api"
+	"go.uber.org/zap"
 )
 
 // DiscoverInstance 基于 Consul 的服务发现实例。
@@ -44,8 +44,7 @@ type DiscoverInstance struct {
 	method  micro.ServiceMethod
 	service micro.ServiceDiscover
 
-	// 日志记录函数
-	log func(level logger.LogLevel, message string)
+	log *zap.Logger
 
 	// waitIndex 用于 Consul 阻塞查询的游标（类似 etcd revision）。
 	// - bootstrap() 阶段：使用响应头的 X-Consul-Index 初始化
@@ -188,9 +187,8 @@ func (s *DiscoverInstance) Unwatch() {
 }
 
 // WithLog 设置内部日志回调。
-func (s *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message string)) {
-	// 允许外部注入统一日志输出（与 etcd 实现对齐）
-	s.log = handle
+func (s *DiscoverInstance) WithLog(log *zap.Logger) {
+	s.log = log
 }
 
 // serviceName 将 Namespace/Env 映射到 Consul service 名称空间。
@@ -218,7 +216,7 @@ func (s *DiscoverInstance) bootstrap() error {
 
 	// 记录初始化完成日志（如果上层设置了日志回调）
 	if s.log != nil {
-		s.log(logger.Info, fmt.Sprintf("Bootstrap completed, discovered %d services", len(s.service)))
+		s.log.Info("bootstrap completed", zap.Int("services", len(s.service)))
 	}
 
 	return nil
@@ -260,7 +258,7 @@ func (s *DiscoverInstance) rebuild(entries []*api.ServiceEntry) {
 		if err := json.Unmarshal([]byte(raw), &node); err != nil {
 			// JSON 解析失败通常意味着注册侧写入异常或 Consul 数据被污染；记录日志并跳过
 			if s.log != nil {
-				s.log(logger.Error, fmt.Sprintf("Failed to unmarshal service node: %s", err.Error()))
+				s.log.Error("failed to unmarshal service node", zap.Error(err))
 			}
 			continue
 		}

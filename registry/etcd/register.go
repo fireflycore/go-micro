@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap"
 )
 
 // RegisterInstance 基于 etcd 的服务注册实例
@@ -35,7 +35,7 @@ type RegisterInstance struct {
 	// 重试成功后的回调
 	retryAfter func()
 
-	log func(level logger.LogLevel, message string)
+	log *zap.Logger
 
 	// lastNode 缓存最后一次注册的服务节点信息：
 	// - KeepAlive 断线/租约失效后，会重新申请 lease
@@ -135,8 +135,8 @@ func (s *RegisterInstance) Uninstall() {
 }
 
 // WithLog 设置内部日志输出回调。
-func (s *RegisterInstance) WithLog(handle func(level logger.LogLevel, message string)) {
-	s.log = handle
+func (s *RegisterInstance) WithLog(log *zap.Logger) {
+	s.log = log
 }
 
 // WithRetryBefore 设置重试前回调。
@@ -237,7 +237,7 @@ func (s *RegisterInstance) retryLease() bool {
 		s.retryCount++
 
 		if s.log != nil {
-			s.log(logger.Info, fmt.Sprintf("etcd retry lease: %d/%d", s.retryCount, s.conf.MaxRetry))
+			s.log.Info("etcd retry lease", zap.Uint32("retryCount", s.retryCount), zap.Uint32("maxRetry", s.conf.MaxRetry))
 		}
 
 		// 重新获取 lease，Grant 失败：继续下一轮退避重试
@@ -254,7 +254,7 @@ func (s *RegisterInstance) retryLease() bool {
 			// Put 失败：继续下一轮重试
 			if err := s.register(); err != nil {
 				if s.log != nil {
-					s.log(logger.Error, fmt.Sprintf("etcd re-register failed: %v", err))
+					s.log.Error("etcd re-register failed", zap.Error(err))
 				}
 				continue
 			}

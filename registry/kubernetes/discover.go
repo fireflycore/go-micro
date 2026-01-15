@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fireflycore/go-micro/logger"
 	micro "github.com/fireflycore/go-micro/registry"
+	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,7 +49,7 @@ type DiscoverInstance struct {
 	service micro.ServiceDiscover
 
 	// log 用于输出实现内部状态（对齐 etcd/consul 的模式）。
-	log func(level logger.LogLevel, message string)
+	log *zap.Logger
 
 	// resourceVersion 是上一次读取到的 ConfigMap 版本号，用于判断是否需要刷新缓存。
 	resourceVersion string
@@ -155,8 +155,8 @@ func (s *DiscoverInstance) Unwatch() {
 }
 
 // WithLog 设置内部日志输出回调。
-func (s *DiscoverInstance) WithLog(handle func(level logger.LogLevel, message string)) {
-	s.log = handle
+func (s *DiscoverInstance) WithLog(log *zap.Logger) {
+	s.log = log
 }
 
 func (s *DiscoverInstance) bootstrap() error {
@@ -181,7 +181,7 @@ func (s *DiscoverInstance) bootstrap() error {
 	s.rebuild(cm, cm.ResourceVersion)
 
 	if s.log != nil {
-		s.log(logger.Info, fmt.Sprintf("Bootstrap completed, discovered %d services", len(s.service)))
+		s.log.Info("bootstrap completed", zap.Int("services", len(s.service)))
 	}
 
 	return nil
@@ -230,7 +230,7 @@ func (s *DiscoverInstance) rebuild(cm *corev1.ConfigMap, resourceVersion string)
 		var node micro.ServiceNode
 		if err := json.Unmarshal([]byte(raw), &node); err != nil {
 			if s.log != nil {
-				s.log(logger.Error, fmt.Sprintf("Failed to unmarshal service node: %s", err.Error()))
+				s.log.Error("failed to unmarshal service node", zap.Error(err))
 			}
 			continue
 		}
