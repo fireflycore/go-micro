@@ -3,7 +3,7 @@ module github.com/fireflycore/go-micro
 go 1.25.1
 
 require (
-	github.com/fireflycore/go-utils v0.3.5
+	github.com/fireflycore/go-utils v0.3.6
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.29.1
 	go.etcd.io/etcd/api/v3 v3.6.6
