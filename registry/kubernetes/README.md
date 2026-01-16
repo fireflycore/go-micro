@@ -1,151 +1,150 @@
-# Kubernetes Registry
+# Kubernetes / Istio Registry
 
-`kubernetes` 子包提供基于 **Kubernetes API** 的服务注册与发现实现，语义与 `etcd` / `consul` 子包保持一致，适合作为在 **K8s + Istio** 场景下的控制面注册中心。
+在云原生（Istio + Kubernetes）架构下，服务注册与发现模式发生了根本性转变：
 
-## 设计概览
+1.  **去中心化注册**：应用不再需要主动调用 API 写入注册中心（如 ETCD/Consul）。应用只需通过 Kubernetes Probe 暴露健康状态，Endpoint Controller 会自动维护可用 Pod 列表。
+2.  **DNS/Sidecar 发现**：客户端不再需要 Watch 注册中心。客户端只需 Dial 目标服务的 K8S Service Name（DNS），流量由 K8S Service iptables 或 Istio Envoy Sidecar 拦截并路由。
 
-- 注册侧：
-  - 使用一个 ConfigMap 作为存储，名称约定为：`ff-registry-<env>`；
-  - ConfigMap 位于 `ServiceConf.Namespace` 对应的 namespace 下；
-  - 每个服务实例以一条 `data` 记录存在：
-    - key：`<appId>/<leaseId>`；
-    - value：序列化后的 `registry.ServiceNode` JSON。
-  - `leaseId` 由注册实例本地生成（纳秒时间戳），用于区分不同进程实例。
-- 发现侧：
-  - 从同一个 ConfigMap 中读取并反序列化所有 `ServiceNode`；
-  - 构建两种索引：
-    - `service: appId -> []*ServiceNode`；
-    - `method: grpcMethod -> appId`（用于 `GetService` 快速定位）。
-  - 为模拟 etcd 的 lease 过期语义，会按 `RunDate` + `ServiceConf.TTL` 过滤超时节点，并按 `RunDate` 倒序返回节点（最新心跳优先）。
-- 生命周期：
-  - `Register.SustainLease` 周期性覆盖写入自身记录，模拟“租约心跳”；
-  - `Register.Uninstall` best-effort 删除自己的 key；
-  - `Discovery.Watcher` 按 `ServiceConf.TTL/2` 轮询读取 ConfigMap，仅当 `ConfigMap.metadata.resourceVersion` 变化时才重建本地缓存。
+因此，本模块实现了“极简”的注册与发现逻辑。
 
-## 与 etcd/consul 的一致性
+## 核心概念：注册与发现的分离
 
-- 接口对齐：
-  - 注册实现满足 `registry.Register` 接口；
-  - 发现实现满足 `registry.Discovery` 接口。
-- 语义对齐：
-  - `ServiceNode` 中的 `Meta` / `Network` / `Kernel` 等字段含义与其他后端完全一致；
-  - `LeaseId` 作为“实例唯一标识”，在 `kubernetes` 后端同样存在（用于 key 生成和去重）。
+**不是每个服务都需要同时使用 `NewRegister` 和 `NewDiscovery`。**
 
-只要调用侧只依赖 `registry.Register` / `registry.Discovery` 接口，就可以在 `etcd` / `consul` / `kubernetes` 之间无感切换。
+*   **服务端（Server）角色**：只需要 `NewRegister`。
+    *   作用：暴露健康检查（Health Check），告诉 K8S “我准备好接客了”。
+*   **客户端（Client）角色**：只需要 `NewDiscovery`。
+    *   作用：生成目标地址（DNS），告诉 gRPC “我要去访问谁”。
 
-## 基础用法
+---
 
-### In-Cluster 客户端
+## 最佳实践：端口策略
 
-在 Pod 内访问 Kubernetes APIServer，建议在业务侧自行初始化 client-go clientset，然后注入到本包的 `NewRegister` / `NewDiscover`：
+在 Kubernetes 环境中，由于容器拥有独立的网络栈，不同服务使用相同的容器端口（Container Port）**不会冲突**。
 
-- 使用的环境变量：
-  - `KUBERNETES_SERVICE_HOST` / `KUBERNETES_SERVICE_PORT`；
-  - 默认 ServiceAccount Token 文件：`/var/run/secrets/kubernetes.io/serviceaccount/token`。
+**我们强烈建议采用“统一端口”策略：**
+*   所有微服务的 gRPC 容器端口统一（例如 `9090`）。
+*   所有 K8S Service 的暴露端口统一（例如 `9090`）。
+
+**优势：**
+*   **运维简单**：Pod 模板、Service YAML、防火墙规则可以标准化。
+*   **开发简单**：客户端发现器只需配置一次默认端口，即可访问所有服务。
+
+更多大型项目实战案例（如多命名空间、异构端口管理），请参考 [K8S_ISTIO.md](../../../../ops/K8S_ISTIO.md)。
+
+---
+
+## 进阶：如何处理异构端口？
+
+如果你的项目中确实存在不同端口的服务（例如：User用9090，Storage用8080，Redis用6379），`Discovery` 提供了 **PortMap** 机制来优雅管理。
+
+你不需要为每个服务创建 `Discovery`，只需在初始化时配置映射表：
+
+```go
+func Init() {
+    // 全局创建一个发现器
+    // 1. 设置默认端口为 9090 (绝大多数服务使用)
+    // 2. 为特殊服务配置端口映射
+    discovery = kubernetes.NewDiscovery("default", 9090, kubernetes.WithPortMap(map[string]int{
+        "storage": 8080,
+        "redis":   6379,
+        "mysql":   3306,
+    }))
+}
+
+func Call() {
+    // 1. 调用 User (命中默认端口 9090)
+    // -> "dns:///user.default:9090"
+    t1 := discovery.GetTarget("user")
+    
+    // 2. 调用 Storage (命中映射表 8080)
+    // -> "dns:///storage.default:8080"
+    t2 := discovery.GetTarget("storage")
+    
+    // 3. 临时覆盖 (显式指定优先)
+    // -> "dns:///storage.default:8081"
+    t3 := discovery.GetTarget("storage:8081")
+}
+```
+
+这样，你依然只需要维护**一个全局 Discovery 实例**，即可优雅地处理所有服务的调用。
+
+---
+
+## Register (服务端)
+
+`NewRegister` 仅负责启动标准 gRPC Health Check 服务与 Reflection 反射服务。
 
 ```go
 import (
-	"github.com/fireflycore/go-micro/registry"
-	"github.com/fireflycore/go-micro/registry/kubernetes"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+    "google.golang.org/grpc"
+    "github.com/fireflycore/go-micro/registry/kubernetes"
 )
 
-func newK8sClientset() (kubernetes.Interface, error) {
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		return nil, err
-	}
-	return kubernetes.NewForConfig(cfg)
+func main() {
+    s := grpc.NewServer()
+    
+    // 1. 创建注册器（自动挂载 Health Server & Reflection）
+    // 支持通过环境变量 K8S_SHUTDOWN_WAIT 控制优雅停机等待时间
+    reg := kubernetes.NewRegister(s)
+    
+    // 2. 注册资源清理钩子（可选）
+    reg.OnShutdown(func() {
+        // 关闭 DB/Redis 等
+    })
+    
+    // 3. 注册业务服务
+    pb.RegisterGreeterServer(s, &server{})
+    
+    // 4. 启动（标记 Health 为 SERVING）
+    reg.Start()
+    
+    // 5. 阻塞运行，托管信号与优雅停机流程
+    go func() {
+        s.Serve(lis)
+    }()
+    reg.RunBlock()
 }
 ```
 
-### 服务注册
+在 K8S Deployment YAML 中配置 Probe：
+
+```yaml
+readinessProbe:
+  grpc:
+    port: 9090
+  initialDelaySeconds: 5
+```
+
+## Discovery (客户端)
+
+`Discovery` 支持智能解析，既支持统一端口，也兼容特殊端口。
 
 ```go
-func newK8sRegister() (registry.Register, error) {
-	client, err := newK8sClientset()
-	if err != nil {
-		return nil, err
-	}
+import (
+    "github.com/fireflycore/go-micro/registry/kubernetes"
+)
 
-	meta := &registry.Meta{
-		Env:     "prod",
-		AppId:   "user-service",
-		Version: "v1",
-	}
-
-	conf := &registry.ServiceConf{
-		Namespace: "my-namespace",
-		Network: &registry.Network{
-			// 建议在 K8s 集群内使用 Service DNS 作为内部地址。
-			Internal: "user-service.my-namespace.svc.cluster.local:8080",
-		},
-		Kernel:   &registry.Kernel{},
-		TTL:      10,
-		MaxRetry: 3,
-	}
-
-	return kubernetes.NewRegister(client, meta, conf)
+func main() {
+    // 全局创建一个发现器（配置团队约定的默认 Namespace 和 端口）
+    disc := kubernetes.NewDiscovery("default", 9090)
+    
+    // 场景 1：标准服务（使用默认端口 9090）
+    // 生成: "dns:///user-service.default:9090"
+    target1 := disc.GetTarget("user-service")
+    
+    // 场景 2：特殊服务（覆盖端口）
+    // 生成: "dns:///payment-service.default:8080"
+    target2 := disc.GetTarget("payment-service:8080")
+    
+    // 场景 3：跨命名空间（覆盖 Namespace）
+    // 生成: "dns:///redis.system:6379"
+    target3 := disc.GetTarget("redis.system:6379")
+    
+    // 建立连接 (建议开启 RoundRobin)
+    conn, _ := grpc.Dial(target1, 
+        grpc.WithInsecure(),
+        grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
+    )
 }
 ```
-
-上层通常会配合 `registry.NewRegisterService` 使用：
-
-```go
-func registerAll(raw []*grpc.ServiceDesc, reg registry.Register) {
-	_ = registry.NewRegisterService(raw, reg)
-	go reg.SustainLease()
-}
-```
-
-### 服务发现
-
-```go
-func newK8sDiscovery() (registry.Discovery, error) {
-	client, err := newK8sClientset()
-	if err != nil {
-		return nil, err
-	}
-
-	meta := &registry.Meta{
-		Env: "prod",
-	}
-	conf := &registry.ServiceConf{
-		Namespace: "my-namespace",
-	}
-
-	return kubernetes.NewDiscover(client, meta, conf)
-}
-
-func exampleDiscover(disc registry.Discovery) {
-	go disc.Watcher()
-
-	nodes, err := disc.GetService("/user.UserService/GetProfile")
-	_ = nodes
-	_ = err
-}
-```
-
-## Kubernetes + Istio
-
-关于在 Kubernetes + Istio 场景下的使用建议与最终落地方案，见 [K8S_ISTIO.md](file:///d:/project/firefly/go-micro/registry/kubernetes/K8S_ISTIO.md)。
-
-## 与 etcd lease 的差异（重要）
-
-etcd 后端依赖 lease，到期后 key 会被自动删除；而 Kubernetes ConfigMap 不具备 TTL 自动过期能力。因此：
-
-- 若服务进程异常退出未执行 `Uninstall`，ConfigMap 中的旧记录可能残留；
-- 本实现通过 `RunDate` 心跳字段模拟“活跃性”，发现侧会按 `RunDate + TTL` 过滤超时节点，避免把流量导向已失活实例；
-- 发现侧不会主动清理 ConfigMap 中的陈旧记录（只做读取过滤）。
-
-## 什么时候选择 kubernetes 实现
-
-- 部署环境：
-  - 服务已运行在 Kubernetes 集群中；
-  - 希望减少额外的外部依赖（如专门部署 etcd / consul 集群）。
-- 流量面：
-  - 流量全部通过 Kubernetes Service / Istio 管理；
-  - 只需要一个轻量级的“服务元信息注册与发现”能力。
-
-如果你已经在使用 etcd/consul 后端，也可以在相同 `registry.Register` / `registry.Discovery` 接口下平滑切换到 `kubernetes`，只需替换初始化部分的构造函数以及服务地址的配置方式即可。

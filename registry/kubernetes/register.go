@@ -1,363 +1,169 @@
 package kubernetes
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
+	"os"
+	"os/signal"
+	"strconv"
+	"sync"
+	"syscall"
 	"time"
 
-	micro "github.com/fireflycore/go-micro/registry"
 	"go.uber.org/zap"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
 )
 
-// RegisterInstance 基于 Kubernetes ConfigMap 的服务注册实例。
-//
-// 语义对齐：
-// - etcd 的 “key + lease” 模型 => ConfigMap.data 的 “key + 心跳更新时间” 模型；
-// - SustainLease 周期性刷新自身记录，模拟租约保活；
-// - Uninstall 删除自身 key，模拟租约撤销。
-type RegisterInstance struct {
-	// ctx/cancel 控制注册实例生命周期：
-	// - SustainLease 会阻塞运行，收到 ctx.Done() 后退出
-	// - Uninstall() 调用 cancel() 并删除本实例注册信息
-	ctx    context.Context
-	cancel context.CancelFunc
+// Register 基于 K8S/Istio 的服务注册实现。
+// 职责：
+// 1. 托管 gRPC Health Check (Liveness/Readiness Probe)。
+// 2. 开启 gRPC Reflection (便于 K8S 内部调试)。
+// 3. 提供生产级的优雅停机 (Graceful Shutdown) 流程与生命周期钩子。
+type Register struct {
+	server       *health.Server
+	grpcServer   *grpc.Server
+	log          *zap.Logger
+	shutdownWait time.Duration // 收到信号后，关闭 Server 前的等待时间
 
-	// client 是访问 Kubernetes API 的 client-go 客户端。
-	client kubernetes.Interface
-
-	// meta/conf 来自上层注入；Install 会把它们写入 ServiceNode。
-	meta *micro.Meta
-	conf *micro.ServiceConf
-
-	// retryCount 记录已重试次数（用于心跳失败时退避重试）。
-	retryCount uint32
-	// retryBefore 在每次重试前回调（用于指标/告警等）。
-	retryBefore func()
-	// retryAfter 在重试成功后回调（用于恢复通知等）。
-	retryAfter func()
-
-	// log 用于输出实现内部状态（对齐 etcd/consul 的模式）。
-	log *zap.Logger
-
-	// leaseId 用作该实例的“稳定唯一标识”，用于定位自身在 ConfigMap.data 的 key。
-	// 注意：Kubernetes 没有与 etcd LeaseID 完全等价的概念，这里以本地生成值对齐语义。
-	leaseId int
-
-	// lastNode 缓存最后一次注册的服务节点信息：
-	// - 心跳/重试时用于重新序列化写入；
-	// - 便于在重试中更新 RunDate。
-	lastNode *micro.ServiceNode
+	// 生命周期钩子
+	mu           sync.Mutex
+	shutdownHook []func()
 }
 
-// NewRegister 创建基于 Kubernetes 的服务注册实例。
-//
-// 约定：
-// - conf.Namespace 视为 Kubernetes namespace；
-// - ConfigMap 名称固定为 ff-registry-<env>（env 来自 meta.Env）。
-func NewRegister(client kubernetes.Interface, meta *micro.Meta, conf *micro.ServiceConf) (micro.Register, error) {
-	if client == nil {
-		return nil, fmt.Errorf(micro.ErrClientIsNil, "kubernetes")
-	}
-	if meta == nil {
-		return nil, micro.ErrServiceMetaIsNil
-	}
-	if conf == nil {
-		return nil, micro.ErrServiceConfIsNil
-	}
-	conf.Bootstrap()
+// NewRegister 创建一个基于 Health Check 的注册器。
+// 会自动开启 Health Check 和 Server Reflection。
+// 支持通过环境变量 K8S_SHUTDOWN_WAIT 配置等待时间（默认 10s）。
+func NewRegister(s *grpc.Server) *Register {
+	// 1. 注册 Health Server
+	hs := health.NewServer()
+	grpc_health_v1.RegisterHealthServer(s, hs)
 
-	// ctx 用于控制 SustainLease 的退出；Uninstall 会触发 cancel。
-	ctx, cancel := context.WithCancel(context.Background())
+	// 2. 注册 Reflection
+	reflection.Register(s)
 
-	// leaseId 使用纳秒时间戳生成，尽量降低冲突概率。
-	leaseId := int(time.Now().UnixNano())
-	if leaseId == 0 {
-		leaseId = 1
+	// 3. 读取配置
+	wait := 10 * time.Second
+	if v := os.Getenv("K8S_SHUTDOWN_WAIT"); v != "" {
+		if s, err := strconv.Atoi(v); err == nil && s > 0 {
+			wait = time.Duration(s) * time.Second
+		}
 	}
 
-	ins := &RegisterInstance{
-		ctx:     ctx,
-		cancel:  cancel,
-		client:  client,
-		meta:    meta,
-		conf:    conf,
-		leaseId: leaseId,
+	return &Register{
+		server:       hs,
+		grpcServer:   s,
+		shutdownWait: wait,
+		shutdownHook: make([]func(), 0),
 	}
-
-	return ins, nil
 }
 
-// Install 补齐 ServiceNode 元信息并写入 ConfigMap.data。
-func (s *RegisterInstance) Install(service *micro.ServiceNode) error {
-	if service == nil {
-		return micro.ErrServiceNodeIsNil
+// Start 标记服务状态为 SERVING。
+func (r *Register) Start() error {
+	r.server.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	if r.log != nil {
+		r.log.Info("k8s registry started",
+			zap.String("status", "SERVING"),
+			zap.Bool("reflection", true),
+			zap.Duration("shutdown_wait", r.shutdownWait),
+		)
 	}
-	if s.meta.AppId == "" {
-		return fmt.Errorf("service meta appId 为空")
-	}
-	if s.meta.Env == "" {
-		return fmt.Errorf("service meta env 为空")
-	}
-
-	// 对齐 etcd/consul：Install 负责补齐节点的运行时信息。
-	service.Meta = s.meta
-	service.Kernel = s.conf.Kernel
-	service.Network = s.conf.Network
-	service.LeaseId = s.leaseId
-	service.RunDate = time.Now().Format(time.DateTime)
-
-	// 缓存节点信息，后续心跳/重试会复用它重新写入。
-	s.lastNode = service
-
-	// 首次写入：把节点序列化并写入 ConfigMap.data[key]。
-	return s.register()
+	return nil
 }
 
-// Uninstall 删除本实例在 ConfigMap.data 中注册的 key，并停止心跳。
-func (s *RegisterInstance) Uninstall() {
-	// 先让 SustainLease 退出，避免并发写入/删除互相覆盖。
-	s.cancel()
+// Stop 标记服务状态为 NOT_SERVING。
+func (r *Register) Stop() {
+	r.server.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+	if r.log != nil {
+		r.log.Info("k8s registry stopped: health check not serving")
+	}
+}
 
-	// 没有完成 Install 前，lastNode 可能为空；此时无需删除。
-	if s.meta == nil || s.meta.AppId == "" {
+// SetStatus 手动设置特定服务的健康状态。
+// 用于业务逻辑中主动报告部分组件不可用（如 DB 断开）。
+// service: 服务名，空字符串代表整个 Server。
+func (r *Register) SetStatus(service string, status grpc_health_v1.HealthCheckResponse_ServingStatus) {
+	r.server.SetServingStatus(service, status)
+	if r.log != nil {
+		r.log.Info("health status changed", zap.String("service", service), zap.String("status", status.String()))
+	}
+}
+
+// WithLog 设置日志记录器。
+func (r *Register) WithLog(l *zap.Logger) {
+	r.log = l
+}
+
+// OnShutdown 注册在优雅停机过程中执行的钩子函数。
+// 这些函数会在 Health Check 停止后、gRPC Server 关闭前执行（并行执行或按需处理，此处为顺序执行）。
+// 典型用途：关闭数据库连接、清理 Redis 客户端、停止后台消费者等。
+func (r *Register) OnShutdown(fn func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.shutdownHook = append(r.shutdownHook, fn)
+}
+
+// RunBlock 启动一个阻塞的生命周期管理器。
+// 流程：Signal -> Health=NotServing -> Wait(Drain) -> Hooks -> GracefulStop
+func (r *Register) RunBlock() {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	if r.log != nil {
+		r.log.Info("server is running, waiting for signals...")
+	}
+
+	sig := <-quit
+	if r.log != nil {
+		r.log.Info("received signal, starting graceful shutdown", zap.String("signal", sig.String()))
+	}
+
+	// 1. 摘流：标记 Health 为 NOT_SERVING
+	r.Stop()
+
+	// 2. 缓冲：等待 K8S 网络传播
+	if r.shutdownWait > 0 {
+		if r.log != nil {
+			r.log.Info("waiting for traffic drain", zap.Duration("duration", r.shutdownWait))
+		}
+		time.Sleep(r.shutdownWait)
+	}
+
+	// 3. 资源清理：执行注册的 Shutdown Hooks
+	// 在 gRPC Stop 之前执行，确保像 DB 这样的资源在请求处理完之前（GracefulStop 期间）还可用？
+	// 不，GracefulStop 会等待所有 RPC 完成。如果 RPC 依赖 DB，那么 DB 必须在 GracefulStop *之后* 关闭。
+	// 但也有一些资源（如消息队列消费者）需要在 GracefulStop *之前* 停止，不再产生新任务。
+	// 为了通用性，我们采用“后进先出”或“顺序执行”策略，但通常资源关闭建议放在 GracefulStop 之后，
+	// 或者分为 BeforeStop 和 AfterStop。
+	// 这里简化为：先 GracefulStop（保证没有新请求，旧请求处理完），再执行 Hooks（关闭 DB 等底层资源）。
+
+	if r.log != nil {
+		r.log.Info("executing grpc graceful stop")
+	}
+	r.grpcServer.GracefulStop()
+
+	// 4. 执行自定义清理逻辑 (如关闭 DB)
+	r.executeHooks()
+
+	if r.log != nil {
+		r.log.Info("server exited gracefully")
+	}
+}
+
+func (r *Register) executeHooks() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.shutdownHook) == 0 {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// best-effort：删除失败不阻塞进程退出。
-	_ = s.deleteDataKey(ctx, s.dataKey())
-}
-
-// SustainLease 通过周期性刷新自身记录模拟“租约心跳”。
-func (s *RegisterInstance) SustainLease() {
-	// 用 TTL/2 作为心跳间隔，降低过期风险；最小 1s，避免过频调用 API Server。
-	interval := time.Duration(s.conf.TTL) * time.Second / 2
-	if interval < time.Second {
-		interval = time.Second
+	if r.log != nil {
+		r.log.Info("executing shutdown hooks", zap.Int("count", len(r.shutdownHook)))
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			// Uninstall() 会触发 ctx.Done()，这里优雅退出。
-			return
-		case <-ticker.C:
-			// 每次心跳都更新 RunDate，以便发现端可用作“最后活跃时间”。
-			if s.lastNode != nil {
-				s.lastNode.RunDate = time.Now().Format(time.DateTime)
-			}
-
-			// 心跳本质上就是一次 register()（覆盖写入自身 key）。
-			if err := s.register(); err != nil {
-				// 写入失败则进入退避重试；重试失败时直接退出（对齐 etcd/consul 的策略）。
-				if !s.retryRegister() {
-					return
-				}
-			} else if s.retryCount != 0 {
-				// 一旦成功写入，清零重试计数，避免误判为一直失败。
-				s.retryCount = 0
-			}
-		}
+	// 倒序执行，模拟 defer 行为
+	for i := len(r.shutdownHook) - 1; i >= 0; i-- {
+		r.shutdownHook[i]()
 	}
-}
-
-// WithRetryBefore 设置重试前回调。
-func (s *RegisterInstance) WithRetryBefore(handle func()) {
-	s.retryBefore = handle
-}
-
-// WithRetryAfter 设置重试成功后回调。
-func (s *RegisterInstance) WithRetryAfter(handle func()) {
-	s.retryAfter = handle
-}
-
-// WithLog 设置内部日志输出回调。
-func (s *RegisterInstance) WithLog(log *zap.Logger) {
-	s.log = log
-}
-
-func (s *RegisterInstance) dataKey() string {
-	// key 结构对齐 etcd：{appId}/{leaseId}
-	return fmt.Sprintf("%s/%d", s.meta.AppId, s.leaseId)
-}
-
-func (s *RegisterInstance) register() error {
-	// 未 Install 前没有节点信息；此时不写入，保持幂等。
-	if s.lastNode == nil {
-		return nil
-	}
-
-	// value 用 JSON 序列化后的 ServiceNode；发现端会反序列化并刷新本地缓存。
-	b, err := json.Marshal(s.lastNode)
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-	defer cancel()
-
-	return s.upsertDataKey(ctx, s.dataKey(), string(b))
-}
-
-func (s *RegisterInstance) retryRegister() bool {
-	// 重试策略（对齐 etcd/consul）：
-	// - 每轮间隔 TTL*5 秒；
-	// - 达到 MaxRetry 仍失败则放弃（SustainLease 退出）；
-	// - 成功写入后清零计数并触发 retryAfter。
-	for s.retryCount < s.conf.MaxRetry {
-		if s.retryBefore != nil {
-			s.retryBefore()
-		}
-
-		timer := time.NewTimer(time.Duration(s.conf.TTL) * 5 * time.Second)
-		select {
-		case <-s.ctx.Done():
-			timer.Stop()
-			return false
-		case <-timer.C:
-		}
-
-		s.retryCount++
-
-		if s.log != nil {
-			s.log.Info("kubernetes retry register", zap.Uint32("retryCount", s.retryCount), zap.Uint32("maxRetry", s.conf.MaxRetry))
-		}
-
-		// 如果 ConfigMap 被意外删除，先确保它存在再尝试写入。
-		if err := s.ensureConfigMap(); err != nil {
-			continue
-		}
-
-		if err := s.register(); err != nil {
-			if s.log != nil {
-				s.log.Error("kubernetes re-register failed", zap.Error(err))
-			}
-			continue
-		}
-
-		if s.retryAfter != nil {
-			s.retryAfter()
-		}
-
-		s.retryCount = 0
-		return true
-	}
-
-	return false
-}
-
-func (s *RegisterInstance) ensureConfigMap() error {
-	ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-	defer cancel()
-
-	name := configMapName(s.meta.Env)
-	ns := s.conf.Namespace
-
-	_, err := s.client.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return err
-	}
-
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-		},
-		Data: map[string]string{},
-	}
-
-	_, err = s.client.CoreV1().ConfigMaps(ns).Create(ctx, cm, metav1.CreateOptions{})
-	if err != nil && apierrors.IsAlreadyExists(err) {
-		return nil
-	}
-	return err
-}
-
-func (s *RegisterInstance) upsertDataKey(ctx context.Context, key, value string) error {
-	if err := s.ensureConfigMap(); err != nil {
-		return err
-	}
-
-	name := configMapName(s.meta.Env)
-	ns := s.conf.Namespace
-
-	var lastErr error
-	for i := 0; i < 5; i++ {
-		cm, err := s.client.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				if ensureErr := s.ensureConfigMap(); ensureErr != nil {
-					lastErr = ensureErr
-					continue
-				}
-				lastErr = err
-				continue
-			}
-			return err
-		}
-
-		if cm.Data == nil {
-			cm.Data = map[string]string{}
-		}
-		cm.Data[key] = value
-
-		_, err = s.client.CoreV1().ConfigMaps(ns).Update(ctx, cm, metav1.UpdateOptions{})
-		if err == nil {
-			return nil
-		}
-		if apierrors.IsConflict(err) {
-			lastErr = err
-			continue
-		}
-		return err
-	}
-	return lastErr
-}
-
-func (s *RegisterInstance) deleteDataKey(ctx context.Context, key string) error {
-	name := configMapName(s.meta.Env)
-	ns := s.conf.Namespace
-
-	var lastErr error
-	for i := 0; i < 5; i++ {
-		cm, err := s.client.CoreV1().ConfigMaps(ns).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				return nil
-			}
-			return err
-		}
-		if cm.Data == nil {
-			return nil
-		}
-		if _, ok := cm.Data[key]; !ok {
-			return nil
-		}
-
-		delete(cm.Data, key)
-
-		_, err = s.client.CoreV1().ConfigMaps(ns).Update(ctx, cm, metav1.UpdateOptions{})
-		if err == nil {
-			return nil
-		}
-		if apierrors.IsConflict(err) {
-			lastErr = err
-			continue
-		}
-		return err
-	}
-	return lastErr
 }
