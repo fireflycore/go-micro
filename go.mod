@@ -6,8 +6,8 @@ require (
 	github.com/fireflycore/go-utils v0.3.6
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.29.1
-	go.etcd.io/etcd/api/v3 v3.6.6
-	go.etcd.io/etcd/client/v3 v3.6.6
+	go.etcd.io/etcd/api/v3 v3.6.7
+	go.etcd.io/etcd/client/v3 v3.6.7
 	go.uber.org/zap v1.27.1
 	google.golang.org/grpc v1.77.0
 )
@@ -33,7 +33,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
-	go.etcd.io/etcd/client/pkg/v3 v3.6.6 // indirect
+	go.etcd.io/etcd/client/pkg/v3 v3.6.7 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20230817173708-d852ddb80c63 // indirect
 	golang.org/x/net v0.47.0 // indirect
