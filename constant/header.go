@@ -6,27 +6,34 @@ const (
 	Authorization     = "authorization"
 	AuthorizationType = "authorization-type"
 
-	AppLanguage = "ff-app-language"
-	AppVersion  = "ff-app-version"
+	// Firefly系统自定义头部（统一前缀）
+	HeaderPrefix = "x-firefly-"
 
-	TraceId  = "ff-trace-id"
-	Session  = "ff-session"
-	UserId   = "ff-user-id"
-	AppId    = "ff-app-id"
-	TenantId = "ff-tenant-id"
-	ClientIp = "ff-client-ip"
+	// 应用相关
+	AppLanguage = HeaderPrefix + "app-language"
+	AppVersion  = HeaderPrefix + "app-version"
 
-	RoleIds = "ff-role-ids"
-	OrgIds  = "ff-org-ids"
+	// 用户上下文
+	TraceId  = HeaderPrefix + "trace-id"
+	Session  = HeaderPrefix + "session"
+	UserId   = HeaderPrefix + "user-id"
+	AppId    = HeaderPrefix + "app-id"
+	TenantId = HeaderPrefix + "tenant-id"
+	ClientIp = HeaderPrefix + "client-ip"
 
-	SystemName       = "ff-system-name"
-	ClientName       = "ff-client-name"
-	SystemType       = "ff-system-type"
-	ClientType       = "ff-client-type"
-	DeviceFormFactor = "ff-device-form-factor"
-	SystemVersion    = "ff-system-version"
-	ClientVersion    = "ff-client-version"
+	// 权限相关
+	RoleIds = HeaderPrefix + "role-ids"
+	OrgIds  = HeaderPrefix + "org-ids"
 
-	GrpcGatewayAuth = "ff-grpc-gateway-auth"
-	HttpGatewayAuth = "ff-http-gateway-auth"
+	// 设备/客户端信息
+	SystemName       = HeaderPrefix + "system-name"
+	ClientName       = HeaderPrefix + "client-name"
+	SystemType       = HeaderPrefix + "system-type"
+	ClientType       = HeaderPrefix + "client-type"
+	DeviceFormFactor = HeaderPrefix + "device-form-factor"
+	SystemVersion    = HeaderPrefix + "system-version"
+	ClientVersion    = HeaderPrefix + "client-version"
+
+	// 网关认证
+	GatewayAuth = HeaderPrefix + "gateway-auth"
 )
