@@ -4,6 +4,7 @@ package registry
 type ServiceNode struct {
 	ProtoCount int             `json:"proto_count"`
 	LeaseId    int             `json:"lease_id"`
+	Weight     int             `json:"weight"` // 权重，默认100
 	RunDate    string          `json:"run_date"`
 	Methods    map[string]bool `json:"methods"`
 

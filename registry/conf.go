@@ -15,12 +15,17 @@ type ServiceConf struct {
 	MaxRetry uint32 `json:"max_retry"`
 	// 心跳/租约 TTL（秒）, 最少是10s
 	TTL uint32 `json:"ttl"`
+	// 权重
+	Weight int `json:"weight"`
 }
 
 // Bootstrap 补齐 namespace/ttl/maxRetry/network/kernel 等默认值，避免下游逻辑出现零值陷阱
 func (sc *ServiceConf) Bootstrap() {
 	if sc.Namespace == "" {
 		sc.Namespace = constant.DefaultNamespace
+	}
+	if sc.Weight <= 0 {
+		sc.Weight = 100
 	}
 	if sc.MaxRetry < constant.DefaultMaxRetry {
 		sc.MaxRetry = constant.DefaultMaxRetry
