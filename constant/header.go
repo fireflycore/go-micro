@@ -36,4 +36,12 @@ const (
 
 	// 网关认证
 	GatewayAuth = HeaderPrefix + "gateway-auth"
+
+	// 服务调用相关（Invoke-服务调用方信息，Target-被调用方服务信息）
+	InvokeService              = HeaderPrefix + "invoke-service"
+	InvokeServiceAppId         = HeaderPrefix + "invoke-service-app-id"
+	InvokeServiceClientIp      = HeaderPrefix + "invoke-service-client-ip"
+	InvokeServiceAuthorization = HeaderPrefix + "invoke-service-authorization"
+	TargetServiceAppId         = HeaderPrefix + "target-service-app-id"
+	TargetServiceClientIp      = HeaderPrefix + "target-service-client-ip"
 )
