@@ -52,7 +52,12 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 				loggerMap["error"] = err.Error()
 			}
 
-			loggerMap["ip"], _ = rpc.ParseMetaKey(md, constant.ClientIp)
+			clientIp, ce := rpc.ParseMetaKey(md, constant.XRealIp)
+			if ce != nil {
+				clientIp, _ = rpc.ParseMetaKey(md, constant.ClientIp)
+			}
+
+			loggerMap["ip"] = clientIp
 
 			loggerMap["system_name"], _ = rpc.ParseMetaKey(md, constant.SystemName)
 			loggerMap["client_name"], _ = rpc.ParseMetaKey(md, constant.ClientName)
