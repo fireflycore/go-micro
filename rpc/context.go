@@ -7,7 +7,7 @@ import (
 )
 
 // SetRemoteInvokeServiceBeforeContext 设置远程调用前置上下文
-func SetRemoteInvokeServiceBeforeContext(ctx context.Context, token, appId, endpoint string) context.Context {
+func SetRemoteInvokeServiceBeforeContext(ctx context.Context, appId, endpoint, token string) context.Context {
 	pm, _ := metadata.FromIncomingContext(ctx)
 
 	md := pm.Copy()
@@ -19,12 +19,12 @@ func SetRemoteInvokeServiceBeforeContext(ctx context.Context, token, appId, endp
 }
 
 // SetRemoteInvokeServiceAfterContext 设置远程调用后置上下文
-func SetRemoteInvokeServiceAfterContext(ctx context.Context, appId, clientIp string) context.Context {
+func SetRemoteInvokeServiceAfterContext(ctx context.Context, appId, endpoint string) context.Context {
 	pm, _ := metadata.FromIncomingContext(ctx)
 
 	md := pm.Copy()
 	md.Set(constant.TargetServiceAppId, appId)
-	md.Set(constant.TargetServiceEndpoint, clientIp)
+	md.Set(constant.TargetServiceEndpoint, endpoint)
 
 	return metadata.NewOutgoingContext(ctx, md)
 }
