@@ -1,6 +1,5 @@
 package constant
 
 const (
-	InvokeServiceStart  = "start"
-	InvokeServiceFinish = "finish"
+	InvokeServiceAuthToken = "invoke-service-auth"
 )
