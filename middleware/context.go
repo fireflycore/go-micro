@@ -4,6 +4,8 @@ package middleware
 import (
 	"context"
 
+	"github.com/fireflycore/go-micro/conf"
+	"github.com/fireflycore/go-micro/rpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -15,4 +17,11 @@ func PropagateIncomingMetadata(ctx context.Context, req interface{}, _ *grpc.Una
 	// 同时避免对原始入站元数据的意外修改。
 	oc := metadata.NewOutgoingContext(ctx, md.Copy())
 	return handler(oc, req)
+}
+
+// WithServiceContext 将服务的信息注入到上下文中
+func WithServiceContext(conf conf.BootstrapConf) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		return handler(rpc.SetRemoteInvokeServiceBeforeContext(ctx, conf.GetAppId(), conf.GetServiceEndpoint(), conf.GetServiceAuthToken()), req)
+	}
 }
