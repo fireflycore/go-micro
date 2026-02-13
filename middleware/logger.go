@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-micro/logger"
 	"github.com/fireflycore/go-micro/rpc"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -34,23 +35,20 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 		}
 
 		if handle != nil {
-			loggerMap := make(map[string]interface{})
+			log := &logger.AccessLogger{}
 
 			// method 字段保持与既有日志采集协议一致（历史字段，值固定）。
-			loggerMap["method"] = 5
-			loggerMap["path"] = info.FullMethod
+			log.Method = constant.RequestMethodGrpc
+			log.Path = info.FullMethod
 
 			request, _ := json.Marshal(req)
-			loggerMap["request"] = string(request)
+			log.Request = string(request)
 
 			response, _ := json.Marshal(resp)
-			loggerMap["response"] = string(response)
+			log.Response = string(response)
 
-			loggerMap["duration"] = elapsed.Microseconds()
-			loggerMap["status"] = status
-			if err != nil {
-				loggerMap["error"] = err.Error()
-			}
+			log.Duration = uint64(elapsed.Microseconds())
+			log.Status = uint32(status)
 
 			// --- Endpoint 解析逻辑变更 ---
 
@@ -61,47 +59,48 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 			// 兼容旧逻辑或降级：如果 ClientEndpoint 为空，尝试取 Peer IP (虽然这通常在网关层做，但 Service 层兜底也没坏处)
 			// 但基于新规范，Service 层应信任网关传递的 Header。
 
-			loggerMap["source_ip"] = sourceIp
-			loggerMap["client_ip"] = clientIp
+			log.SourceIp = sourceIp
+			log.ClientIp = clientIp
 
 			// 2. Invoke Identity (调用方声明)
 			invokeServiceAppId, _ := rpc.ParseMetaKey(md, constant.InvokeServiceAppId)
 			invokeServiceEndpoint, _ := rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint)
-			loggerMap["invoke_service_app_id"] = invokeServiceAppId
-			loggerMap["invoke_service_endpoint"] = invokeServiceEndpoint
+			log.InvokeServiceAppId = invokeServiceAppId
+			log.InvokeServiceEndpoint = invokeServiceEndpoint
 
 			// 3. Target Identity (目标路由信息，由 Proxy 注入)
 			targetServiceAppId, _ := rpc.ParseMetaKey(md, constant.TargetServiceAppId)
 			targetServiceEndpoint, _ := rpc.ParseMetaKey(md, constant.TargetServiceEndpoint)
-			loggerMap["target_service_app_id"] = targetServiceAppId
-			loggerMap["target_service_endpoint"] = targetServiceEndpoint
+			log.TargetServiceAppId = targetServiceAppId
+			log.TargetServiceEndpoint = targetServiceEndpoint
 
 			// ---------------------------
 
-			loggerMap["system_name"], _ = rpc.ParseMetaKey(md, constant.SystemName)
-			loggerMap["client_name"], _ = rpc.ParseMetaKey(md, constant.ClientName)
+			log.SystemName, _ = rpc.ParseMetaKey(md, constant.SystemName)
+			log.ClientName, _ = rpc.ParseMetaKey(md, constant.ClientName)
 
 			systemType, se := rpc.ParseMetaKey(md, constant.SystemType)
-			loggerMap["system_type"] = parseInt32OrZero(systemType, se)
+			log.SystemType = parseInt32OrZero(systemType, se)
 			clientType, ce := rpc.ParseMetaKey(md, constant.ClientType)
-			loggerMap["client_type"] = parseInt32OrZero(clientType, ce)
+			log.ClientType = parseInt32OrZero(clientType, ce)
 			deviceFormFactor, de := rpc.ParseMetaKey(md, constant.DeviceFormFactor)
-			loggerMap["device_form_factor"] = parseInt32OrZero(deviceFormFactor, de)
+			log.DeviceFormFactor = parseInt32OrZero(deviceFormFactor, de)
 
-			loggerMap["system_version"], _ = rpc.ParseMetaKey(md, constant.SystemVersion)
-			loggerMap["client_version"], _ = rpc.ParseMetaKey(md, constant.ClientVersion)
-			loggerMap["app_version"], _ = rpc.ParseMetaKey(md, constant.AppVersion)
+			log.SystemVersion, _ = rpc.ParseMetaKey(md, constant.SystemVersion)
+			log.ClientVersion, _ = rpc.ParseMetaKey(md, constant.ClientVersion)
+			log.AppVersion, _ = rpc.ParseMetaKey(md, constant.AppVersion)
 
 			traceId, le := rpc.ParseMetaKey(md, constant.TraceId)
 			if le != nil {
 				// 兼容上游未透传 trace_id 的场景，保证每条日志至少可被唯一关联。
 				traceId = uuid.New().String()
 			}
-			loggerMap["trace_id"] = traceId
-			loggerMap["user_id"], _ = rpc.ParseMetaKey(md, constant.UserId)
-			loggerMap["app_id"], _ = rpc.ParseMetaKey(md, constant.AppId)
+			log.TraceId = traceId
+			log.UserId, _ = rpc.ParseMetaKey(md, constant.UserId)
+			log.AppId, _ = rpc.ParseMetaKey(md, constant.AppId)
+			log.TenantId, _ = rpc.ParseMetaKey(md, constant.TenantId)
 
-			b, _ := json.Marshal(loggerMap)
+			b, _ := json.Marshal(log)
 			handle(b, fmt.Sprintf("[%s] [GRPC]:[%s] [%s]-[%d] [SourceIp:%s] [ClientIp:%s] [InvokeServiceAppId:%s]\n",
 				time.Now().Format(time.DateTime),
 				info.FullMethod,
@@ -117,7 +116,7 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 	}
 }
 
-func parseInt32OrZero(raw string, err error) int64 {
+func parseInt32OrZero(raw string, err error) uint32 {
 	if err != nil {
 		return 0
 	}
@@ -125,5 +124,5 @@ func parseInt32OrZero(raw string, err error) int64 {
 	if pe != nil {
 		return 0
 	}
-	return v
+	return uint32(v)
 }
