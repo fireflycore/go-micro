@@ -1,4 +1,4 @@
-package middleware
+package gm
 
 import (
 	"context"
@@ -15,10 +15,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// GrpcAccessLogger GRPC访问日志中间件，一般在WithServiceContext之前使用
+// NewServiceAccessLogger 服务访问日志中间件，一般在具体WithServiceContext之前使用
 // handle 接收两类日志：b 为结构化 JSON，msg 为人类可读文本行；
 // 字段包含 path/request/response/duration/status/trace_id 等，便于统一采集。
-func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterceptor {
+func NewServiceAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		start := time.Now()
 		md, _ := metadata.FromIncomingContext(ctx)

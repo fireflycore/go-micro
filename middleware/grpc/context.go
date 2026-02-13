@@ -1,5 +1,4 @@
-// Package middleware 提供 gRPC 中间件能力。
-package middleware
+package gm
 
 import (
 	"context"
@@ -19,8 +18,8 @@ func PropagateIncomingMetadata(ctx context.Context, req interface{}, _ *grpc.Una
 	return handler(oc, req)
 }
 
-// WithServiceContext 将服务的信息注入到上下文中
-func WithServiceContext(conf conf.BootstrapConf) grpc.UnaryServerInterceptor {
+// NewServiceContext 将服务的信息注入到上下文中
+func NewServiceContext(conf conf.BootstrapConf) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		return handler(rpc.SetRemoteInvokeServiceBeforeContext(ctx, conf.GetAppId(), conf.GetServiceEndpoint(), conf.GetServiceAuthToken()), req)
 	}
