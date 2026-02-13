@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// GrpcAccessLogger 返回一个 gRPC Unary 拦截器，用于输出访问日志。
+// GrpcAccessLogger GRPC访问日志中间件，一般在WithServiceContext之前使用
 // handle 接收两类日志：b 为结构化 JSON，msg 为人类可读文本行；
 // 字段包含 path/request/response/duration/status/trace_id 等，便于统一采集。
 func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterceptor {
@@ -52,12 +52,31 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 				loggerMap["error"] = err.Error()
 			}
 
-			clientIp, ce := rpc.ParseMetaKey(md, constant.XRealIp)
-			if ce != nil {
-				clientIp, _ = rpc.ParseMetaKey(md, constant.ClientIp)
-			}
+			// --- Endpoint 解析逻辑变更 ---
 
-			loggerMap["ip"] = clientIp
+			// 1. Trace Identity (由 Gateway 计算并注入)
+			sourceIp, _ := rpc.ParseMetaKey(md, constant.SourceIp)
+			clientIp, _ := rpc.ParseMetaKey(md, constant.ClientIp)
+
+			// 兼容旧逻辑或降级：如果 ClientEndpoint 为空，尝试取 Peer IP (虽然这通常在网关层做，但 Service 层兜底也没坏处)
+			// 但基于新规范，Service 层应信任网关传递的 Header。
+
+			loggerMap["source_ip"] = sourceIp
+			loggerMap["client_ip"] = clientIp
+
+			// 2. Invoke Identity (调用方声明)
+			invokeServiceAppId, _ := rpc.ParseMetaKey(md, constant.InvokeServiceAppId)
+			invokeServiceEndpoint, _ := rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint)
+			loggerMap["invoke_service_app_id"] = invokeServiceAppId
+			loggerMap["invoke_service_endpoint"] = invokeServiceEndpoint
+
+			// 3. Target Identity (目标路由信息，由 Proxy 注入)
+			targetServiceAppId, _ := rpc.ParseMetaKey(md, constant.TargetServiceAppId)
+			targetServiceEndpoint, _ := rpc.ParseMetaKey(md, constant.TargetServiceEndpoint)
+			loggerMap["target_service_app_id"] = targetServiceAppId
+			loggerMap["target_service_endpoint"] = targetServiceEndpoint
+
+			// ---------------------------
 
 			loggerMap["system_name"], _ = rpc.ParseMetaKey(md, constant.SystemName)
 			loggerMap["client_name"], _ = rpc.ParseMetaKey(md, constant.ClientName)
@@ -83,7 +102,15 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 			loggerMap["app_id"], _ = rpc.ParseMetaKey(md, constant.AppId)
 
 			b, _ := json.Marshal(loggerMap)
-			handle(b, fmt.Sprintf("[%s] [GRPC]:[%s] [%s]-[%d]\n", time.Now().Format(time.DateTime), info.FullMethod, elapsed.String(), status))
+			handle(b, fmt.Sprintf("[%s] [GRPC]:[%s] [%s]-[%d] [SourceIp:%s] [ClientIp:%s] [InvokeServiceAppId:%s]\n",
+				time.Now().Format(time.DateTime),
+				info.FullMethod,
+				elapsed.String(),
+				status,
+				sourceIp,
+				clientIp,
+				invokeServiceAppId,
+			))
 		}
 
 		return resp, err
