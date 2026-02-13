@@ -10,6 +10,11 @@ const (
 	// HeaderPrefix Firefly系统自定义头部（统一前缀）
 	HeaderPrefix = "x-firefly-"
 
+	// AccessMethod 访问方式（http2grpc[http-gateway->grpc-gateway], grpc2grpc[grpc-gateway->grpc-service]）
+	AccessMethod          = HeaderPrefix + "access-method"
+	AccessMethodHTTP2GRPC = "http2grpc"
+	AccessMethodGRPC2GRPC = "grpc2grpc"
+
 	// TraceId 链路id
 	TraceId = HeaderPrefix + "trace-id"
 
