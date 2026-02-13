@@ -53,26 +53,16 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 			// --- Endpoint 解析逻辑变更 ---
 
 			// 1. Trace Identity (由 Gateway 计算并注入)
-			sourceIp, _ := rpc.ParseMetaKey(md, constant.SourceIp)
-			clientIp, _ := rpc.ParseMetaKey(md, constant.ClientIp)
-
-			// 兼容旧逻辑或降级：如果 ClientEndpoint 为空，尝试取 Peer IP (虽然这通常在网关层做，但 Service 层兜底也没坏处)
-			// 但基于新规范，Service 层应信任网关传递的 Header。
-
-			log.SourceIp = sourceIp
-			log.ClientIp = clientIp
+			log.SourceIp, _ = rpc.ParseMetaKey(md, constant.SourceIp)
+			log.ClientIp, _ = rpc.ParseMetaKey(md, constant.ClientIp)
 
 			// 2. Invoke Identity (调用方声明)
-			invokeServiceAppId, _ := rpc.ParseMetaKey(md, constant.InvokeServiceAppId)
-			invokeServiceEndpoint, _ := rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint)
-			log.InvokeServiceAppId = invokeServiceAppId
-			log.InvokeServiceEndpoint = invokeServiceEndpoint
+			log.InvokeServiceAppId, _ = rpc.ParseMetaKey(md, constant.InvokeServiceAppId)
+			log.InvokeServiceEndpoint, _ = rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint)
 
 			// 3. Target Identity (目标路由信息，由 Proxy 注入)
-			targetServiceAppId, _ := rpc.ParseMetaKey(md, constant.TargetServiceAppId)
-			targetServiceEndpoint, _ := rpc.ParseMetaKey(md, constant.TargetServiceEndpoint)
-			log.TargetServiceAppId = targetServiceAppId
-			log.TargetServiceEndpoint = targetServiceEndpoint
+			log.TargetServiceAppId, _ = rpc.ParseMetaKey(md, constant.TargetServiceAppId)
+			log.TargetServiceEndpoint, _ = rpc.ParseMetaKey(md, constant.TargetServiceEndpoint)
 
 			// ---------------------------
 
@@ -81,8 +71,10 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 
 			systemType, se := rpc.ParseMetaKey(md, constant.SystemType)
 			log.SystemType = parseInt32OrZero(systemType, se)
+
 			clientType, ce := rpc.ParseMetaKey(md, constant.ClientType)
 			log.ClientType = parseInt32OrZero(clientType, ce)
+
 			deviceFormFactor, de := rpc.ParseMetaKey(md, constant.DeviceFormFactor)
 			log.DeviceFormFactor = parseInt32OrZero(deviceFormFactor, de)
 
@@ -106,9 +98,9 @@ func GrpcAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterce
 				info.FullMethod,
 				elapsed.String(),
 				status,
-				sourceIp,
-				clientIp,
-				invokeServiceAppId,
+				log.SourceIp,
+				log.ClientIp,
+				log.InvokeServiceAppId,
 			))
 		}
 
