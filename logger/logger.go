@@ -12,3 +12,37 @@ const (
 
 // LogLevel 表示日志级别。
 type LogLevel string
+
+// AccessLogger 表示访问日志。
+type AccessLogger struct {
+	Method   int32  `json:"method"`
+	Path     string `json:"path"`
+	Request  string `json:"request"`
+	Response string `json:"response"`
+	Duration uint64 `json:"duration"`
+	Status   uint32 `json:"status"`
+
+	ClientIp        string `json:"client_ip"`
+	SourceIp        string `json:"source_ip"`
+	SourceIpAddress string `json:"source_ip_address"`
+
+	SystemType       uint32 `json:"system_type"`
+	ClientType       uint32 `json:"client_type"`
+	DeviceFormFactor uint32 `json:"device_form_factor"`
+
+	ClientName    string `json:"client_name"`
+	ClientVersion string `json:"client_version"`
+	SystemName    string `json:"system_name"`
+	SystemVersion string `json:"system_version"`
+	AppVersion    string `json:"app_version"`
+
+	InvokeServiceAppId    string `json:"invoke_service_app_id"`
+	InvokeServiceEndpoint string `json:"invoke_service_endpoint"`
+	TargetServiceAppId    string `json:"target_service_app_id"`
+	TargetServiceEndpoint string `json:"target_service_endpoint"`
+
+	TraceId  string `json:"trace_id"`
+	UserId   string `json:"user_id"`
+	AppId    string `json:"app_id"`
+	TenantId string `json:"tenant_id"`
+}
