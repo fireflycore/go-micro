@@ -2,7 +2,9 @@ package rpc
 
 import (
 	"context"
+
 	"github.com/fireflycore/go-micro/constant"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -14,6 +16,10 @@ func SetRemoteInvokeServiceBeforeContext(ctx context.Context, appId, endpoint, t
 	md.Set(constant.InvokeServiceAuth, token)
 	md.Set(constant.InvokeServiceAppId, appId)
 	md.Set(constant.InvokeServiceEndpoint, endpoint)
+
+	if _, err := ParseMetaKey(md, constant.TraceId); err != nil {
+		md.Set(constant.TraceId, uuid.New().String())
+	}
 
 	return metadata.NewOutgoingContext(ctx, md)
 }
