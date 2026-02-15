@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"github.com/fireflycore/go-micro/constant"
 	"runtime"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -74,4 +75,18 @@ func NewHostInfo() (*HostInfo, error) {
 	}
 
 	return info, nil
+}
+
+// GetSystemType 获取系统类型
+func (ist *HostInfo) GetSystemType() uint32 {
+	switch runtime.GOOS {
+	case "windows":
+		return constant.SystemTypeWindows
+	case "linux":
+		return constant.SystemTypeLinux
+	case "darwin":
+		return constant.SystemTypeMacOS
+	default:
+		return constant.SystemTypeUnspecified
+	}
 }
