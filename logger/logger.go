@@ -26,12 +26,11 @@ type AccessLogger struct {
 	SourceIp        string `json:"source_ip"`
 	SourceIpAddress string `json:"source_ip_address"`
 
-	SystemType       uint32 `json:"system_type"`
-	ClientType       uint32 `json:"client_type"`
-	DeviceFormFactor uint32 `json:"device_form_factor"`
-
+	ClientType    uint32 `json:"client_type"`
 	ClientName    string `json:"client_name"`
 	ClientVersion string `json:"client_version"`
+
+	SystemType    uint32 `json:"system_type"`
 	SystemName    string `json:"system_name"`
 	SystemVersion string `json:"system_version"`
 	AppVersion    string `json:"app_version"`

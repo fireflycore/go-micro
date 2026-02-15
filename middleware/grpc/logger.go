@@ -75,9 +75,6 @@ func NewServiceAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerI
 			clientType, ce := rpc.ParseMetaKey(md, constant.ClientType)
 			log.ClientType = parseInt32OrZero(clientType, ce)
 
-			deviceFormFactor, de := rpc.ParseMetaKey(md, constant.DeviceFormFactor)
-			log.DeviceFormFactor = parseInt32OrZero(deviceFormFactor, de)
-
 			log.SystemVersion, _ = rpc.ParseMetaKey(md, constant.SystemVersion)
 			log.ClientVersion, _ = rpc.ParseMetaKey(md, constant.ClientVersion)
 			log.AppVersion, _ = rpc.ParseMetaKey(md, constant.AppVersion)
