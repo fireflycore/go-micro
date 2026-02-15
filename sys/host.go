@@ -33,7 +33,7 @@ type HostInfo struct {
 
 // GetHostInfo 获取当前宿主机的静态配置信息
 // 注意：此方法仅获取静态或总量信息，不包含实时的使用率数据
-func GetHostInfo() (*HostInfo, error) {
+func NewHostInfo() (*HostInfo, error) {
 	info := &HostInfo{
 		OS:   runtime.GOOS,
 		Arch: runtime.GOARCH,
