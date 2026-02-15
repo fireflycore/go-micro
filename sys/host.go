@@ -1,13 +1,15 @@
 package sys
 
 import (
-	"github.com/fireflycore/go-micro/constant"
+	"net"
 	"runtime"
 
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/disk"
-	"github.com/shirou/gopsutil/v3/host"
-	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/fireflycore/go-micro/constant"
+
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 // HostInfo 存储宿主机的静态信息
@@ -20,6 +22,14 @@ type HostInfo struct {
 	PlatformVersion string `json:"platform_version"` // 平台版本
 	KernelVersion   string `json:"kernel_version"`   // 内核版本
 	Arch            string `json:"arch"`             // 系统架构 (e.g. amd64, arm64)
+
+	// 唯一标识信息
+	HostID   string   `json:"host_id"`   // 宿主机唯一 ID (System UUID)
+	MacAddrs []string `json:"mac_addrs"` // 物理网卡 MAC 地址列表
+
+	// 虚拟化信息 (用于反作弊检测)
+	VirtualizationSystem string `json:"virtualization_system"` // 虚拟化系统 (e.g. kvm, vmware, docker, wsl)
+	VirtualizationRole   string `json:"virtualization_role"`   // 角色 (guest/host)
 
 	// CPU 信息
 	CPUModelName string `json:"cpu_model_name"` // CPU 型号名称
@@ -40,16 +50,30 @@ func NewHostInfo() (*HostInfo, error) {
 		Arch: runtime.GOARCH,
 	}
 
-	// 1. 获取主机信息 (Hostname, Platform, KernelVersion 等)
+	// 1. 获取主机信息 (Hostname, Platform, KernelVersion, HostID, Virtualization 等)
 	hInfo, err := host.Info()
 	if err == nil {
 		info.Hostname = hInfo.Hostname
 		info.Platform = hInfo.Platform
 		info.PlatformVersion = hInfo.PlatformVersion
 		info.KernelVersion = hInfo.KernelVersion
+		info.HostID = hInfo.HostID
+		info.VirtualizationSystem = hInfo.VirtualizationSystem
+		info.VirtualizationRole = hInfo.VirtualizationRole
 	}
 
-	// 2. 获取 CPU 信息
+	// 2. 获取 MAC 地址
+	interfaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range interfaces {
+			// 过滤掉 loopback 接口，且必须有 MAC 地址
+			if iface.Flags&net.FlagLoopback == 0 && len(iface.HardwareAddr) > 0 {
+				info.MacAddrs = append(info.MacAddrs, iface.HardwareAddr.String())
+			}
+		}
+	}
+
+	// 3. 获取 CPU 信息
 	// cpu.Info() 返回每个 CPU 的信息切片
 	cInfos, err := cpu.Info()
 	if err == nil && len(cInfos) > 0 {
@@ -61,13 +85,13 @@ func NewHostInfo() (*HostInfo, error) {
 		info.CPUCores = cores
 	}
 
-	// 3. 获取内存总量
+	// 4. 获取内存总量
 	mInfo, err := mem.VirtualMemory()
 	if err == nil {
 		info.TotalMemory = mInfo.Total
 	}
 
-	// 4. 获取磁盘总量 (根分区)
+	// 5. 获取磁盘总量 (根分区)
 	// 在 Windows 上 "/" 可能对应当前驱动器根目录，在 Unix 上对应根分区
 	dInfo, err := disk.Usage("/")
 	if err == nil {
