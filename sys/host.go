@@ -31,7 +31,7 @@ type HostInfo struct {
 	TotalDisk uint64 `json:"total_disk"` // 根分区磁盘总量 (Bytes)
 }
 
-// GetHostInfo 获取当前宿主机的静态配置信息
+// NewHostInfo 获取当前宿主机的静态配置信息
 // 注意：此方法仅获取静态或总量信息，不包含实时的使用率数据
 func NewHostInfo() (*HostInfo, error) {
 	info := &HostInfo{
