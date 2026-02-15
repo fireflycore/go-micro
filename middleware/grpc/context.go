@@ -21,6 +21,6 @@ func PropagateIncomingMetadata(ctx context.Context, req interface{}, _ *grpc.Una
 // NewInjectServiceContext 将服务的信息注入到上下文中
 func NewInjectServiceContext(conf conf.BootstrapConf) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		return handler(rpc.SetRemoteInvokeServiceBeforeContext(ctx, conf.GetAppId(), conf.GetServiceEndpoint(), conf.GetServiceAuthToken()), req)
+		return handler(rpc.SetRemoteInvokeServiceBeforeContext(ctx, conf), req)
 	}
 }
