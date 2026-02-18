@@ -15,6 +15,11 @@ const (
 	AccessMethodHTTP2GRPC = "http2grpc"
 	AccessMethodGRPC2GRPC = "grpc2grpc"
 
+	// RouteMethod 路由方式（user[user-permission], service[service-permission]）
+	RouteMethod        = HeaderPrefix + "route-method"
+	RouteMethodUser    = "user"
+	RouteMethodService = "service"
+
 	// TraceId 链路id
 	TraceId = HeaderPrefix + "trace-id"
 
