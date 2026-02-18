@@ -15,6 +15,7 @@ func SetRemoteInvokeServiceBeforeContext(ctx context.Context, bootstrapConf conf
 	pm, _ := metadata.FromIncomingContext(ctx)
 
 	md := pm.Copy()
+	md.Set(constant.RouteMethod, constant.RouteMethodService)
 	md.Set(constant.InvokeServiceAppId, bootstrapConf.GetAppId())
 	md.Set(constant.InvokeServiceEndpoint, bootstrapConf.GetServiceEndpoint())
 	md.Set(constant.InvokeServiceAuth, bootstrapConf.GetServiceAuthToken())
