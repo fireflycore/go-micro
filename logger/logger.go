@@ -1,17 +1,14 @@
 // Package logger 定义 go-micro 的基础日志级别类型。
 package logger
 
-const (
-	// Info 表示信息级别日志。
-	Info LogLevel = "info"
-	// Error 表示错误级别日志。
-	Error LogLevel = "error"
-	// Success 表示成功级别日志。
-	Success LogLevel = "success"
-)
+// LogLevel 定义日志级别枚举。
+type LogLevel uint32
 
-// LogLevel 表示日志级别。
-type LogLevel string
+const (
+	Info  LogLevel = 1 // Info 普通级别。
+	Warn  LogLevel = 2 // Warn 警告级别。
+	Error LogLevel = 3 // Error 错误级别。
+)
 
 // AccessLogger 表示访问日志。
 type AccessLogger struct {
@@ -44,4 +41,29 @@ type AccessLogger struct {
 	UserId   string `json:"user_id"`
 	AppId    string `json:"app_id"`
 	TenantId string `json:"tenant_id"`
+}
+
+// ServerLogger 表示服务端日志。
+type ServerLogger struct {
+	Path    string   `json:"path"`
+	Level   LogLevel `json:"level"`
+	Content string   `json:"content"`
+	TraceId string   `json:"trace_id"`
+}
+
+// OperationLogger 表示操作日志。
+type OperationLogger struct {
+	Database  string `json:"database"`
+	Statement string `json:"statement"`
+	Result    string `json:"result"`
+	Path      string `json:"path"`
+
+	Duration uint64 `json:"duration"`
+
+	Level uint32 `json:"level"`
+	Type  uint32 `json:"type"`
+
+	TraceId     string `json:"trace_id"`
+	TargetAppId string `json:"target_app_id"`
+	InvokeAppId string `json:"invoke_app_id"`
 }
