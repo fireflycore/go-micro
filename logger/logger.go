@@ -45,12 +45,12 @@ type AccessLogger struct {
 
 // ServerLogger 表示服务端日志。
 type ServerLogger struct {
-	Path    string   `json:"path"`
-	Level   LogLevel `json:"level"`
-	Content string   `json:"content"`
-	TraceId string   `json:"trace_id"`
-	UserId  string   `json:"user_id"`
-	AppId   string   `json:"app_id"`
+	Path    string `json:"path"`
+	Level   uint32 `json:"level"`
+	Content string `json:"content"`
+	TraceId string `json:"trace_id"`
+	UserId  string `json:"user_id"`
+	AppId   string `json:"app_id"`
 }
 
 // OperationLogger 表示操作日志。
