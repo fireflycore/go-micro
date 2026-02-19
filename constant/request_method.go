@@ -8,18 +8,26 @@ const (
 	RequestMethodGrpc
 )
 
-var RequestMethodValueMap = map[uint32]string{
-	RequestMethodGet:    "GET",
-	RequestMethodPost:   "POST",
-	RequestMethodPut:    "PUT",
-	RequestMethodDelete: "DELETE",
-	RequestMethodGrpc:   "GRPC",
+const (
+	RequestMethodGetString    = "GET"
+	RequestMethodPostString   = "POST"
+	RequestMethodPutString    = "PUT"
+	RequestMethodDeleteString = "DELETE"
+	RequestMethodGrpcString   = "GRPC"
+)
+
+var RequestMethodMap = map[uint32]string{
+	RequestMethodGet:    RequestMethodGetString,
+	RequestMethodPost:   RequestMethodPostString,
+	RequestMethodPut:    RequestMethodPutString,
+	RequestMethodDelete: RequestMethodDeleteString,
+	RequestMethodGrpc:   RequestMethodGrpcString,
 }
 
-var RequestMethodKeyMap = map[string]uint32{
-	"GET":    RequestMethodGet,
-	"POST":   RequestMethodPost,
-	"PUT":    RequestMethodPut,
-	"DELETE": RequestMethodDelete,
-	"GRPC":   RequestMethodGrpc,
+var RequestMethodStringMap = map[string]uint32{
+	RequestMethodGetString:    RequestMethodGet,
+	RequestMethodPostString:   RequestMethodPost,
+	RequestMethodPutString:    RequestMethodPut,
+	RequestMethodDeleteString: RequestMethodDelete,
+	RequestMethodGrpcString:   RequestMethodGrpc,
 }
