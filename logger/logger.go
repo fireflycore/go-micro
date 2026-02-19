@@ -15,7 +15,7 @@ type LogLevel string
 
 // AccessLogger 表示访问日志。
 type AccessLogger struct {
-	Method   int32  `json:"method"`
+	Method   uint32 `json:"method"`
 	Path     string `json:"path"`
 	Request  string `json:"request"`
 	Response string `json:"response"`
