@@ -49,6 +49,8 @@ type ServerLogger struct {
 	Level   LogLevel `json:"level"`
 	Content string   `json:"content"`
 	TraceId string   `json:"trace_id"`
+	UserId  string   `json:"user_id"`
+	AppId   string   `json:"app_id"`
 }
 
 // OperationLogger 表示操作日志。
@@ -64,6 +66,7 @@ type OperationLogger struct {
 	Type  uint32 `json:"type"`
 
 	TraceId     string `json:"trace_id"`
+	UserId      string `json:"user_id"`
 	TargetAppId string `json:"target_app_id"`
 	InvokeAppId string `json:"invoke_app_id"`
 }
