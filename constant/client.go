@@ -1,17 +1,17 @@
 package constant
 
 const (
-	ClientTypeUnspecified uint32 = 0
+	ClientTypeUnspecified = iota
 	// ClientTypeWebBrowser 网页端浏览器
-	ClientTypeWebBrowser uint32 = 1
+	ClientTypeWebBrowser
 	// ClientTypeMiniProgram 小程序
-	ClientTypeMiniProgram uint32 = 2
+	ClientTypeMiniProgram
 	// ClientTypeMobileApp 移动端应用
-	ClientTypeMobileApp uint32 = 3
+	ClientTypeMobileApp
 	// ClientTypeDesktopApp 桌面端应用
-	ClientTypeDesktopApp uint32 = 4
+	ClientTypeDesktopApp
 	// ClientTypeServer 服务端
-	ClientTypeServer uint32 = 5
+	ClientTypeServer
 	// ClientTypeEmbedded 嵌入式
-	ClientTypeEmbedded uint32 = 6
+	ClientTypeEmbedded
 )
