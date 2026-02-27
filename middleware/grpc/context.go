@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/fireflycore/go-micro/conf"
+	"github.com/fireflycore/go-micro/constant"
 	"github.com/fireflycore/go-micro/rpc"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -14,6 +16,23 @@ func PropagateIncomingMetadata(ctx context.Context, req interface{}, _ *grpc.Una
 	md, _ := metadata.FromIncomingContext(ctx)
 	// 复制一份元数据到 OutgoingContext，保证服务内的下游 gRPC 调用能自动携带同一套上下文信息，
 	// 同时避免对原始入站元数据的意外修改。
+	oc := metadata.NewOutgoingContext(ctx, md.Copy())
+	return handler(oc, req)
+}
+
+// BeforeGuard 前置守卫
+func BeforeGuard(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	pm := md.Copy()
+
+	if _, err := rpc.ParseMetaKey(md, constant.TraceId); err != nil {
+		pm.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
+	}
+	if spanId, err := rpc.ParseMetaKey(md, constant.SpanId); err == nil {
+		pm.Set(constant.ParentId, spanId)
+	}
+	pm.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
+
 	oc := metadata.NewOutgoingContext(ctx, md.Copy())
 	return handler(oc, req)
 }
