@@ -38,6 +38,9 @@ type AccessLogger struct {
 	TargetServiceEndpoint string `json:"target_service_endpoint"`
 
 	TraceId  string `json:"trace_id"`
+	ParentId string `json:"parent_id"`
+	SpanId   string `json:"span_id"`
+
 	UserId   string `json:"user_id"`
 	AppId    string `json:"app_id"`
 	TenantId string `json:"tenant_id"`
@@ -48,9 +51,13 @@ type ServerLogger struct {
 	Path    string `json:"path"`
 	Level   uint32 `json:"level"`
 	Content string `json:"content"`
-	TraceId string `json:"trace_id"`
-	UserId  string `json:"user_id"`
-	AppId   string `json:"app_id"`
+
+	TraceId  string `json:"trace_id"`
+	SpanId   string `json:"span_id"`
+	ParentId string `json:"parent_id"`
+
+	UserId string `json:"user_id"`
+	AppId  string `json:"app_id"`
 }
 
 // OperationLogger 表示操作日志。
@@ -65,7 +72,10 @@ type OperationLogger struct {
 	Level uint32 `json:"level"`
 	Type  uint32 `json:"type"`
 
-	TraceId     string `json:"trace_id"`
+	TraceId  string `json:"trace_id"`
+	SpanId   string `json:"span_id"`
+	ParentId string `json:"parent_id"`
+
 	UserId      string `json:"user_id"`
 	TargetAppId string `json:"target_app_id"`
 	InvokeAppId string `json:"invoke_app_id"`
