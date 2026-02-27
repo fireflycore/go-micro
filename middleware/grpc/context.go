@@ -11,30 +11,23 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// PropagateIncomingMetadata 将入站元数据传播到出站上下文中
-func PropagateIncomingMetadata(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	md, _ := metadata.FromIncomingContext(ctx)
-	// 复制一份元数据到 OutgoingContext，保证服务内的下游 gRPC 调用能自动携带同一套上下文信息，
-	// 同时避免对原始入站元数据的意外修改。
-	oc := metadata.NewOutgoingContext(ctx, md.Copy())
-	return handler(oc, req)
-}
+// NewBeforeGuard 前置守卫
+func NewBeforeGuard() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		md, _ := metadata.FromIncomingContext(ctx)
+		pm := md.Copy()
 
-// BeforeGuard 前置守卫
-func BeforeGuard(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	md, _ := metadata.FromIncomingContext(ctx)
-	pm := md.Copy()
+		if _, err := rpc.ParseMetaKey(md, constant.TraceId); err != nil {
+			pm.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
+		}
+		if spanId, err := rpc.ParseMetaKey(md, constant.SpanId); err == nil {
+			pm.Set(constant.ParentId, spanId)
+		}
+		pm.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
 
-	if _, err := rpc.ParseMetaKey(md, constant.TraceId); err != nil {
-		pm.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
+		oc := metadata.NewOutgoingContext(ctx, md.Copy())
+		return handler(oc, req)
 	}
-	if spanId, err := rpc.ParseMetaKey(md, constant.SpanId); err == nil {
-		pm.Set(constant.ParentId, spanId)
-	}
-	pm.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
-
-	oc := metadata.NewOutgoingContext(ctx, md.Copy())
-	return handler(oc, req)
 }
 
 // NewInjectServiceContext 将服务的信息注入到上下文中
