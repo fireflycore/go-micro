@@ -29,8 +29,12 @@ func SetRemoteInvokeServiceBeforeContext(ctx context.Context, bootstrapConf conf
 	md.Set(constant.SystemVersion, bootstrapConf.GetSystemVersion())
 
 	if _, err := ParseMetaKey(md, constant.TraceId); err != nil {
-		md.Set(constant.TraceId, uuid.New().String())
+		md.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
 	}
+	if spanId, err := ParseMetaKey(md, constant.SpanId); err == nil {
+		md.Set(constant.ParentId, spanId)
+	}
+	md.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
 
 	return metadata.NewOutgoingContext(ctx, md)
 }
