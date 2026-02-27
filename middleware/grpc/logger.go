@@ -79,12 +79,15 @@ func NewServiceAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerI
 			log.ClientVersion, _ = rpc.ParseMetaKey(md, constant.ClientVersion)
 			log.AppVersion, _ = rpc.ParseMetaKey(md, constant.AppVersion)
 
+			log.ParentId, _ = rpc.ParseMetaKey(md, constant.ParentId)
 			traceId, le := rpc.ParseMetaKey(md, constant.TraceId)
 			if le != nil {
 				// 兼容上游未透传 trace_id 的场景，保证每条日志至少可被唯一关联。
-				traceId = uuid.New().String()
+				traceId = uuid.Must(uuid.NewV7()).String()
 			}
 			log.TraceId = traceId
+			log.SpanId, _ = rpc.ParseMetaKey(md, constant.SpanId)
+
 			log.UserId, _ = rpc.ParseMetaKey(md, constant.UserId)
 			log.AppId, _ = rpc.ParseMetaKey(md, constant.AppId)
 			log.TenantId, _ = rpc.ParseMetaKey(md, constant.TenantId)
