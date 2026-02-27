@@ -10,11 +10,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// SetRemoteInvokeServiceBeforeContext 设置远程调用前置上下文
-func SetRemoteInvokeServiceBeforeContext(ctx context.Context, bootstrapConf conf.BootstrapConf) context.Context {
-	pm, _ := metadata.FromIncomingContext(ctx)
+// NewRemoteInvokeServiceContext 初始化远程调用服务上下文
+func NewRemoteInvokeServiceContext(bootstrapConf conf.BootstrapConf) context.Context {
+	md := metadata.Pairs()
 
-	md := pm.Copy()
 	md.Set(constant.RouteMethod, constant.RouteMethodService)
 	md.Set(constant.InvokeServiceAppId, bootstrapConf.GetAppId())
 	md.Set(constant.InvokeServiceEndpoint, bootstrapConf.GetServiceEndpoint())
@@ -28,6 +27,14 @@ func SetRemoteInvokeServiceBeforeContext(ctx context.Context, bootstrapConf conf
 	md.Set(constant.SystemName, bootstrapConf.GetSystemName())
 	md.Set(constant.SystemVersion, bootstrapConf.GetSystemVersion())
 
+	return metadata.NewOutgoingContext(context.Background(), md)
+}
+
+// SetRemoteInvokeServiceBeforeContext 设置远程调用前置上下文
+func SetRemoteInvokeServiceBeforeContext(ctx context.Context, bootstrapConf conf.BootstrapConf) context.Context {
+	pm, _ := metadata.FromIncomingContext(ctx)
+
+	md := pm.Copy()
 	if _, err := ParseMetaKey(md, constant.TraceId); err != nil {
 		md.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
 	}
