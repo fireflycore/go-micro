@@ -53,7 +53,6 @@ type ServerLogger struct {
 	Content string `json:"content"`
 
 	TraceId  string `json:"trace_id"`
-	SpanId   string `json:"span_id"`
 	ParentId string `json:"parent_id"`
 
 	UserId string `json:"user_id"`
@@ -73,7 +72,6 @@ type OperationLogger struct {
 	Type  uint32 `json:"type"`
 
 	TraceId  string `json:"trace_id"`
-	SpanId   string `json:"span_id"`
 	ParentId string `json:"parent_id"`
 
 	UserId      string `json:"user_id"`
