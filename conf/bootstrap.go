@@ -10,4 +10,6 @@ type BootstrapConf interface {
 	GetSystemName() string
 	GetSystemType() uint32
 	GetSystemVersion() string
+
+	GetGatewayEndpoint() string
 }
