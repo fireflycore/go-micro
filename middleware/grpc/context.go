@@ -25,7 +25,7 @@ func NewBeforeGuard() grpc.UnaryServerInterceptor {
 		}
 		pm.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
 
-		oc := metadata.NewOutgoingContext(ctx, md.Copy())
+		oc := metadata.NewIncomingContext(ctx, md.Copy())
 		return handler(oc, req)
 	}
 }
