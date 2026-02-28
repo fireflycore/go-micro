@@ -14,19 +14,18 @@ import (
 // NewBeforeGuard 前置守卫
 func NewBeforeGuard() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
-		md, _ := metadata.FromIncomingContext(ctx)
-		pm := md.Copy()
+		pm, _ := metadata.FromIncomingContext(ctx)
 
-		if _, err := rpc.ParseMetaKey(md, constant.TraceId); err != nil {
-			pm.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
+		md := pm.Copy()
+		if _, err := rpc.ParseMetaKey(pm, constant.TraceId); err != nil {
+			md.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
 		}
-		if spanId, err := rpc.ParseMetaKey(md, constant.SpanId); err == nil {
-			pm.Set(constant.ParentId, spanId)
+		if spanId, err := rpc.ParseMetaKey(pm, constant.SpanId); err == nil {
+			md.Set(constant.ParentId, spanId)
 		}
-		pm.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
+		md.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
 
-		oc := metadata.NewIncomingContext(ctx, md.Copy())
-		return handler(oc, req)
+		return handler(metadata.NewIncomingContext(ctx, md), req)
 	}
 }
 
