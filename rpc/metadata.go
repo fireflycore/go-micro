@@ -7,11 +7,15 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// UserContextMeta 表示用户上下文元信息。
-type UserContextMeta struct {
+// TraceContextMeta 表示链路跟踪元信息
+type TraceContextMeta struct {
 	ParentId string `json:"parent_id"`
 	TraceId  string `json:"trace_id"`
+	SpanId   string `json:"span_id"`
+}
 
+// UserContextMeta 表示用户元信息
+type UserContextMeta struct {
 	Session  string `json:"session"`
 	ClientIp string `json:"client_ip"`
 
@@ -21,16 +25,6 @@ type UserContextMeta struct {
 
 	RoleIds []string `json:"role_ids"`
 	OrgIds  []string `json:"org_ids"`
-}
-
-// ClientContextMeta 表示客户端上下文元信息。
-type ClientContextMeta struct {
-	ParentId string `json:"parent_id"`
-	TraceId  string `json:"trace_id"`
-
-	ClientIp    string `json:"client_ip"`
-	AppVersion  string `json:"app_version"`
-	AppLanguage string `json:"app_language"`
 }
 
 // ParseMetaKey 解析元信息 key。
@@ -48,9 +42,6 @@ func ParseMetaKey(md metadata.MD, key string) (string, error) {
 // ParseUserContextMeta 解析用户上下文元信息。
 func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	raw = &UserContextMeta{}
-
-	raw.ParentId, _ = ParseMetaKey(md, constant.ParentId)
-	raw.TraceId, _ = ParseMetaKey(md, constant.TraceId)
 
 	// 这些字段作为鉴权/审计的基础上下文，缺失时直接返回错误，避免下游以“空值”继续执行。
 	raw.Session, err = ParseMetaKey(md, constant.Session)
@@ -78,30 +69,6 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	// Role/Org 属于可选上下文：允许缺失，缺省为 nil/空切片，由上层按需处理。
 	raw.RoleIds = md.Get(constant.RoleIds)
 	raw.OrgIds = md.Get(constant.OrgIds)
-
-	return raw, nil
-}
-
-// ParseClientContextMeta 解析客户端上下文元信息。
-func ParseClientContextMeta(md metadata.MD) (raw *ClientContextMeta, err error) {
-	raw = &ClientContextMeta{}
-
-	raw.ParentId, _ = ParseMetaKey(md, constant.ParentId)
-	raw.TraceId, _ = ParseMetaKey(md, constant.TraceId)
-
-	// 客户端上下文用于版本灰度/埋点等场景；缺失时返回错误便于调用方显式兜底。
-	raw.ClientIp, err = ParseMetaKey(md, constant.ClientIp)
-	if err != nil {
-		return nil, err
-	}
-	raw.AppVersion, err = ParseMetaKey(md, constant.AppVersion)
-	if err != nil {
-		return nil, err
-	}
-	raw.AppLanguage, err = ParseMetaKey(md, constant.AppLanguage)
-	if err != nil {
-		return nil, err
-	}
 
 	return raw, nil
 }
