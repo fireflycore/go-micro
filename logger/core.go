@@ -37,8 +37,21 @@ func (l *Core) WithError(ctx context.Context, msg string, fields ...zap.Field) {
 }
 
 func (l *Core) withCtx(ctx context.Context, fields []zap.Field) []zap.Field {
-	traceId, _ := ctx.Value(constant.TraceId).(string)
-	spanId, _ := ctx.Value(constant.SpanId).(string)
+	if traceId, ok := ctx.Value(constant.TraceId).(string); ok {
+		fields = append(fields, zap.String("trace_id", traceId))
+	}
+	if spanId, ok := ctx.Value(constant.SpanId).(string); ok {
+		fields = append(fields, zap.String("parent_id", spanId))
+	}
+	if userId, ok := ctx.Value(constant.UserId).(string); ok {
+		fields = append(fields, zap.String("user_id", userId))
+	}
+	if appId, ok := ctx.Value(constant.AppId).(string); ok {
+		fields = append(fields, zap.String("app_id", appId))
+	}
+	if tenantId, ok := ctx.Value(constant.TenantId).(string); ok {
+		fields = append(fields, zap.String("tenant_id", tenantId))
+	}
 
-	return append(fields, zap.String("trace_id", traceId), zap.String("parent_id", spanId))
+	return fields
 }
