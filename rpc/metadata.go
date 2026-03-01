@@ -20,6 +20,13 @@ type UserContextMeta struct {
 	OrgIds  []string `json:"org_ids"`
 }
 
+// ClientContextMeta 表示客户端上下文元信息。
+type ClientContextMeta struct {
+	SourceIp    string `json:"source_ip"`
+	AppVersion  string `json:"app_version"`
+	AppLanguage string `json:"app_language"`
+}
+
 // ParseMetaKey 解析元信息 key。
 func ParseMetaKey(md metadata.MD, key string) (string, error) {
 	val := md.Get(key)
@@ -64,4 +71,15 @@ func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
 	raw.OrgIds = md.Get(constant.OrgIds)
 
 	return raw, nil
+}
+
+// ParseClientContextMeta 解析客户端上下文元信息。
+func ParseClientContextMeta(md metadata.MD) (raw *ClientContextMeta) {
+	raw = &ClientContextMeta{}
+
+	raw.SourceIp, _ = ParseMetaKey(md, constant.SourceIp)
+	raw.AppVersion, _ = ParseMetaKey(md, constant.AppVersion)
+	raw.AppLanguage, _ = ParseMetaKey(md, constant.AppLanguage)
+
+	return raw
 }
