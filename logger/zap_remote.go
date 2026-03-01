@@ -61,7 +61,7 @@ func (c *remoteCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 	allFields = append(allFields, c.fields...)
 	allFields = append(allFields, fields...)
 
-	var traceId, parentId, userId, appId string
+	var traceId, parentId, userId, appId, tenantId string
 	found := 0
 
 	enc := zapcore.NewMapObjectEncoder()
@@ -71,7 +71,7 @@ func (c *remoteCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 
 		// 提取关注的字段（仅在尚未找到时检查）
 		// 我们关注 trace_id, parent_id, user_id, app_id 以便在顶层结构中提升它们
-		if found < 4 {
+		if found < 5 {
 			switch {
 			case (f.Key == "trace_id" || f.Key == "TraceId") && f.Type == zapcore.StringType && traceId == "":
 				traceId = f.String
@@ -84,6 +84,9 @@ func (c *remoteCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 				found++
 			case (f.Key == "app_id" || f.Key == "AppId") && f.Type == zapcore.StringType && appId == "":
 				appId = f.String
+				found++
+			case (f.Key == "tenant_id" || f.Key == "TenantId") && f.Type == zapcore.StringType && tenantId == "":
+				tenantId = f.String
 				found++
 			}
 		}
@@ -110,6 +113,7 @@ func (c *remoteCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
 		ParentId: parentId,
 		UserId:   userId,
 		AppId:    appId,
+		TenantId: tenantId,
 	})
 	if err == nil {
 		c.handle(b)
