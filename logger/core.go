@@ -25,18 +25,18 @@ func NewLogger(logger *zap.Logger) *Core {
 }
 
 func (l *Core) WithInfo(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Info(msg, l.withCtx(ctx, fields)...)
+	l.Logger.Info(msg, l.withContext(ctx, fields)...)
 }
 
 func (l *Core) WithWarn(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Warn(msg, l.withCtx(ctx, fields)...)
+	l.Logger.Warn(msg, l.withContext(ctx, fields)...)
 }
 
 func (l *Core) WithError(ctx context.Context, msg string, fields ...zap.Field) {
-	l.Logger.Error(msg, l.withCtx(ctx, fields)...)
+	l.Logger.Error(msg, l.withContext(ctx, fields)...)
 }
 
-func (l *Core) withCtx(ctx context.Context, fields []zap.Field) []zap.Field {
+func (l *Core) withContext(ctx context.Context, fields []zap.Field) []zap.Field {
 	if traceId, ok := ctx.Value(constant.TraceId).(string); ok {
 		fields = append(fields, zap.String("trace_id", traceId))
 	}
