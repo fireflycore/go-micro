@@ -7,13 +7,6 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// TraceContextMeta 表示链路跟踪元信息
-type TraceContextMeta struct {
-	ParentId string `json:"parent_id"`
-	TraceId  string `json:"trace_id"`
-	SpanId   string `json:"span_id"`
-}
-
 // UserContextMeta 表示用户元信息
 type UserContextMeta struct {
 	Session  string `json:"session"`
