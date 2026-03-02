@@ -29,6 +29,17 @@ func NewBeforeGuard() grpc.UnaryServerInterceptor {
 	}
 }
 
+// NewAfterGuard 后置守卫
+func NewAfterGuard() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		md, _ := metadata.FromIncomingContext(ctx)
+
+		// 可根据需要添加其他逻辑
+
+		return handler(metadata.NewOutgoingContext(ctx, md.Copy()), req)
+	}
+}
+
 // NewInjectServiceContext 将服务的信息注入到上下文中
 func NewInjectServiceContext(conf conf.BootstrapConf) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
