@@ -60,6 +60,8 @@ const (
 	HttpGatewaySign = HeaderPrefix + "http-gateway-sign"
 	// GrpcGatewaySign GRPC网关签名, 用于跳过token解析步骤，直接验证用户权限
 	GrpcGatewaySign = HeaderPrefix + "grpc-gateway-sign"
+	// GatewayAuthSign 网关认证签名, 用于跳过token解析步骤，直接验证用户权限
+	GatewayAuthSign = HeaderPrefix + "gateway-auth-sign"
 
 	// InvokeServiceAuth 服务调用相关（Invoke-服务调用方信息，Target-被调用方服务信息）
 	InvokeServiceAuth     = HeaderPrefix + "invoke-service-auth"
