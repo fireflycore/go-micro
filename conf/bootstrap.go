@@ -2,6 +2,7 @@ package conf
 
 type BootstrapConf interface {
 	GetAppId() string
+	GetAppSecret() string
 	GetAppName() string
 	GetAppVersion() string
 	GetServiceEndpoint() string
@@ -12,4 +13,5 @@ type BootstrapConf interface {
 	GetSystemVersion() string
 
 	GetGatewayEndpoint() string
+	GetGatewayAuthToken() string
 }
