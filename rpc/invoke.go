@@ -12,36 +12,45 @@ type RemoteResponse[T any] interface {
 	GetData() T         // 获取业务数据
 }
 
-// WithRemoteInvoke 执行远程调用并处理标准化响应。
-// T: 业务数据类型
-// R: 响应类型，必须实现 RemoteResponse[T] 接口
-func WithRemoteInvoke[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T, error) {
+// invokeRemote 是内部核心实现，返回业务数据、状态码和错误。
+func invokeRemote[T any, R RemoteResponse[T]](callFunc func() (R, error)) (data T, code uint32, err error) {
 	var zero T
 
-	// 1. 先透传网络/框架层错误：这类错误通常包含重试/降级所需的信息。
+	// 网络/框架层错误
 	resp, err := callFunc()
 	if err != nil {
-		return zero, err
+		return zero, 500, err
 	}
 
-	// 2. 防御“带类型的 nil”：
-	// 在泛型 + interface 约束下，resp 可能是 *T(nil) 但接口值不为 nil，直接使用会 panic。
+	// 防御“带类型的 nil”
 	respValue := reflect.ValueOf(resp)
 	if respValue.Kind() == reflect.Ptr && respValue.IsNil() {
-		return zero, ErrRemoteResponseIsNil
+		return zero, 500, ErrRemoteResponseIsNil
 	}
 
-	// 3. 统一以 code=200 表示成功，非 200 视为业务失败并优先返回服务端 message。
-	if code := resp.GetCode(); code != 200 {
+	code = resp.GetCode()
+	if code != 200 {
 		msg := resp.GetMessage()
 		if msg == "" {
-			return zero, ErrRemoteCallFailed
+			return zero, code, ErrRemoteCallFailed
 		}
-		return zero, errors.New(msg)
+		return zero, code, errors.New(msg)
 	}
 
-	// 4. 成功时仅返回业务数据，调用方不需要关心响应封装结构。
-	data := resp.GetData()
+	return resp.GetData(), code, nil
+}
 
-	return data, nil
+// InvokeRemote 执行远程调用并处理标准化响应，仅返回业务数据或错误。
+// T: 业务数据类型
+// R: 响应类型，必须实现 RemoteResponse[T] 接口
+func InvokeRemote[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T, error) {
+	data, _, err := invokeRemote(callFunc)
+	return data, err
+}
+
+// InvokeRemoteWithCode 执行远程调用并处理标准化响应，返回业务数据、状态码和错误。
+// T: 业务数据类型
+// R: 响应类型，必须实现 RemoteResponse[T] 接口
+func InvokeRemoteWithCode[T any, R RemoteResponse[T]](callFunc func() (R, error)) (T, uint32, error) {
+	return invokeRemote(callFunc)
 }
