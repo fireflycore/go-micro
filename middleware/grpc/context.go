@@ -3,7 +3,6 @@ package gm
 import (
 	"context"
 
-	"github.com/fireflycore/go-micro/conf"
 	"github.com/fireflycore/go-micro/constant"
 	"github.com/fireflycore/go-micro/rpc"
 	"github.com/google/uuid"
@@ -26,12 +25,5 @@ func NewBeforeGuard() grpc.UnaryServerInterceptor {
 		md.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
 
 		return handler(metadata.NewIncomingContext(ctx, md), req)
-	}
-}
-
-// NewInjectServiceContext 将服务的信息注入到上下文中
-func NewInjectServiceContext(conf conf.BootstrapConf) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		return handler(rpc.SetRemoteInvokeServiceContext(ctx, conf), req)
 	}
 }
