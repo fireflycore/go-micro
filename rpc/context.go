@@ -69,11 +69,11 @@ func (sc *ServiceContext) NewServiceMetadata() metadata.MD {
 func (sc *ServiceContext) WithPureContext(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
 	omd := sc.metadata.Copy()
 
-	for k, v := range sc.metadata {
+	for k, v := range md {
 		omd.Set(k, v...)
 	}
 
-	omd = sc.InjectTrace(md)
+	omd = sc.InjectTrace(omd)
 
 	return sc.WithTimeout(omd, timeout)
 }
