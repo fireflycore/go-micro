@@ -67,15 +67,15 @@ func (sc *ServiceContext) NewServiceMetadata() metadata.MD {
 //   - 不携带用户信息（UserId / AppId / TenantId）
 //   - 自动生成全新的 TraceId 和 SpanId，作为新链路的起点
 func (sc *ServiceContext) WithPureContext(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
-	omd := sc.metadata.Copy()
+	smd := sc.metadata.Copy()
 
-	for k, v := range md {
-		omd.Set(k, v...)
+	for k, v := range smd {
+		md.Set(k, v...)
 	}
 
-	omd = sc.InjectTrace(omd)
+	md = sc.InjectTrace(md)
 
-	return sc.WithTimeout(omd, timeout)
+	return sc.WithTimeout(md, timeout)
 }
 
 // WithInheritContext 在父上下文的基础上，创建携带完整链路信息的出站上下文。
