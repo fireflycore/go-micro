@@ -66,10 +66,29 @@ func (sc *ServiceContext) NewServiceMetadata() metadata.MD {
 //   - 基于 context.Background() 创建，调用方的取消信号不会传播，生命周期由 timeout 独立控制
 //   - 不携带用户信息（UserId / AppId / TenantId）
 //   - 自动生成全新的 TraceId 和 SpanId，作为新链路的起点
-func (sc *ServiceContext) WithPureContext(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
+func (sc *ServiceContext) WithPureContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	omd := sc.GetMetadata()
+	omd = sc.InjectTrace(omd)
+	return sc.WithTimeout(omd, timeout)
+}
+
+// WithPureContextFrom 创建一个与调用方请求完全隔离的纯净出站上下文。
+//
+// 适用场景：
+//   - 定时任务、事件驱动等服务主动发起的后台调用
+//   - 无需透传用户身份的内部服务调用
+//
+// 行为说明：
+//   - 基于 context.Background() 创建，调用方的取消信号不会传播，生命周期由 timeout 独立控制
+//   - 不携带用户信息（UserId / AppId / TenantId）
+//   - 自动生成全新的 TraceId 和 SpanId，作为新链路的起点
+func (sc *ServiceContext) WithPureContextFrom(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
 	smd := sc.metadata.Copy()
 
 	for k, v := range smd {
+		if k == constant.RouteMethod && len(v) != 0 {
+			continue
+		}
 		md.Set(k, v...)
 	}
 
@@ -102,6 +121,9 @@ func (sc *ServiceContext) WithInheritContext(parent context.Context, timeout tim
 
 	// 合并本服务静态元信息，覆盖或补充服务身份、客户端、系统信息
 	for k, v := range sc.metadata.Copy() {
+		if k == constant.RouteMethod && len(v) != 0 {
+			continue
+		}
 		omd.Set(k, v...)
 	}
 
