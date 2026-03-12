@@ -19,6 +19,10 @@ import (
 // NewAccessLogger 访问日志中间件
 func NewAccessLogger(log *logger.Core) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		if log == nil {
+			return handler(ctx, req)
+		}
+
 		start := time.Now()
 		md, _ := metadata.FromIncomingContext(ctx)
 
@@ -33,7 +37,6 @@ func NewAccessLogger(log *logger.Core) grpc.UnaryServerInterceptor {
 		}
 
 		fields := make([]zap.Field, 0, 32)
-
 		fields = append(fields,
 			zap.String("log_type", "access"),
 			zap.String("protocol", "grpc"),

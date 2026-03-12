@@ -86,7 +86,9 @@ func NewAccessLogger(log *logger.Core) func(next http.Handler) http.Handler {
 				zap.String("client_ip", request.Header.Get(constant.ClientIp)),
 			)
 
-			if status >= 400 {
+			if status >= 500 {
+				log.WithContextError(request.Context(), constant.HttpAccessLog, fields...)
+			} else if status >= 400 {
 				log.WithContextWarn(request.Context(), constant.HttpAccessLog, fields...)
 			} else {
 				log.WithContextInfo(request.Context(), constant.HttpAccessLog, fields...)
