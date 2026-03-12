@@ -27,5 +27,5 @@ func (l *Core) WithContextError(ctx context.Context, msg string, fields ...zap.F
 }
 
 func (l *Core) withContext(ctx context.Context, fields []zap.Field) []zap.Field {
-	return append(fields, zap.Any("ctx", ctx))
+	return append(fields, zap.String("log_type", "server"), zap.Any("ctx", ctx))
 }
