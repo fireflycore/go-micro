@@ -5,7 +5,7 @@ import "errors"
 
 var (
 	// ErrClientIsNil 表示客户端为空
-	ErrClientIsNil = "%s client is nil"
+	ErrClientIsNilFormat = "%s client is nil"
 
 	// ErrRegisterIsNil 表示注册器为空。
 	ErrRegisterIsNil = errors.New("注册器为空")
