@@ -16,7 +16,7 @@ import (
 )
 
 // NewAccessLogger 访问日志中间件
-func NewAccessLogger(log *logger.Core) func(next http.Handler) http.Handler {
+func NewAccessLogger(log *logger.AccessLogger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			if log == nil {

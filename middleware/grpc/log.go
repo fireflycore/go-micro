@@ -17,7 +17,7 @@ import (
 )
 
 // NewAccessLogger 访问日志中间件
-func NewAccessLogger(log *logger.Core) grpc.UnaryServerInterceptor {
+func NewAccessLogger(log *logger.AccessLogger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if log == nil {
 			return handler(ctx, req)
