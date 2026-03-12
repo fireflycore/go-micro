@@ -3,22 +3,21 @@ package gm
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
 	"github.com/fireflycore/go-micro/logger"
 	"github.com/fireflycore/go-micro/rpc"
-	"github.com/google/uuid"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
-// NewServiceAccessLogger 服务访问日志中间件，一般在NewInjectServiceContext中间件之前使用
-// handle 接收两类日志：b 为结构化 JSON，msg 为人类可读文本行；
-// 字段包含 path/request/response/duration/status/trace_id 等，便于统一采集。
-func NewServiceAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerInterceptor {
+// NewAccessLogger 访问日志中间件
+func NewAccessLogger(log *logger.Core) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		start := time.Now()
 		md, _ := metadata.FromIncomingContext(ctx)
@@ -26,92 +25,92 @@ func NewServiceAccessLogger(handle func(b []byte, msg string)) grpc.UnaryServerI
 		// 调用下一个拦截器或服务方法
 		resp, err := handler(ctx, req)
 
-		status := 200
 		elapsed := time.Since(start)
 
+		code := codes.OK
 		if err != nil {
-			// 这里用粗粒度状态码做统一聚合（成功/失败），避免与 gRPC status code 绑定过深。
-			status = 400
+			code = status.Code(err)
 		}
 
-		if handle != nil {
-			log := &logger.AccessLogger{}
+		fields := make([]zap.Field, 0, 32)
 
-			// method 字段保持与既有日志采集协议一致（历史字段，值固定）。
-			log.Method = constant.RequestMethodGrpc
-			log.Path = info.FullMethod
+		fields = append(fields,
+			zap.String("log_type", "access"),
+			zap.String("protocol", "grpc"),
+			zap.String("method", constant.RequestMethodGrpcString),
+			zap.String("path", info.FullMethod),
+			zap.Uint64("duration", uint64(elapsed.Microseconds())),
+			zap.Uint32("status", uint32(code)),
+		)
 
-			request, _ := json.Marshal(req)
-			log.Request = string(request)
+		if request, e := json.Marshal(req); e == nil {
+			fields = append(fields, zap.ByteString("request", request))
+		}
+		if response, e := json.Marshal(resp); e == nil {
+			fields = append(fields, zap.ByteString("response", response))
+		}
 
-			response, _ := json.Marshal(resp)
-			log.Response = string(response)
+		if v, e := rpc.ParseMetaKey(md, constant.SourceIp); e == nil && v != "" {
+			fields = append(fields, zap.String("source_ip", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.ClientIp); e == nil && v != "" {
+			fields = append(fields, zap.String("client_ip", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.InvokeServiceAppId); e == nil && v != "" {
+			fields = append(fields, zap.String("invoke_service_app_id", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint); e == nil && v != "" {
+			fields = append(fields, zap.String("invoke_service_endpoint", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.TargetServiceAppId); e == nil && v != "" {
+			fields = append(fields, zap.String("target_service_app_id", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.TargetServiceEndpoint); e == nil && v != "" {
+			fields = append(fields, zap.String("target_service_endpoint", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.SystemName); e == nil && v != "" {
+			fields = append(fields, zap.String("system_name", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.ClientName); e == nil && v != "" {
+			fields = append(fields, zap.String("client_name", v))
+		}
+		if raw, e := rpc.ParseMetaKey(md, constant.SystemType); e == nil {
+			fields = append(fields, zap.Uint32("system_type", parseInt32OrZero(raw)))
+		}
+		if raw, e := rpc.ParseMetaKey(md, constant.ClientType); e == nil {
+			fields = append(fields, zap.Uint32("client_type", parseInt32OrZero(raw)))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.SystemVersion); e == nil && v != "" {
+			fields = append(fields, zap.String("system_version", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.ClientVersion); e == nil && v != "" {
+			fields = append(fields, zap.String("client_version", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.AppVersion); e == nil && v != "" {
+			fields = append(fields, zap.String("app_version", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.UserId); e == nil && v != "" {
+			fields = append(fields, zap.String("user_id", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.AppId); e == nil && v != "" {
+			fields = append(fields, zap.String("app_id", v))
+		}
+		if v, e := rpc.ParseMetaKey(md, constant.TenantId); e == nil && v != "" {
+			fields = append(fields, zap.String("tenant_id", v))
+		}
 
-			log.Duration = uint64(elapsed.Microseconds())
-			log.Status = uint32(status)
-
-			// --- Endpoint 解析逻辑变更 ---
-
-			// 1. Trace Identity (由 Gateway 计算并注入)
-			log.SourceIp, _ = rpc.ParseMetaKey(md, constant.SourceIp)
-			log.ClientIp, _ = rpc.ParseMetaKey(md, constant.ClientIp)
-
-			// 2. Invoke Identity (调用方声明)
-			log.InvokeServiceAppId, _ = rpc.ParseMetaKey(md, constant.InvokeServiceAppId)
-			log.InvokeServiceEndpoint, _ = rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint)
-
-			// 3. Target Identity (目标路由信息，由 Proxy 注入)
-			log.TargetServiceAppId, _ = rpc.ParseMetaKey(md, constant.TargetServiceAppId)
-			log.TargetServiceEndpoint, _ = rpc.ParseMetaKey(md, constant.TargetServiceEndpoint)
-
-			// ---------------------------
-
-			log.SystemName, _ = rpc.ParseMetaKey(md, constant.SystemName)
-			log.ClientName, _ = rpc.ParseMetaKey(md, constant.ClientName)
-
-			systemType, se := rpc.ParseMetaKey(md, constant.SystemType)
-			log.SystemType = parseInt32OrZero(systemType, se)
-
-			clientType, ce := rpc.ParseMetaKey(md, constant.ClientType)
-			log.ClientType = parseInt32OrZero(clientType, ce)
-
-			log.SystemVersion, _ = rpc.ParseMetaKey(md, constant.SystemVersion)
-			log.ClientVersion, _ = rpc.ParseMetaKey(md, constant.ClientVersion)
-			log.AppVersion, _ = rpc.ParseMetaKey(md, constant.AppVersion)
-
-			log.ParentId, _ = rpc.ParseMetaKey(md, constant.ParentId)
-			traceId, le := rpc.ParseMetaKey(md, constant.TraceId)
-			if le != nil {
-				// 兼容上游未透传 trace_id 的场景，保证每条日志至少可被唯一关联。
-				traceId = uuid.Must(uuid.NewV7()).String()
-			}
-			log.TraceId = traceId
-			log.SpanId, _ = rpc.ParseMetaKey(md, constant.SpanId)
-
-			log.UserId, _ = rpc.ParseMetaKey(md, constant.UserId)
-			log.AppId, _ = rpc.ParseMetaKey(md, constant.AppId)
-			log.TenantId, _ = rpc.ParseMetaKey(md, constant.TenantId)
-
-			b, _ := json.Marshal(log)
-			handle(b, fmt.Sprintf("[%s] [GRPC]:[%s] [%s]-[%d] [SourceIp:%s] [ClientIp:%s] [InvokeServiceAppId:%s]\n",
-				time.Now().Format(time.DateTime),
-				info.FullMethod,
-				elapsed.String(),
-				status,
-				log.SourceIp,
-				log.ClientIp,
-				log.InvokeServiceAppId,
-			))
+		if err != nil {
+			fields = append(fields, zap.Error(err))
+			log.Error(ctx, "grpc access log", fields...)
+		} else {
+			log.Info(ctx, "grpc access log", fields...)
 		}
 
 		return resp, err
 	}
 }
 
-func parseInt32OrZero(raw string, err error) uint32 {
-	if err != nil {
-		return 0
-	}
+func parseInt32OrZero(raw string) uint32 {
 	v, pe := strconv.ParseInt(raw, 10, 32)
 	if pe != nil {
 		return 0
