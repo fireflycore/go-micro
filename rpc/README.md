@@ -4,49 +4,19 @@
 
 ## 设计理念
 
-本包旨在统一处理微服务间的响应格式，遵循 **Code/Message/Data** 模式：
-- **Code**：业务状态码（`200` 表示成功）。
-- **Message**：业务提示信息。
-- **Data**：实际业务数据。
+本包聚焦两件事：
+- 统一创建“服务调用下游服务”的出站 `context.Context`（metadata 透传、服务身份注入、超时控制）。
+- 统一构造 gRPC Client 连接选项（默认启用 OpenTelemetry gRPC client stats handler）。
 
-## 核心功能
+## 常用入口
 
-### `WithRemoteInvoke`
+### 创建 gRPC ClientConn
 
-泛型函数，用于发起远程调用并自动处理响应解包。
+`NewGrpcClient` 默认对连接启用 `otelgrpc.NewClientHandler()`，用于自动注入/提取 W3C `traceparent`（链路追踪）与采集指标。
 
-**处理逻辑**：
-1. **网络错误**：直接返回 `error`。
-2. **Nil 检查**：防御性处理“带类型的 nil”。
-3. **业务错误**：若 `Code != 200`，提取 `Message` 并封装为 `error` 返回。
-4. **成功**：仅返回 `Data` 部分。
+### 构造出站 Context
 
-## 使用示例
-
-假设 Proto 定义如下：
-```protobuf
-message GetUserResponse {
-    uint32 code = 1;
-    string message = 2;
-    User data = 3;
-}
-```
-
-调用代码：
-```go
-import "github.com/fireflycore/go-micro/rpc"
-
-// T：业务数据类型（pb.User）
-// R：响应类型（*pb.GetUserResponse），需实现 rpc.RemoteResponse[pb.User]
-user, err := rpc.WithRemoteInvoke[pb.User, *pb.GetUserResponse](func() (*pb.GetUserResponse, error) {
-	return client.GetUser(ctx, &pb.GetUserRequest{Id: 1})
-})
-
-if err != nil {
-	// 处理网络错误或业务错误（Code != 200）
-	return err
-}
-
-// 直接使用 user 对象
-fmt.Println(user.Name)
-```
+`ServiceContext` 用于构建服务级别静态 metadata，并提供三种出站 ctx 构造方法：
+- `WithPureContext`：纯净出站 ctx（不继承请求 metadata），适合定时任务/后台任务。
+- `WithExternalContext`：基于外部传入 md 合并服务静态 metadata，适合消息队列/Webhook 等入口。
+- `WithInheritContext`：继承 parent 的 metadata 与 span context，再合并服务静态 metadata，适合处理请求时继续调用下游服务。

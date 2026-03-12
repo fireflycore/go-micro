@@ -7,14 +7,15 @@
 这些常量主要用于 gRPC Metadata 或 HTTP Header 中传递上下文信息。
 
 ### 身份与追踪
-- `TraceId`：全链路追踪 ID（`ff-trace-id`）
-- `Session`：会话标识（`ff-session`）
+- `Session`：会话标识（`x-firefly-session`）
 - `Authorization`：认证令牌（`authorization`）
-- `UserId`：用户 ID（`ff-user-id`）
-- `AppId`：应用 ID（`ff-app-id`）
-- `TenantId`：租户 ID（`ff-tenant-id`）
-- `ClientIp`：客户端 IP（`ff-client-ip`）
+- `UserId`：用户 ID（`x-firefly-user-id`）
+- `AppId`：应用 ID（`x-firefly-app-id`）
+- `TenantId`：租户 ID（`x-firefly-tenant-id`）
+- `ClientIp`：客户端 IP（`x-firefly-client-ip`）
 - `XRealIp`：反向代理透传真实 IP（`x-real-ip`）
+
+> 链路追踪使用 W3C `traceparent`/`tracestate`（OpenTelemetry 自动注入/提取），本库不再定义自定义 trace 字段常量。
 
 ### 客户端信息
 - `SystemName` / `SystemVersion`：系统名称与版本
@@ -26,9 +27,10 @@
 ### 使用示例
 
 ```go
+import "github.com/fireflycore/go-micro/rpc"
 import "github.com/fireflycore/go-micro/constant"
 
-// 从 gRPC metadata 获取 TraceId
+// 从 gRPC metadata 获取用户信息字段
 md, _ := metadata.FromIncomingContext(ctx)
-traceId := md.Get(constant.TraceId)
+userId := rpc.ParseMetaKey(constant.UserId)
 ```

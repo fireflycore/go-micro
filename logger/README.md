@@ -16,6 +16,7 @@ import (
 	"context"
 
 	"github.com/fireflycore/go-micro/logger"
+	"go.uber.org/zap"
 )
 
 // MyConf 实现了 conf.BootstrapConf
@@ -39,6 +40,12 @@ func main() {
 	zl := logger.NewZapLogger(myConf)
 	log := logger.NewLogger(zl)
 
-	log.Info(context.Background(), "hello")
+	log.WithContextInfo(context.Background(), "hello", zap.String("k", "v"))
 }
 ```
+
+### Trace 关联
+
+当启用 Remote 输出（`otelzap.NewCore(...)`）且服务已初始化 OpenTelemetry Logs Provider 后：
+- 在日志 fields 中包含 `zap.Any("ctx", ctx)`，`otelzap` 会从 `ctx` 提取 span context 并关联到 OTLP log record。
+- 本库的 `WithContextInfo/WithContextWarn/WithContextError` 已内置该字段注入。

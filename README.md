@@ -12,22 +12,19 @@ go get github.com/fireflycore/go-micro
 
 ## 快速开始
 
-以 gRPC 服务为例，常见用法是把中间件注入到 `grpc.Server`：
+以 gRPC 服务为例，常见用法是把中间件注入到 `grpc.Server`，并挂载 OpenTelemetry 的 gRPC StatsHandler：
 
 ```go
 import (
-	"fmt"
-
-	"github.com/fireflycore/go-micro/middleware"
+	"github.com/fireflycore/go-micro/middleware/grpc" // 别名通常为 gm
 	"google.golang.org/grpc"
 )
 
 s := grpc.NewServer(
+	grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
 	grpc.ChainUnaryInterceptor(
-		middleware.PropagateIncomingMetadata,
-		middleware.GrpcAccessLogger(func(_ []byte, msg string) {
-			fmt.Println(msg)
-		}),
+		gm.ValidationErrorToInvalidArgument(),
+		gm.NewAccessLogger(log),
 	),
 )
 _ = s
@@ -39,8 +36,8 @@ _ = s
 
 - [registry](./registry/README.md)：服务发现与注册
 - [rpc](./rpc/README.md)：RPC 调用封装
-- [middleware](./middleware/README.md)：gRPC 中间件
-- [logger](./logger/README.md)：日志级别定义
+- [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
+- [logger](./logger/README.md)：zap/otelzap 日志封装
 - [constant](./constant/README.md)：通用常量
 
 ## 许可证

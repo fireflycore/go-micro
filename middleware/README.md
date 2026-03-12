@@ -5,10 +5,10 @@
 ## 目录结构
 
 - **[gRPC Middleware (gm)](./grpc/README.md)**: `middleware/grpc`
-  - 提供 gRPC 服务端的拦截器，包括访问日志、元数据透传、服务身份注入等功能。
+  - 提供 gRPC 服务端的拦截器与 OTel StatsHandler 适配，包括访问日志、错误映射、OTel 埋点入口等。
 
-- **HTTP Middleware (hm)**: (待添加)
-  - *注：目前尚未包含 HTTP 中间件实现。*
+- **[HTTP Middleware (hm)](./http/log.go)**: `middleware/http`
+  - 提供 HTTP 访问日志中间件（`NewAccessLogger`）。
 
 ## 快速导航
 
@@ -17,8 +17,8 @@
 位于 `middleware/grpc` 包下。
 
 主要功能：
-- `NewServiceAccessLogger`: 详细的请求/响应日志与链路追踪信息记录。
-- `PropagateIncomingMetadata`: 微服务链路元数据透传。
-- `NewInjectServiceContext`: 服务自身身份信息注入。
+- `NewAccessLogger`: 访问日志（结构化字段 + zap/otelzap 兼容）。
+- `ValidationErrorToInvalidArgument`: 将 protovalidate 错误映射为 `codes.InvalidArgument`。
+- `NewOtelServerStatsHandler`: OTel gRPC Server StatsHandler（用于 trace/metrics 自动埋点）。
 
 详细文档请参考：[grpc/README.md](./grpc/README.md)
