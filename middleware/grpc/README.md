@@ -17,13 +17,15 @@
 
 ```go
 import (
+	"github.com/fireflycore/go-micro/logger"
 	"github.com/fireflycore/go-micro/middleware/grpc" // 别名通常为 gm
 	"google.golang.org/grpc"
 )
 
 // 创建 gRPC Server 时注入
+accessLog := logger.NewAccessLogger(zl)
 s := grpc.NewServer(
-	grpc.UnaryInterceptor(gm.NewAccessLogger(log)),
+	grpc.UnaryInterceptor(gm.NewAccessLogger(accessLog)),
 )
 ```
 
@@ -44,7 +46,7 @@ s := grpc.NewServer(
     grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
     grpc.ChainUnaryInterceptor(
         gm.ValidationErrorToInvalidArgument(),
-        gm.NewAccessLogger(log),
+        gm.NewAccessLogger(accessLog),
     ),
 )
 ```

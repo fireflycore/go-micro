@@ -27,10 +27,11 @@
 ### 使用示例
 
 ```go
+import "google.golang.org/grpc/metadata"
 import "github.com/fireflycore/go-micro/rpc"
 import "github.com/fireflycore/go-micro/constant"
 
 // 从 gRPC metadata 获取用户信息字段
 md, _ := metadata.FromIncomingContext(ctx)
-userId := rpc.ParseMetaKey(constant.UserId)
+userId, err := rpc.ParseMetaKey(md, constant.UserId)
 ```
