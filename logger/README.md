@@ -9,6 +9,8 @@
 
 ## 使用
 
+`NewZapLogger` 需要一个实现了 `conf.BootstrapConf` 接口的配置对象。
+
 ```go
 import (
 	"context"
@@ -16,9 +18,25 @@ import (
 	"github.com/fireflycore/go-micro/logger"
 )
 
+// MyConf 实现了 conf.BootstrapConf
+type MyConf struct {
+	AppName string
+	Logger  *logger.Conf
+}
+
+func (c *MyConf) GetAppName() string { return c.AppName }
+func (c *MyConf) GetLoggerConsole() bool { return c.Logger.GetLoggerConsole() }
+func (c *MyConf) GetLoggerRemote() bool { return c.Logger.GetLoggerRemote() }
+// ... 实现其他接口方法 ...
+
 func main() {
-	conf := &logger.Conf{Console: true, Remote: true}
-	zl := logger.NewZapLogger("your-service", conf)
+	myConf := &MyConf{
+		AppName: "your-service",
+		Logger:  &logger.Conf{Console: true, Remote: true},
+	}
+	
+	// 注意：实际项目中还需要实现 conf.BootstrapConf 的其他方法
+	zl := logger.NewZapLogger(myConf)
 	log := logger.NewLogger(zl)
 
 	log.Info(context.Background(), "hello")
