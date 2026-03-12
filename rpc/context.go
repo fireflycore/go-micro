@@ -65,6 +65,15 @@ func (sc *ServiceContext) NewOutgoingContext(md metadata.MD, timeout time.Durati
 	return ctx, cancel
 }
 
+// NewOutgoingContextFrom 基于 base 创建出站上下文，并附加 metadata 与超时控制。
+func (sc *ServiceContext) NewOutgoingContextFrom(base context.Context, md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if base == nil {
+		base = context.Background()
+	}
+	ctx := metadata.NewOutgoingContext(context.WithoutCancel(base), md)
+	return context.WithTimeout(ctx, timeout)
+}
+
 // MergeServiceMetadata 将本服务的静态元信息合并进目标 md。
 // RouteMethod 已存在时不覆盖，其余字段一律以服务静态值为准。
 func (sc *ServiceContext) MergeServiceMetadata(md metadata.MD) metadata.MD {
@@ -84,15 +93,25 @@ func (sc *ServiceContext) WithPureContext(timeout time.Duration) (context.Contex
 
 // WithExternalContext 将外部传入的 metadata 与本服务静态元信息合并，构造出站上下文。
 func (sc *ServiceContext) WithExternalContext(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if md == nil {
+		md = metadata.MD{}
+	} else {
+		md = md.Copy()
+	}
 	return sc.NewOutgoingContext(sc.MergeServiceMetadata(md), timeout)
 }
 
 // WithInheritContext 在父上下文的基础上，创建携带完整链路信息的出站上下文。
 func (sc *ServiceContext) WithInheritContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	imd, _ := metadata.FromIncomingContext(parent)
-	md := imd.Copy()
+	omd, ok := metadata.FromOutgoingContext(parent)
+	if !ok {
+		imd, _ := metadata.FromIncomingContext(parent)
+		omd = imd
+	}
+
+	md := omd.Copy()
 
 	md = sc.MergeServiceMetadata(md)
 
-	return sc.NewOutgoingContext(md, timeout)
+	return sc.NewOutgoingContextFrom(parent, md, timeout)
 }
