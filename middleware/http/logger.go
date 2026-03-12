@@ -3,23 +3,27 @@ package hm
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/logger"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-micro/logger"
+	"go.uber.org/zap"
 )
 
 // NewAccessLogger 访问日志中间件
-// handle 接收两类日志：b 为结构化 JSON，msg 为人类可读文本行；
-// 字段包含 path/request/response/duration/status/trace_id 等，便于统一采集。
-func NewAccessLogger(handle func(b []byte, msg string)) func(next http.Handler) http.Handler {
+func NewAccessLogger(log *logger.Core) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if log == nil {
+				next.ServeHTTP(writer, request)
+				return
+			}
+
 			start := time.Now()
 
 			var req []byte
@@ -47,20 +51,10 @@ func NewAccessLogger(handle func(b []byte, msg string)) func(next http.Handler) 
 			status := sw.status
 			elapsed := time.Since(start)
 
-			log := &logger.AccessLogger{}
-			log.ParentId = request.Header.Get(constant.ParentId)
-			log.TraceId = request.Header.Get(constant.TraceId)
-			log.SpanId = request.Header.Get(constant.SpanId)
-
 			method, ok := RequestMethod[request.Method]
 			if !ok {
 				method = 0
 			}
-			log.Method = method
-			log.Path = request.URL.Path
-
-			log.Request = string(req)
-			log.Response = sw.resp.String()
 
 			clientType, ce := strconv.ParseInt(request.Header.Get(constant.ClientType), 10, 32)
 			if ce != nil {
@@ -71,34 +65,32 @@ func NewAccessLogger(handle func(b []byte, msg string)) func(next http.Handler) 
 				systemType = 0
 			}
 
-			log.ClientType = uint32(clientType)
-			log.ClientName = request.Header.Get(constant.ClientName)
-			log.ClientVersion = request.Header.Get(constant.ClientVersion)
+			fields := make([]zap.Field, 0, 24)
+			fields = append(fields,
+				zap.String("log_type", "access"),
+				zap.String("protocol", "http"),
+				zap.Uint32("method", method),
+				zap.String("path", request.URL.Path),
+				zap.Uint64("duration", uint64(elapsed.Microseconds())),
+				zap.Uint32("status", uint32(status)),
+				zap.String("request", string(req)),
+				zap.String("response", sw.resp.String()),
+				zap.Uint32("client_type", uint32(clientType)),
+				zap.String("client_name", request.Header.Get(constant.ClientName)),
+				zap.String("client_version", request.Header.Get(constant.ClientVersion)),
+				zap.Uint32("system_type", uint32(systemType)),
+				zap.String("system_name", request.Header.Get(constant.SystemName)),
+				zap.String("system_version", request.Header.Get(constant.SystemVersion)),
+				zap.String("app_version", request.Header.Get(constant.AppVersion)),
+				zap.String("source_ip", request.Header.Get(constant.SourceIp)),
+				zap.String("client_ip", request.Header.Get(constant.ClientIp)),
+			)
 
-			log.SystemType = uint32(systemType)
-			log.SystemName = request.Header.Get(constant.SystemName)
-			log.SystemVersion = request.Header.Get(constant.SystemVersion)
-
-			log.AppVersion = request.Header.Get(constant.AppVersion)
-
-			log.SourceIp = request.Header.Get(constant.SourceIp)
-			log.ClientIp = request.Header.Get(constant.ClientIp)
-
-			log.Status = uint32(status)
-			log.Duration = uint64(elapsed.Microseconds())
-
-			b, _ := json.Marshal(log)
-
-			handle(b, fmt.Sprintf(
-				"[%s] [%s]:[%s] [%s]-[%d] [SourceIp:%s->ClientIp:%s]\n",
-				time.Now().Format(time.DateTime),
-				request.Method,
-				request.URL.Path,
-				elapsed.String(),
-				status,
-				log.SourceIp,
-				log.ClientIp,
-			))
+			if status >= 400 {
+				log.Warn(request.Context(), "http access log", fields...)
+			} else {
+				log.Info(request.Context(), "http access log", fields...)
+			}
 		})
 	}
 }
