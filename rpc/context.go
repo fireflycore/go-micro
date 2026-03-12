@@ -7,7 +7,6 @@ import (
 
 	"github.com/fireflycore/go-micro/conf"
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/google/uuid"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -59,27 +58,6 @@ func (sc *ServiceContext) BuildServiceMetadata() metadata.MD {
 	return md
 }
 
-// InjectTrace 将链路追踪字段注入 metadata，维护 TraceId -> ParentId -> SpanId 的调用链层级。
-//
-// 规则：
-//   - TraceId：有则继承（保持链路唯一性），无则新建（标识链路起点）
-//   - ParentId：将上游的 SpanId 记录为本跳的 ParentId，构建调用树
-//   - SpanId：每次调用都生成新值，唯一标识当前这一跳
-func (sc *ServiceContext) InjectTrace(md metadata.MD) metadata.MD {
-	if _, err := ParseMetaKey(md, constant.TraceId); err != nil {
-		// 没有 TraceId，说明是链路起点，生成新的
-		md.Set(constant.TraceId, uuid.Must(uuid.NewV7()).String())
-	}
-	if spanId, err := ParseMetaKey(md, constant.SpanId); err == nil {
-		// 将上游 SpanId 记录为本跳的 ParentId
-		md.Set(constant.ParentId, spanId)
-	}
-	// 为本次调用生成新的 SpanId
-	md.Set(constant.SpanId, uuid.Must(uuid.NewV7()).String())
-
-	return md
-}
-
 // NewOutgoingContext 将 metadata 写入新的出站上下文，并附加超时控制。
 func (sc *ServiceContext) NewOutgoingContext(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -100,54 +78,21 @@ func (sc *ServiceContext) MergeServiceMetadata(md metadata.MD) metadata.MD {
 }
 
 // WithPureContext 创建一个与调用方请求完全隔离的纯净出站上下文。
-//
-// 适用场景：
-//   - 定时任务、事件驱动等服务主动发起的后台调用
-//   - 无需透传用户身份的内部服务调用
-//
-// 行为说明：
-//   - 基于 context.Background() 创建，调用方的取消信号不会传播，生命周期由 timeout 独立控制
-//   - 不携带用户信息（UserId / AppId / TenantId）
-//   - 自动生成全新的 TraceId 和 SpanId，作为新链路的起点
 func (sc *ServiceContext) WithPureContext(timeout time.Duration) (context.Context, context.CancelFunc) {
-	md := sc.GetMetadata()
-	md = sc.InjectTrace(md)
-	return sc.NewOutgoingContext(md, timeout)
+	return sc.NewOutgoingContext(sc.GetMetadata(), timeout)
 }
 
 // WithExternalContext 将外部传入的 metadata 与本服务静态元信息合并，构造出站上下文。
-//
-// 适用场景：
-//   - 处理来自消息队列、Webhook 等非 gRPC 入口的请求，已有部分上下文信息需要透传
-//   - 由外部系统注入初始 metadata，服务侧补全自身身份信息后继续向下游调用
-//
-// 行为说明：
-//   - 以传入的 md 为基础，本服务静态元信息作为补充（RouteMethod 不覆盖）
-//   - 自动注入新的 TraceId（若不存在）和 SpanId，维护链路连续性
-//   - 生命周期由 timeout 独立控制，与调用方上下文无关
 func (sc *ServiceContext) WithExternalContext(md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
-	md = sc.MergeServiceMetadata(md)
-	md = sc.InjectTrace(md)
-	return sc.NewOutgoingContext(md, timeout)
+	return sc.NewOutgoingContext(sc.MergeServiceMetadata(md), timeout)
 }
 
 // WithInheritContext 在父上下文的基础上，创建携带完整链路信息的出站上下文。
-//
-// 适用场景：
-//   - 处理用户请求时，服务需要继续调用下游服务
-//   - 需要保持 trace 链路连续，并透传用户身份
-//
-// 行为说明：
-//   - 基于 context.Background() 创建，生命周期由 timeout 独立控制，不受父上下文取消影响
-//   - 继承父上下文中的 TraceId，更新 SpanId 并将原 SpanId 设为 ParentId
-//   - 透传父上下文中的用户信息（UserId / AppId / TenantId）
-//   - 合并本服务的静态元信息，下游可据此识别直接调用方
 func (sc *ServiceContext) WithInheritContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	imd, _ := metadata.FromIncomingContext(parent)
 	md := imd.Copy()
 
 	md = sc.MergeServiceMetadata(md)
-	md = sc.InjectTrace(md)
 
 	return sc.NewOutgoingContext(md, timeout)
 }
