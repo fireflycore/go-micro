@@ -87,9 +87,9 @@ func NewAccessLogger(log *logger.Core) func(next http.Handler) http.Handler {
 			)
 
 			if status >= 400 {
-				log.Warn(request.Context(), "http access log", fields...)
+				log.WithContextWarn(request.Context(), constant.HttpAccessLog, fields...)
 			} else {
-				log.Info(request.Context(), "http access log", fields...)
+				log.WithContextInfo(request.Context(), constant.HttpAccessLog, fields...)
 			}
 		})
 	}

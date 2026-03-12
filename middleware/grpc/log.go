@@ -101,9 +101,9 @@ func NewAccessLogger(log *logger.Core) grpc.UnaryServerInterceptor {
 
 		if err != nil {
 			fields = append(fields, zap.Error(err))
-			log.Error(ctx, "grpc access log", fields...)
+			log.WithContextError(ctx, constant.GrpcAccessLog, fields...)
 		} else {
-			log.Info(ctx, "grpc access log", fields...)
+			log.WithContextInfo(ctx, constant.GrpcAccessLog, fields...)
 		}
 
 		return resp, err
