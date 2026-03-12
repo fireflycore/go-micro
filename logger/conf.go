@@ -7,3 +7,17 @@ type Conf struct {
 	Console bool `json:"console"`
 	Remote  bool `json:"remote"`
 }
+
+func (c *Conf) GetLoggerConsole() bool {
+	if c == nil {
+		return false
+	}
+	return c.Console
+}
+
+func (c *Conf) GetLoggerRemote() bool {
+	if c == nil {
+		return false
+	}
+	return c.Remote
+}
