@@ -20,11 +20,6 @@ const (
 	RouteMethodUser    = "user"
 	RouteMethodService = "service"
 
-	// TraceId 链路跟踪
-	TraceId  = HeaderPrefix + "trace-id"
-	SpanId   = HeaderPrefix + "span-id"
-	ParentId = HeaderPrefix + "parent-id"
-
 	// AppLanguage 应用语言
 	AppLanguage = HeaderPrefix + "app-language"
 	// AppVersion 应用版本
