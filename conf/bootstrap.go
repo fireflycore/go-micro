@@ -15,6 +15,6 @@ type BootstrapConf interface {
 	GetGatewayEndpoint() string
 	GetGatewayAuthToken() string
 
-	GetLoggerConsole() bool
-	GetLoggerRemote() bool
+	LoggerConf
+	TelemetryConf
 }
