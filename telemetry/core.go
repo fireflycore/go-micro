@@ -20,18 +20,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-type Config struct {
-	ServiceName    string
-	ServiceVersion string
-
-	OTLPEndpoint string
-	Insecure     bool
-
-	Traces  bool
-	Logs    bool
-	Metrics bool
-}
-
 type Providers struct {
 	TracerProvider *sdktrace.TracerProvider
 	MeterProvider  *sdkmetric.MeterProvider
@@ -40,7 +28,7 @@ type Providers struct {
 	MetricsHandler http.Handler
 }
 
-func Setup(ctx context.Context, cfg Config) (*Providers, func(context.Context) error, error) {
+func Setup(ctx context.Context, cfg *Conf) (*Providers, func(context.Context) error, error) {
 	if cfg.ServiceName == "" {
 		return nil, nil, errors.New("service name is required")
 	}
