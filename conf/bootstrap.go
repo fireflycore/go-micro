@@ -15,6 +15,11 @@ type BootstrapConf interface {
 	GetGatewayEndpoint() string
 	GetGatewayAuthToken() string
 
+	// GetServerPort 获取业务服务端口
+	GetServerPort() int
+	// GetManagementPort 获取管理/监控端口
+	GetManagementPort() int
+
 	LoggerConf
 	TelemetryConf
 }

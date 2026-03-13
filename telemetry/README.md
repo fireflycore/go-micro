@@ -159,10 +159,33 @@ defer shutdown(context.Background())
 
 ### 5.2 暴露 /metrics
 
+#### 方案：独立 HTTP 端口 (推荐)
+
+**不推荐**与 gRPC 业务端口复用（如使用 `cmux`），以避免潜在的性能损耗和排查复杂度。
+
+建议开启一个独立的 HTTP 端口（例如 `9091`），用于暴露 Metrics 和 Health Check。这也是 Consul 等注册中心进行健康检查的标准做法。
+
 ```go
+// 1. 创建 HTTP ServeMux
 mux := http.NewServeMux()
+
+// 2. 注册 Metrics 路由
 mux.Handle("/metrics", providers.MetricsHandler)
-go http.ListenAndServe(":9090", mux)
+
+// 3. 注册 Health Check 路由 (供 Consul 调用)
+// Consul 默认会 ping 这个接口，返回 200 OK 即为健康
+mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+})
+
+// 4. 启动 HTTP Server
+go func() {
+    // 建议端口号：gRPC端口 + 1
+    if err := http.ListenAndServe(":9091", mux); err != nil {
+        panic(err)
+    }
+}()
 ```
 
 ### 5.3 构造 logger（Console + OTel Remote）
