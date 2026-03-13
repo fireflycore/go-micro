@@ -1,6 +1,6 @@
 # Telemetry（OpenTelemetry）接入说明
 
-本目录的 [telemetry.go] 用于在服务启动时一次性完成 OpenTelemetry（OTel）的初始化，并把 **Traces / Metrics / Logs** 三类信号的 Provider 设置为全局默认，供其它库（例如 `otelgrpc`、`otelzap`）自动复用。
+本目录的 [core.go](file:///d:/project/firefly/go-micro/telemetry/core.go) 用于在服务启动时一次性完成 OpenTelemetry（OTel）的初始化，并把 **Traces / Metrics / Logs** 三类信号的 Provider 设置为全局默认，供其它库（例如 `otelgrpc`、`otelzap`）自动复用。
 
 ## 1. OTel 在做什么
 
@@ -18,14 +18,14 @@ OTel 的通用工作模型是：
 
 ## 2. telemetry.Setup 做了哪些事
 
-[telemetry.Setup]分成 5 个关键步骤：
+[Setup](file:///d:/project/firefly/go-micro/telemetry/core.go#L32-L142) 分成 5 个关键步骤：
 
 ### 2.1 Resource：统一标识“这是谁发出来的数据”
 
 ```go
 resource.WithAttributes(
-  attribute.String("service.name", cfg.ServiceName),
-  attribute.String("service.version", cfg.ServiceVersion),
+  attribute.String("service.name", bootstrapConf.GetAppName()),
+  attribute.String("service.version", bootstrapConf.GetAppVersion()),
 )
 ```
 
@@ -46,7 +46,7 @@ otel.SetTextMapPropagator(
 
 ### 2.3 Traces：OTLP/gRPC 导出到 Collector
 
-当 `cfg.Traces=true`：
+当 `bootstrapConf.GetOtelTraces()=true`：
 
 1. 创建 OTLP Trace exporter（gRPC）
 2. 创建 `sdktrace.TracerProvider`，使用 `WithBatcher` 批量异步导出
@@ -54,7 +54,7 @@ otel.SetTextMapPropagator(
 
 ### 2.4 Metrics：Prometheus pull 模式暴露 /metrics
 
-当 `cfg.Metrics=true`：
+当 `bootstrapConf.GetOtelMetrics()=true`：
 
 1. 创建 Prometheus registry（隔离 default registry）
 2. 创建 OTel Prometheus exporter，并注册到 registry
@@ -66,7 +66,7 @@ Prometheus 会通过 HTTP 拉取 `/metrics`，所以这里 exporter 不是“pus
 
 ### 2.5 Logs：OTLP/gRPC 导出到 Collector
 
-当 `cfg.Logs=true`：
+当 `bootstrapConf.GetOtelLogs()=true`：
 
 1. 创建 OTLP Log exporter（gRPC）
 2. 创建 `sdklog.LoggerProvider`，使用 batch processor 异步导出
@@ -142,17 +142,9 @@ grpc.NewServer(
 ### 5.1 启动时初始化 telemetry
 
 ```go
-providers, shutdown, err := telemetry.Setup(ctx, telemetry.Config{
-  ServiceName:    bootstrapConf.GetAppName(),
-  ServiceVersion: bootstrapConf.GetAppVersion(),
-  OTLPEndpoint:   "otel-collector:4317",
-  Insecure:       true,
-  Traces:         true,
-  Metrics:        true,
-  Logs:           true,
-})
+providers, shutdown, err := telemetry.Setup(bootstrapConf)
 if err != nil { panic(err) }
-defer shutdown(ctx)
+defer shutdown(context.Background())
 ```
 
 ### 5.2 暴露 /metrics
@@ -196,11 +188,11 @@ _ = s
 ## 6. 常见排查点
 
 - 在 Tempo 看不到 trace：
-  - 是否启用了 `cfg.Traces=true`
+  - 是否启用了 `bootstrapConf.GetOtelTraces()=true`
   - 是否挂了 `otelgrpc.UnaryServerInterceptor()` 或者其它 instrumentation
   - OTLP endpoint 是否可达
 - /metrics 没有 gRPC 指标：
-  - 是否启用了 `cfg.Metrics=true`
+  - 是否启用了 `bootstrapConf.GetOtelMetrics()=true`
   - 是否挂了 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())`
   - Prometheus 是否 scrape 到正确端口/路径
 - 日志无法和 trace 关联：

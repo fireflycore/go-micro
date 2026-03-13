@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
+	"github.com/fireflycore/go-micro/conf"
 	promreg "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
@@ -28,18 +30,21 @@ type Providers struct {
 	MetricsHandler http.Handler
 }
 
-func Setup(ctx context.Context, cfg *Conf) (*Providers, func(context.Context) error, error) {
-	if cfg.ServiceName == "" {
-		return nil, nil, errors.New("service name is required")
+const DefaultInitTimeout = 3 * time.Second
+
+func NewProviders(bootstrapConf conf.BootstrapConf) (*Providers, func(context.Context) error, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	return SetupWithContext(ctx, bootstrapConf)
+}
+
+func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*Providers, func(context.Context) error, error) {
+	if bootstrapConf == nil {
+		return nil, nil, errors.New("bootstrap conf is nil")
 	}
 
-	res, err := resource.New(
-		ctx,
-		resource.WithAttributes(
-			attribute.String("service.name", cfg.ServiceName),
-			attribute.String("service.version", cfg.ServiceVersion),
-		),
-	)
+	res, err := newResource(ctx, bootstrapConf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -51,64 +56,35 @@ func Setup(ctx context.Context, cfg *Conf) (*Providers, func(context.Context) er
 		propagation.Baggage{},
 	))
 
-	if cfg.Traces {
-		expOpts := make([]otlptracegrpc.Option, 0, 2)
-		if cfg.OTLPEndpoint != "" {
-			expOpts = append(expOpts, otlptracegrpc.WithEndpoint(cfg.OTLPEndpoint))
-		}
-		if cfg.Insecure {
-			expOpts = append(expOpts, otlptracegrpc.WithInsecure())
-		}
+	otlpEndpoint := bootstrapConf.GetOtelEndpoint()
+	insecure := bootstrapConf.GetOtelInsecure()
 
-		traceExp, te := otlptracegrpc.New(ctx, expOpts...)
+	if bootstrapConf.GetOtelTraces() {
+		tp, te := setupTraces(ctx, res, otlpEndpoint, insecure)
 		if te != nil {
 			return nil, nil, te
 		}
-
-		p.TracerProvider = sdktrace.NewTracerProvider(
-			sdktrace.WithResource(res),
-			sdktrace.WithBatcher(traceExp),
-		)
-		otel.SetTracerProvider(p.TracerProvider)
+		p.TracerProvider = tp
+		otel.SetTracerProvider(tp)
 	}
 
-	if cfg.Metrics {
-		reg := promreg.NewRegistry()
-
-		metricExp, me := otelprom.New(
-			otelprom.WithRegisterer(reg),
-		)
+	if bootstrapConf.GetOtelMetrics() {
+		mp, mh, me := setupMetrics(res)
 		if me != nil {
 			return nil, nil, me
 		}
-
-		p.MeterProvider = sdkmetric.NewMeterProvider(
-			sdkmetric.WithResource(res),
-			sdkmetric.WithReader(metricExp),
-		)
-		otel.SetMeterProvider(p.MeterProvider)
-		p.MetricsHandler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+		p.MeterProvider = mp
+		p.MetricsHandler = mh
+		otel.SetMeterProvider(mp)
 	}
 
-	if cfg.Logs {
-		expOpts := make([]otlploggrpc.Option, 0, 2)
-		if cfg.OTLPEndpoint != "" {
-			expOpts = append(expOpts, otlploggrpc.WithEndpoint(cfg.OTLPEndpoint))
-		}
-		if cfg.Insecure {
-			expOpts = append(expOpts, otlploggrpc.WithInsecure())
-		}
-
-		logExp, le := otlploggrpc.New(ctx, expOpts...)
+	if bootstrapConf.GetOtelLogs() {
+		lp, le := setupLogs(ctx, res, otlpEndpoint, insecure)
 		if le != nil {
 			return nil, nil, le
 		}
-
-		p.LoggerProvider = sdklog.NewLoggerProvider(
-			sdklog.WithResource(res),
-			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
-		)
-		global.SetLoggerProvider(p.LoggerProvider)
+		p.LoggerProvider = lp
+		global.SetLoggerProvider(lp)
 	}
 
 	shutdown := func(ctx context.Context) error {
@@ -132,4 +108,72 @@ func Setup(ctx context.Context, cfg *Conf) (*Providers, func(context.Context) er
 	}
 
 	return p, shutdown, nil
+}
+
+func newResource(ctx context.Context, bootstrapConf conf.BootstrapConf) (*resource.Resource, error) {
+	return resource.New(
+		ctx,
+		resource.WithAttributes(
+			attribute.String("service.name", bootstrapConf.GetAppName()),
+			attribute.String("service.version", bootstrapConf.GetAppVersion()),
+		),
+	)
+}
+
+func setupTraces(ctx context.Context, res *resource.Resource, otlpEndpoint string, insecure bool) (*sdktrace.TracerProvider, error) {
+	expOpts := make([]otlptracegrpc.Option, 0, 2)
+	if otlpEndpoint != "" {
+		expOpts = append(expOpts, otlptracegrpc.WithEndpoint(otlpEndpoint))
+	}
+	if insecure {
+		expOpts = append(expOpts, otlptracegrpc.WithInsecure())
+	}
+
+	traceExp, err := otlptracegrpc.New(ctx, expOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return sdktrace.NewTracerProvider(
+		sdktrace.WithResource(res),
+		sdktrace.WithBatcher(traceExp),
+	), nil
+}
+
+func setupMetrics(res *resource.Resource) (*sdkmetric.MeterProvider, http.Handler, error) {
+	reg := promreg.NewRegistry()
+
+	metricExp, err := otelprom.New(
+		otelprom.WithRegisterer(reg),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(metricExp),
+	)
+
+	return mp, promhttp.HandlerFor(reg, promhttp.HandlerOpts{}), nil
+}
+
+func setupLogs(ctx context.Context, res *resource.Resource, otlpEndpoint string, insecure bool) (*sdklog.LoggerProvider, error) {
+	expOpts := make([]otlploggrpc.Option, 0, 2)
+	if otlpEndpoint != "" {
+		expOpts = append(expOpts, otlploggrpc.WithEndpoint(otlpEndpoint))
+	}
+	if insecure {
+		expOpts = append(expOpts, otlploggrpc.WithInsecure())
+	}
+
+	logExp, err := otlploggrpc.New(ctx, expOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return sdklog.NewLoggerProvider(
+		sdklog.WithResource(res),
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+	), nil
 }
