@@ -1,6 +1,15 @@
 # Telemetry（OpenTelemetry）接入说明
 
-本目录的 [core.go](file:///d:/project/firefly/go-micro/telemetry/core.go) 用于在服务启动时一次性完成 OpenTelemetry（OTel）的初始化，并把 **Traces / Metrics / Logs** 三类信号的 Provider 设置为全局默认，供其它库（例如 `otelgrpc`、`otelzap`）自动复用。
+本目录提供了 OpenTelemetry (OTel) 的一站式初始化封装，用于在服务启动时一次性完成 **Traces / Metrics / Logs** 的配置，并设置全局 Provider 供其他库复用。
+
+## 目录结构
+
+- [core.go](core.go): 初始化入口 (`NewProviders`, `SetupWithContext`)
+- [trace.go](trace.go): 链路追踪 (`TracerProvider`) 配置
+- [metric.go](metric.go): 指标监控 (`MeterProvider`) 配置
+- [log.go](log.go): 日志 (`LoggerProvider`) 配置
+- [conf.go](conf.go): 配置结构定义
+- [provider.go](provider.go): `Providers` 结构体定义
 
 ## 1. OTel 在做什么
 
@@ -18,14 +27,15 @@ OTel 的通用工作模型是：
 
 ## 2. telemetry.Setup 做了哪些事
 
-[Setup](file:///d:/project/firefly/go-micro/telemetry/core.go#L32-L142) 分成 5 个关键步骤：
+[Setup](core.go) 分成 5 个关键步骤：
 
 ### 2.1 Resource：统一标识“这是谁发出来的数据”
 
 ```go
 resource.WithAttributes(
-  attribute.String("service.name", bootstrapConf.GetAppName()),
-  attribute.String("service.version", bootstrapConf.GetAppVersion()),
+  attribute.String("service.app.name", bootstrapConf.GetAppName()),
+  attribute.String("service.app.version", bootstrapConf.GetAppVersion()),
+  attribute.String("service.app.id", bootstrapConf.GetAppId()),
 )
 ```
 
@@ -76,7 +86,7 @@ Prometheus 会通过 HTTP 拉取 `/metrics`，所以这里 exporter 不是“pus
 
 `otelzap` 是 zap 的 bridge：它实现了 `zapcore.Core`，zap 写日志时会调用 core 的 `Write`，`otelzap` 会把 zap 的 `Entry/Fields` 转成 OTel `log.Record` 并发给 OTel 的 `LoggerProvider`。
 
-在 go-micro 中，zap 构造在 [logger.NewZapLogger](file:///d:/project/firefly/go-micro/logger/zap.go#L1-L26)：
+在 go-micro 中，zap 构造在 [logger.NewZapLogger](../logger/zap.go)：
 
 - Console=true：追加 console core，输出到 stdout
 - Remote=true：追加 `otelzap.NewCore(...)`，输出到 OTel
