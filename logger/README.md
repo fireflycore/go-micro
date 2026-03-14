@@ -38,7 +38,7 @@ func main() {
 	
 	// 注意：实际项目中还需要实现 conf.BootstrapConf 的其他方法
 	zl := logger.NewZapLogger(myConf)
-	log := logger.NewLogger(zl)
+	log := logger.NewAccessLogger(zl)
 
 	log.WithContextInfo(context.Background(), "hello", zap.String("k", "v"))
 }

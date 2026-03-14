@@ -9,7 +9,6 @@
 - [metric.go](metric.go): 指标监控 (`MeterProvider`) 配置
 - [log.go](log.go): 日志 (`LoggerProvider`) 配置
 - [conf.go](conf.go): 配置结构定义
-- [provider.go](provider.go): `Providers` 结构体定义
 
 ## 1. OTel 在做什么
 
@@ -25,9 +24,9 @@ OTel 的通用工作模型是：
 - Metric：`MeterProvider` + `Reader`（Prometheus 是 pull reader）
 - Log：`LoggerProvider` + `LogProcessor` + `LogExporter`
 
-## 2. telemetry.Setup 做了哪些事
+## 2. telemetry.SetupWithContext 做了哪些事
 
-[Setup](core.go) 分成 5 个关键步骤：
+[SetupWithContext](core.go) 分成 5 个关键步骤：
 
 ### 2.1 Resource：统一标识“这是谁发出来的数据”
 
@@ -95,10 +94,10 @@ Prometheus 会通过 HTTP 拉取 `/metrics`，所以这里 exporter 不是“pus
 
 `otelzap` 有一个关键约定：如果 zap fields 里包含 `context.Context`，会用它作为 log record 的上下文，从中读取当前 span，从而自动把日志关联到 trace/span。
 
-go-micro 的 [logger.Core] 专门提供了 `WithContextInfo/WithContextWarn/WithContextError`：
+go-micro 的 `logger.AccessLogger` 与 `logger.ServerLogger` 提供了 `WithContextInfo/WithContextWarn/WithContextError`：
 
 ```go
-func (l *Core) WithContextInfo(ctx context.Context, msg string, fields ...zap.Field) {
+func (l *AccessLogger) WithContextInfo(ctx context.Context, msg string, fields ...zap.Field) {
   l.Info(msg, append(fields, zap.Any("ctx", ctx))...)
 }
 ```
@@ -127,32 +126,32 @@ grpc.NewServer(
 
 - gRPC 内部会把每次 RPC 的开始/结束/字节数等事件回调给 `stats.Handler`
 - `otelgrpc.NewServerHandler` 在这些回调中使用全局 `MeterProvider` 记录指标
-- 这些指标进入 `telemetry.Setup` 创建的 `MeterProvider`，通过 `providers.MetricsHandler` 暴露给 Prometheus scrape
+- 这些指标进入 `telemetry.NewProviders` / `telemetry.SetupWithContext` 创建的 `MeterProvider`，通过 `providers.MetricsHandler` 暴露给 Prometheus scrape
 
 因此，“gRPC 指标是 otelgrpc 采集的”，而 telemetry 做的是“提供 meter provider + 暴露 /metrics 出口”。
 
-### 4.2 gRPC Trace：UnaryServerInterceptor / StreamServerInterceptor
+### 4.2 gRPC Trace：StatsHandler
 
-追踪通常由 otelgrpc 的 interceptor 完成（创建 server span、提取/注入传播头等）。你可以在服务中使用：
+在当前版本的 `otelgrpc` 中，推荐通过 `stats.Handler` 完成 trace/metrics 采集，不再使用已弃用的拦截器方式。你可以在服务中使用：
 
 ```go
 grpc.NewServer(
+  grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
   grpc.ChainUnaryInterceptor(
-    otelgrpc.UnaryServerInterceptor(),
     gm.NewAccessLogger(log),
     gm.ValidationErrorToInvalidArgument(),
   ),
 )
 ```
 
-建议把 `otelgrpc.UnaryServerInterceptor()` 放在链路最外层，确保后续日志能从 ctx 里拿到 span 做关联。
+建议把 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())` 作为服务级配置，保证中间件中的日志可以从 `ctx` 中拿到 span 做关联。
 
 ## 5. 推荐接入模板（最小可运行骨架）
 
 ### 5.1 启动时初始化 telemetry
 
 ```go
-providers, shutdown, err := telemetry.Setup(bootstrapConf)
+providers, shutdown, err := telemetry.NewProviders(bootstrapConf)
 if err != nil { panic(err) }
 defer shutdown(context.Background())
 ```
@@ -192,7 +191,7 @@ go func() {
 
 ```go
 zl := logger.NewZapLogger(bootstrapConf)
-log := logger.NewLogger(zl)
+log := logger.NewAccessLogger(zl)
 ```
 
 ### 5.4 gRPC Server：StatsHandler + Interceptor
@@ -201,7 +200,6 @@ log := logger.NewLogger(zl)
 s := grpc.NewServer(
   grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
   grpc.ChainUnaryInterceptor(
-    otelgrpc.UnaryServerInterceptor(),
     gm.NewAccessLogger(log),
     gm.ValidationErrorToInvalidArgument(),
   ),
@@ -214,15 +212,15 @@ _ = s
 - `grpc.StatsHandler(gm.NewOtelServerStatsHandler())`
   - 属于 gRPC 的 `stats.Handler` 回调机制
   - 主要负责 Metrics：采集 RPC 过程中的统计事件（开始/结束/字节数等）并记录为指标，最终通过 `/metrics` 暴露给 Prometheus scrape
-- `otelgrpc.UnaryServerInterceptor()`
+- `grpc.ChainUnaryInterceptor(...)`
   - 属于 gRPC 的 Unary 拦截器链
-  - 主要负责 Traces：为每个 RPC 创建/续接 server span，把 span 放进 `ctx`，并在结束时记录错误与状态；同时负责上下文传播（解析/注入 W3C TraceContext）
+  - 主要负责业务能力增强：参数校验错误映射、访问日志落库/输出等
 
 ## 6. 常见排查点
 
 - 在 Tempo 看不到 trace：
   - 是否启用了 `bootstrapConf.GetOtelTraces()=true`
-  - 是否挂了 `otelgrpc.UnaryServerInterceptor()` 或者其它 instrumentation
+  - 是否挂了 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())` 或者其它 instrumentation
   - OTLP endpoint 是否可达
 - /metrics 没有 gRPC 指标：
   - 是否启用了 `bootstrapConf.GetOtelMetrics()=true`
@@ -230,4 +228,4 @@ _ = s
   - Prometheus 是否 scrape 到正确端口/路径
 - 日志无法和 trace 关联：
   - 打日志时是否把 `ctx` 传进 `WithContextInfo/WithContextError`
-  - 是否确实存在当前 span（是否装了 otelgrpc interceptor）
+  - 是否确实存在当前 span（是否装了 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())`）

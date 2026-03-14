@@ -35,7 +35,7 @@ type Providers struct {
 const DefaultInitTimeout = 3 * time.Second
 
 // NewProviders 创建并初始化 Telemetry Providers。
-// 这是一个便捷函数，内部调用 SetupWithContext，使用默认的 5 秒超时。
+// 这是一个便捷函数，内部调用 SetupWithContext，使用 DefaultInitTimeout。
 //
 // 参数:
 //   - bootstrapConf: 引导配置，包含 OTel 配置信息
@@ -45,7 +45,7 @@ const DefaultInitTimeout = 3 * time.Second
 //   - func(context.Context) error: 关闭函数，用于优雅关闭 Providers
 //   - error: 初始化错误
 func NewProviders(bootstrapConf conf.BootstrapConf) (*Providers, func(context.Context) error, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeout)
 	defer cancel()
 
 	return SetupWithContext(ctx, bootstrapConf)
