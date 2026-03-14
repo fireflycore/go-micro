@@ -7,6 +7,8 @@ type BootstrapConf interface {
 	GetAppVersion() string
 	GetServiceEndpoint() string
 	GetServiceAuthToken() string
+	GetServiceNamespace() string
+	GetServiceInstanceId() string
 
 	GetSystemName() string
 	GetSystemType() uint32
