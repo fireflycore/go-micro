@@ -15,6 +15,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
 // Providers 聚合了 OpenTelemetry 的三个主要 Provider：
@@ -71,7 +72,7 @@ func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*P
 	}
 
 	// 1. 创建 Resource
-	res, err := NewResource(ctx, bootstrapConf)
+	res, err := NewResource(bootstrapConf)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -148,13 +149,16 @@ func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*P
 
 // NewResource 创建 OpenTelemetry Resource。
 // Resource 包含描述实体的属性，例如服务名称、版本等。
-func NewResource(ctx context.Context, bootstrapConf conf.BootstrapConf) (*resource.Resource, error) {
-	return resource.New(
-		ctx,
-		resource.WithAttributes(
-			attribute.String("service.app.name", bootstrapConf.GetAppName()),
-			attribute.String("service.app.version", bootstrapConf.GetAppVersion()),
-			attribute.String("service.app.id", bootstrapConf.GetAppId()),
+func NewResource(bootstrapConf conf.BootstrapConf) (*resource.Resource, error) {
+	return resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(bootstrapConf.GetAppName()),
+			semconv.ServiceVersion(bootstrapConf.GetAppVersion()),
+			semconv.ServiceNamespace(bootstrapConf.GetServiceNamespace()),
+			semconv.ServiceInstanceID(bootstrapConf.GetServiceInstanceId()),
+			attribute.String("service.id", bootstrapConf.GetAppId()),
 		),
 	)
 }

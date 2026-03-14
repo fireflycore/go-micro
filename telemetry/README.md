@@ -31,14 +31,21 @@ OTel 的通用工作模型是：
 ### 2.1 Resource：统一标识“这是谁发出来的数据”
 
 ```go
-resource.WithAttributes(
-  attribute.String("service.app.name", bootstrapConf.GetAppName()),
-  attribute.String("service.app.version", bootstrapConf.GetAppVersion()),
-  attribute.String("service.app.id", bootstrapConf.GetAppId()),
+resource.Merge(
+  resource.Default(),
+  resource.NewWithAttributes(
+    semconv.SchemaURL,
+    semconv.ServiceName(bootstrapConf.GetAppName()),
+    semconv.ServiceVersion(bootstrapConf.GetAppVersion()),
+    semconv.ServiceNamespace(bootstrapConf.GetServiceNamespace()),
+    semconv.ServiceInstanceID(bootstrapConf.GetServiceInstanceId()),
+    attribute.String("service.id", bootstrapConf.GetAppId()),
+  ),
 )
 ```
 
-这部分是所有信号的共同“身份标签”。在 Grafana/Tempo/Loki/Prometheus 里按服务聚合、按版本过滤，主要依赖这些资源属性。
+这部分是所有信号的共同“身份标签”。`resource.Default()` 会保留 OTel 默认资源字段（如 `service.name` 默认值与 `telemetry.sdk.*`），并叠加服务标准语义字段（`service.name/service.version/service.namespace/service.instance.id`）和项目自定义字段（`service.id`）。
+字段语义建议为：`service.id` 表示服务父级标识（对应 `app_id`），`service.instance.id` 表示该服务下的具体实例；平台检索与聚合优先使用标准字段 `service.name/service.namespace/service.instance.id`，`service.id` 作为业务维度补充字段。
 
 ### 2.2 Propagator：跨进程传播 Trace 上下文
 
