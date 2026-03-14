@@ -4,7 +4,7 @@
 
 ## 目录结构
 
-- [core.go](core.go): 初始化入口 (`NewProviders`, `SetupWithContext`)
+- [core.go](core.go): 初始化入口 (`NewProviders`) 与统一关闭 (`Providers.Shutdown`)
 - [trace.go](trace.go): 链路追踪 (`TracerProvider`) 配置
 - [metric.go](metric.go): 指标监控 (`MeterProvider`) 配置
 - [log.go](log.go): 日志 (`LoggerProvider`) 配置
@@ -24,9 +24,9 @@ OTel 的通用工作模型是：
 - Metric：`MeterProvider` + `Reader`（Prometheus 是 pull reader）
 - Log：`LoggerProvider` + `LogProcessor` + `LogExporter`
 
-## 2. telemetry.SetupWithContext 做了哪些事
+## 2. telemetry.NewProviders 做了哪些事
 
-[SetupWithContext](core.go) 分成 5 个关键步骤：
+[NewProviders](core.go) 分成 5 个关键步骤：
 
 ### 2.1 Resource：统一标识“这是谁发出来的数据”
 
@@ -133,7 +133,7 @@ grpc.NewServer(
 
 - gRPC 内部会把每次 RPC 的开始/结束/字节数等事件回调给 `stats.Handler`
 - `otelgrpc.NewServerHandler` 在这些回调中使用全局 `MeterProvider` 记录指标
-- 这些指标进入 `telemetry.NewProviders` / `telemetry.SetupWithContext` 创建的 `MeterProvider`，通过 `providers.MetricsHandler` 暴露给 Prometheus scrape
+- 这些指标进入 `telemetry.NewProviders` 创建的 `MeterProvider`，通过 `providers.MetricsHandler` 暴露给 Prometheus scrape
 
 因此，“gRPC 指标是 otelgrpc 采集的”，而 telemetry 做的是“提供 meter provider + 暴露 /metrics 出口”。
 
@@ -158,9 +158,9 @@ grpc.NewServer(
 ### 5.1 启动时初始化 telemetry
 
 ```go
-providers, shutdown, err := telemetry.NewProviders(bootstrapConf)
+providers, err := telemetry.NewProviders(bootstrapConf)
 if err != nil { panic(err) }
-defer shutdown(context.Background())
+defer func() { _ = providers.Shutdown() }()
 ```
 
 ### 5.2 暴露 /metrics
