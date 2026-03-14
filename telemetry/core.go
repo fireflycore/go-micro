@@ -36,48 +36,39 @@ type Providers struct {
 const DefaultInitTimeout = 3 * time.Second
 
 // NewProviders 创建并初始化 Telemetry Providers。
-// 这是一个便捷函数，内部调用 SetupWithContext，使用 DefaultInitTimeout。
+// 初始化过程使用 DefaultInitTimeout 作为默认超时控制。
 //
 // 参数:
 //   - bootstrapConf: 引导配置，包含 OTel 配置信息
 //
 // 返回:
 //   - *Providers: 包含 Tracer, Meter, Logger Provider
-//   - func(context.Context) error: 关闭函数，用于优雅关闭 Providers
 //   - error: 初始化错误
-func NewProviders(bootstrapConf conf.BootstrapConf) (*Providers, func(context.Context) error, error) {
+func NewProviders(bootstrapConf conf.BootstrapConf) (*Providers, error) {
+	if bootstrapConf == nil {
+		return nil, errors.New("bootstrap conf is nil")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeout)
 	defer cancel()
 
-	return SetupWithContext(ctx, bootstrapConf)
-}
-
-// SetupWithContext 使用给定的上下文初始化 Telemetry Providers。
-// 它会根据 bootstrapConf 中的配置决定是否启用 Traces, Metrics, Logs。
-//
-// 主要步骤:
-//  1. 创建 Resource (Service Name, Version)
-//  2. 设置全局 Propagator (TraceContext, Baggage)
-//  3. 初始化 Traces (如果启用)
-//  4. 初始化 Metrics (如果启用)
-//  5. 初始化 Logs (如果启用)
-//
-// 返回:
-//   - *Providers: 包含 Tracer, Meter, Logger Provider
-//   - func(context.Context) error: 关闭函数，用于优雅关闭 Providers
-//   - error: 初始化错误
-func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*Providers, func(context.Context) error, error) {
-	if bootstrapConf == nil {
-		return nil, nil, errors.New("bootstrap conf is nil")
-	}
+	p := &Providers{}
 
 	// 1. 创建 Resource
-	res, err := NewResource(bootstrapConf)
+	res, err := resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(bootstrapConf.GetAppName()),
+			semconv.ServiceVersion(bootstrapConf.GetAppVersion()),
+			semconv.ServiceNamespace(bootstrapConf.GetServiceNamespace()),
+			semconv.ServiceInstanceID(bootstrapConf.GetServiceInstanceId()),
+			attribute.String("service.id", bootstrapConf.GetAppId()),
+		),
+	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	p := &Providers{}
 
 	// 2. 设置全局 Propagator
 	// 使用 W3C Trace Context 和 Baggage 标准
@@ -93,7 +84,7 @@ func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*P
 	if bootstrapConf.GetOtelTraces() {
 		tp, err := NewTracerProvider(ctx, res, otlpEndpoint, insecure)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		p.TracerProvider = tp
 		// 设置全局 TracerProvider
@@ -104,7 +95,7 @@ func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*P
 	if bootstrapConf.GetOtelMetrics() {
 		mp, mh, err := NewMeterProvider(res)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		p.MeterProvider = mp
 		p.MetricsHandler = mh
@@ -116,49 +107,37 @@ func SetupWithContext(ctx context.Context, bootstrapConf conf.BootstrapConf) (*P
 	if bootstrapConf.GetOtelLogs() {
 		lp, err := NewLoggerProvider(ctx, res, otlpEndpoint, insecure)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		p.LoggerProvider = lp
 		// 设置全局 LoggerProvider
 		global.SetLoggerProvider(lp)
 	}
 
-	// 定义关闭函数，按顺序关闭所有 Provider
-	shutdown := func(ctx context.Context) error {
-		var out error
-		if p.LoggerProvider != nil {
-			if err := p.LoggerProvider.Shutdown(ctx); err != nil {
-				out = errors.Join(out, err)
-			}
-		}
-		if p.MeterProvider != nil {
-			if err := p.MeterProvider.Shutdown(ctx); err != nil {
-				out = errors.Join(out, err)
-			}
-		}
-		if p.TracerProvider != nil {
-			if err := p.TracerProvider.Shutdown(ctx); err != nil {
-				out = errors.Join(out, err)
-			}
-		}
-		return out
-	}
-
-	return p, shutdown, nil
+	return p, nil
 }
 
-// NewResource 创建 OpenTelemetry Resource。
-// Resource 包含描述实体的属性，例如服务名称、版本等。
-func NewResource(bootstrapConf conf.BootstrapConf) (*resource.Resource, error) {
-	return resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceName(bootstrapConf.GetAppName()),
-			semconv.ServiceVersion(bootstrapConf.GetAppVersion()),
-			semconv.ServiceNamespace(bootstrapConf.GetServiceNamespace()),
-			semconv.ServiceInstanceID(bootstrapConf.GetServiceInstanceId()),
-			attribute.String("service.id", bootstrapConf.GetAppId()),
-		),
-	)
+func (p *Providers) Shutdown() error {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeout)
+	defer cancel()
+
+	var out error
+
+	if p.LoggerProvider != nil {
+		if err := p.LoggerProvider.Shutdown(ctx); err != nil {
+			out = errors.Join(out, err)
+		}
+	}
+	if p.MeterProvider != nil {
+		if err := p.MeterProvider.Shutdown(ctx); err != nil {
+			out = errors.Join(out, err)
+		}
+	}
+	if p.TracerProvider != nil {
+		if err := p.TracerProvider.Shutdown(ctx); err != nil {
+			out = errors.Join(out, err)
+		}
+	}
+
+	return out
 }
