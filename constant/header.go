@@ -4,6 +4,8 @@ package constant
 const (
 	// XRealIp 真实ip，一般由nginx设置的
 	XRealIp = "x-real-ip"
+	// TraceId 为链路追踪 ID（x-trace-id，遵循 OTel 常见实践）
+	TraceId = "x-trace-id"
 	// Authorization 用户token
 	Authorization = "authorization"
 

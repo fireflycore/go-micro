@@ -9,6 +9,7 @@ import (
 	"github.com/fireflycore/go-micro/constant"
 	"github.com/fireflycore/go-micro/logger"
 	"github.com/fireflycore/go-micro/rpc"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -19,6 +20,11 @@ import (
 // NewAccessLogger 访问日志中间件
 func NewAccessLogger(log *logger.AccessLogger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		// 注入 TraceId 到 Response Header (Trailer)
+		if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+			_ = grpc.SetHeader(ctx, metadata.Pairs(constant.TraceId, span.SpanContext().TraceID().String()))
+		}
+
 		if log == nil {
 			return handler(ctx, req)
 		}

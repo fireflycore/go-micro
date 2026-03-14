@@ -12,6 +12,7 @@ import (
 
 	"github.com/fireflycore/go-micro/constant"
 	"github.com/fireflycore/go-micro/logger"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,11 @@ import (
 func NewAccessLogger(log *logger.AccessLogger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			// 将 TraceId 注入到 Response Header 中，方便客户端排查问题
+			if span := trace.SpanFromContext(request.Context()); span.SpanContext().IsValid() {
+				writer.Header().Set(constant.TraceId, span.SpanContext().TraceID().String())
+			}
+
 			if log == nil {
 				next.ServeHTTP(writer, request)
 				return
