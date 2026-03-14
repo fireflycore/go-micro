@@ -35,3 +35,26 @@ import "github.com/fireflycore/go-micro/constant"
 md, _ := metadata.FromIncomingContext(ctx)
 userId, err := rpc.ParseMetaKey(md, constant.UserId)
 ```
+
+## 规范设计
+
+### Header Key 命名规范
+- 所有自定义 Header Key 必须使用小写字母。
+- 单词之间使用短横线 `-` 分隔（kebab-case）。
+- 必须使用统一的前缀 `x-firefly-`，以区别于标准 HTTP Header 或其他框架 Header。
+
+### 为什么使用静态常量前缀？
+
+我们选择使用硬编码的静态常量前缀（`x-firefly-`），而不采用运行时动态配置前缀（如 `x-{brand}-`），基于以下考量：
+
+1.  **协议标准化（Protocol Standardization）**：
+    Header Key 属于通信协议的一部分。如同 HTTP 标准头（`Content-Type`）或 OTel 标准头（`traceparent`）一样，协议的稳定性至关重要。统一的前缀保证了 Firefly 生态内所有组件（网关、SDK、中间件、探针）的无缝互通，无需复杂的协商配置。
+
+2.  **生态兼容性（Ecosystem Compatibility）**：
+    如果允许不同服务或不同部署环境使用不同的 Header 前缀，会导致跨服务调用、跨品牌合作、以及第三方工具集成变得异常复杂。维护多套协议标准会导致生态割裂。
+
+3.  **性能与开发体验（Performance & DX）**：
+    静态常量在编译期确定，无运行时拼接开销，且对 IDE 友好（可跳转、可补全）。相比之下，动态前缀需要运行时计算或全局变量注入，增加了初始化复杂度和并发风险。
+
+4.  **业务隔离（Business Isolation）**：
+    品牌或租户的隔离应当通过 Header **Value**（如 `x-firefly-tenant-id`）来实现，而不是通过修改 Header **Key**。
