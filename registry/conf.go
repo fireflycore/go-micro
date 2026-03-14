@@ -4,6 +4,8 @@ import "github.com/fireflycore/go-micro/constant"
 
 // ServiceConf 服务注册/服务发现配置。
 type ServiceConf struct {
+	// 实例Id
+	InstanceId string `json:"instance_id"`
 	// 命名空间
 	Namespace string `json:"namespace"`
 	// 网卡
