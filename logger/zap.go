@@ -7,7 +7,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func NewZapLogger(bootstrapConf conf.BootstrapConf, opts ...otelzap.Option) *zap.Logger {
+func NewZapLogger(bootstrapConf conf.BootstrapConf) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 
 	cores := make([]zapcore.Core, 0, 2)
@@ -15,7 +15,7 @@ func NewZapLogger(bootstrapConf conf.BootstrapConf, opts ...otelzap.Option) *zap
 		cores = append(cores, NewConsoleCore(atomicLevel))
 	}
 	if bootstrapConf.GetLoggerRemote() {
-		cores = append(cores, otelzap.NewCore(bootstrapConf.GetAppName(), opts...))
+		cores = append(cores, otelzap.NewCore(bootstrapConf.GetAppName()))
 	}
 
 	if len(cores) == 0 {
