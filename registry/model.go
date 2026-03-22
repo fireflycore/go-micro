@@ -9,10 +9,12 @@ import (
 type Meta struct {
 	// 环境，不同环境的服务不互通
 	Env string `json:"env"`
-	// 应用id，泛指服务实例，不同版本的服务实例可以共享appId
-	AppId string `json:"app_id"`
 	// 服务实例版本
 	Version string `json:"version"`
+	// 实例id, 实例id和应用id的区别就是，一个服务主体可以有多个实例
+	InstanceId string `json:"instance_id"`
+	// 应用id，泛指服务主体，不同版本的服务实例可以共享appId
+	AppId string `json:"app_id"`
 }
 
 // Kernel 定义服务实例运行时元信息。
