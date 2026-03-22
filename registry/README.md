@@ -5,11 +5,12 @@
 ## 核心接口
 
 - **Register**：定义服务注册行为（`Install`、`Uninstall`）。
-- **Discovery**：定义服务发现行为（`GetService`、`Watch`、`Unwatch`），仅网关使用。
+- **Discovery**：定义服务发现行为（`GetService`、`Watcher`、`Unwatch`、`WatchEvent`），仅网关使用。
 
 ## 设计约束
 
 - 业务服务只依赖 `Register`，不依赖 `Discovery`
+- `Discovery` 的主职责是维护本地索引，回调订阅属于可选扩展能力
 - `registry` 只保留接口与模型，不承载具体适配实现
 - etcd、consul、k8s/istio 的实现完全独立维护，互不耦合
 

@@ -21,11 +21,12 @@
 
 ## 3. Discovery 实现要求
 
-- `Watch(ctx)` 必须维护两个索引：
+- `Watcher()` 必须维护两个索引：
   - `Method -> AppId`
   - `AppId -> []*ServiceNode`
 - `GetService(method)` 必须仅返回健康实例
 - `Unwatch()` 必须可重复调用且幂等
+- `WatchEvent(callback)` 作为可选能力，用于向外透传增删改事件
 
 ## 4. 数据编码建议
 

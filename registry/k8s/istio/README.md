@@ -19,8 +19,9 @@
 - 支持两种返回策略：
   - 返回 Service FQDN，网关直连 Service
   - 返回 EndpointSlice 实例列表，网关做节点级策略
-- `Watch(ctx)` 监听 K8s 资源变化时必须支持断线重连
+- `Watcher()` 监听 K8s 资源变化时必须支持断线重连
 - `GetService(method)` 需要结合路由配置完成 method 到 service 的映射
+- `WatchEvent(callback)` 作为可选能力，用于向外透传增删改事件
 
 ## 4. 路由建议
 
