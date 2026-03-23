@@ -7,7 +7,7 @@
 - 统一配置模型，避免不同后端字段语义漂移
 - 统一存储与监听接口，降低后端切换成本
 - 统一选项与错误语义，减少重复治理逻辑
-- 支持运行时按上下文读取（Tenant/App/User）
+- 支持运行时按上下文读取（TenantId/AppId/UserId）
 
 ## 目录说明
 
@@ -35,7 +35,7 @@
 
 - 启动层：本地 `BootstrapConf`
 - 动态层：后端 watch 热更新
-- 场景层：按 `TenantID/AppID/UserID` 查询
+- 场景层：按 `TenantId/AppId/UserId` 查询
 
 ## 最小示例
 
@@ -50,11 +50,11 @@ import (
 
 func load(ctx context.Context, store microcfg.Store) (*microcfg.Item, error) {
 	key := microcfg.Key{
-		Tenant: "t1",
-		Env:    "prod",
-		AppID:  "order-service",
-		Group:  "db",
-		Name:   "primary",
+		TenantId: "t1",
+		Env:      "prod",
+		AppId:    "order-service",
+		Group:    "db",
+		Name:     "primary",
 	}
 	return store.Get(ctx, key)
 }

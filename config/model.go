@@ -13,8 +13,8 @@ type Key struct {
 
 	// AppId 表示应用标识。
 	AppId string `json:"app_id"`
-	// Tenant 表示租户标识，用于多租户隔离。
-	TenantId string `json:"tenant"`
+	// TenantId 表示租户标识，用于多租户隔离。
+	TenantId string `json:"tenant_id"`
 }
 
 // Item 表示一条可发布、可读取的配置内容。
