@@ -18,9 +18,9 @@ type RemoteLoaderFunc func(appId, group, key string) (string, error)
 // 用于处理密文场景（例如解密后再反序列化到 target）。
 type PayloadDecodeFunc func(content string, secret []byte, target any) error
 
-// BootstrapParams 描述初始化后端配置对象所需参数。
+// LoaderParams 描述加载后端配置对象所需参数。
 // 该结构把 local / remote 两条加载链路的输入参数统一起来。
-type BootstrapParams struct {
+type LoaderParams struct {
 	// LoadMode 指定加载模式：local / remote。
 	LoadMode string
 	// AppId 远程模式下用于定位配置所属应用。
@@ -52,14 +52,14 @@ type StoreParams struct {
 	AppSecret []byte
 }
 
-// LoadBootstrapConfig 按 local / remote 规则加载并解析后端配置。
-func LoadBootstrapConfig[T any](params BootstrapParams, localLoad LocalLoaderFunc, remoteLoad RemoteLoaderFunc, payloadDecode PayloadDecodeFunc) (T, error) {
+// LoadConfig 按 local / remote 规则加载并解析后端配置。
+func LoadConfig[T any](params LoaderParams, localLoad LocalLoaderFunc, remoteLoad RemoteLoaderFunc, payloadDecode PayloadDecodeFunc) (T, error) {
 	var target, zero T
 
 	switch params.LoadMode {
 	case "local":
 		if localLoad == nil {
-			return zero, fmt.Errorf("config local loader is nil")
+			return zero, ErrLocalLoaderIsNil
 		}
 
 		if err := localLoad(params.FileName, &target); err != nil {
@@ -69,7 +69,7 @@ func LoadBootstrapConfig[T any](params BootstrapParams, localLoad LocalLoaderFun
 		return target, nil
 	case "remote":
 		if remoteLoad == nil {
-			return zero, fmt.Errorf("config remote getter is nil")
+			return zero, ErrRemoteLoaderIsNil
 		}
 
 		row, err := remoteLoad(params.AppId, params.Group, params.Key)
@@ -90,7 +90,7 @@ func LoadBootstrapConfig[T any](params BootstrapParams, localLoad LocalLoaderFun
 
 		return target, nil
 	default:
-		return zero, fmt.Errorf("unsupported load mode: %s", params.LoadMode)
+		return zero, fmt.Errorf("%w: %s", ErrUnsupportedLoadMode, params.LoadMode)
 	}
 }
 
@@ -123,7 +123,7 @@ func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams
 
 	if item.Encrypted {
 		if payloadDecode == nil {
-			return zero, fmt.Errorf("config payload decoder is nil")
+			return zero, ErrPayloadDecoderIsNil
 		}
 
 		if err = payloadDecode(string(item.Content), params.AppSecret, &target); err != nil {
