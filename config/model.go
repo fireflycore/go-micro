@@ -4,29 +4,29 @@ import "time"
 
 // Key 描述一条配置在存储中的业务主键。
 type Key struct {
+	// TenantId 表示租户标识，用于多租户隔离。
+	TenantId string `json:"tenant_id"`
+	// AppId 表示应用标识。
+	AppId string `json:"app_id"`
+	// Env 表示环境，如 dev/staging/prod。
+	Env string `json:"env"`
+
 	// Group 表示配置分组。
 	Group string `json:"group"`
 	// Name 表示具体配置名。
 	Name string `json:"name"`
-	// Env 表示环境，如 dev/staging/prod。
-	Env string `json:"env"`
-
-	// AppId 表示应用标识。
-	AppId string `json:"app_id"`
-	// TenantId 表示租户标识，用于多租户隔离。
-	TenantId string `json:"tenant_id"`
 }
 
 // Item 表示一条可发布、可读取的配置内容。
 type Item struct {
+	// Meta 记录扩展元信息。
+	Meta map[string]string `json:"meta"`
 	// Version 表示配置版本号。
 	Version string `json:"version"`
 	// Content 是配置原始内容。
 	Content []byte `json:"content"`
 	// Encrypted 标识 Content 是否已加密。
 	Encrypted bool `json:"encrypted"`
-	// Meta 记录扩展元信息。
-	Meta map[string]string `json:"meta"`
 	// UpdatedAt 表示最近更新时间。
 	UpdatedAt time.Time `json:"updated_at"`
 	// UpdatedBy 表示最近更新人。
