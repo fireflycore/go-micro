@@ -3,6 +3,12 @@ package config
 import "errors"
 
 var (
+	// ErrLocalLoaderIsNil 表示本地加载函数为空。
+	ErrLocalLoaderIsNil = errors.New("config local loader is nil")
+	// ErrRemoteLoaderIsNil 表示远程加载函数为空。
+	ErrRemoteLoaderIsNil = errors.New("config remote loader is nil")
+	// ErrPayloadDecoderIsNil 表示配置内容解码函数为空。
+	ErrPayloadDecoderIsNil = errors.New("config payload decoder is nil")
 	// ErrStoreIsNil 表示存储实现为空。
 	ErrStoreIsNil = errors.New("config store is nil")
 	// ErrWatcherIsNil 表示监听实现为空。
@@ -19,4 +25,6 @@ var (
 	ErrResourceNotFound = errors.New("config resource not found")
 	// ErrVersionConflict 表示写入版本冲突。
 	ErrVersionConflict = errors.New("config version conflict")
+	// ErrUnsupportedLoadMode 表示配置加载模式不支持。
+	ErrUnsupportedLoadMode = errors.New("unsupported config load mode")
 )
