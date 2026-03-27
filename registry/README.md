@@ -2,17 +2,42 @@
 
 `registry` 包定义了服务注册与发现的核心接口与通用模型，供各类注册中心实现复用。
 
+## 当前定位
+
+- `go-micro/registry` 是统一契约层，不包含具体注册中心客户端实现
+- `go-etcd/registry`、`go-consul/registry`、`go-k8s/registry` 是契约层之下的对等适配器
+- IDC 环境可选：
+  - `go-etcd/registry`
+  - `go-consul/registry`
+- 云原生环境只支持 `go-k8s/registry` 对应的 `k8s + istio` 模式
+
 ## 核心接口
 
 - **Register**：定义服务注册行为（`Install`、`Uninstall`）。
 - **Discovery**：定义服务发现行为（`GetService`、`Watcher`、`Unwatch`、`WatchEvent`），仅网关使用。
+
+## 通用模型与辅助
+
+- 通用模型：
+  - `Meta`
+  - `Network`
+  - `Kernel`
+  - `ServiceNode`
+  - `ServiceMethod`
+  - `ServiceDiscover`
+  - `ServiceEvent`
+- 通用辅助：
+  - `NewRegisterService(...)`
+  - `(*ServiceNode).ParseMethod(...)`
+  - `(*ServiceNode).CheckMethod(...)`
 
 ## 设计约束
 
 - 业务服务只依赖 `Register`，不依赖 `Discovery`
 - `Discovery` 的主职责是维护本地索引，回调订阅属于可选扩展能力
 - `registry` 只保留接口与模型，不承载具体适配实现
-- etcd、consul、k8s/istio 的实现完全独立维护，互不耦合
+- `ServiceConf`、`GatewayConf` 等实现专属配置对象不放在契约层
+- etcd、consul、k8s/istio 的实现完全独立维护，但统一服从同一套契约
 
 ## 分层建议
 
@@ -25,10 +50,10 @@
 
 | 位置 | 放什么 |
 |---|---|
-| `go-micro/registry` | `Register/Discovery` 接口，`Meta/Network/Kernel/ServiceNode` 等通用模型 |
-| `go-etcd/registry` | lease、revision、watch 重连、etcd key 组织等 |
-| `go-consul/registry` | check、service meta 编码、blocking query、consul 事件模型等 |
-| `go-k8s/registry` | EndpointSlice/Service 查询、K8s 资源监听、Istio 路由映射等 |
+| `go-micro/registry` | `Register/Discovery` 接口，`Meta/Network/Kernel/ServiceNode/ServiceMethod/ServiceDiscover/ServiceEvent` 等通用模型 |
+| `go-etcd/registry` | lease、revision、watch 重连、etcd key 组织、`ServiceConf` 等 |
+| `go-consul/registry` | check、service meta 编码、blocking query、consul 事件模型、`ServiceConf` 等 |
+| `go-k8s/registry` | Service/Endpoints 查询、K8s 资源监听、Istio 路由映射、`ServiceConf` 等 |
 
 不建议把 `go-micro/registry` 完全下沉到实现包，原因如下：
 
@@ -41,6 +66,15 @@
 - 核心契约放 `go-micro/registry`
 - 实现专属字段放 `go-etcd/go-consul/go-k8s`
 - 通过实现包内部转换，避免把实现细节泄漏给业务层
+
+## 环境选型
+
+- IDC：
+  - 如已有 etcd 存量，可继续使用 `go-etcd/registry`
+  - 如新建或迁移 IDC 注册中心，可选择 `go-consul/registry`
+- 云原生：
+  - 统一使用 `go-k8s/registry`
+  - 与 `k8s + istio` 配套，不再提供 etcd / consul 作为云原生注册中心选项
 
 ## 实现包
 > 注册中心的具体实现位于独立仓库中。
