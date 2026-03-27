@@ -16,6 +16,7 @@
 - `watch.go`：统一监听接口
 - `option.go`：函数式配置选项与可插拔能力（Codec/Encryptor）
 - `loader.go`：统一配置加载入口，负责按 local / remote 方式加载基础配置，并支持从 `Store` 读取配置对象
+- `loader_qa.md`：记录 loader 命名与参数设计上的关键取舍，避免后续语义漂移
 - `error.go`：统一错误定义
 
 ## 命名约定
@@ -25,6 +26,7 @@
 - `LoaderParams` + `LoadConfig` 用于描述“如何从 local / remote 加载一份基础配置”
 - `StoreParams` + `LoadStoreConfig` 用于描述“如何从统一配置存储中读取并解析一份配置”
 - 这样区分后，业务侧可以继续保留 `BootstrapConf` 语义，基础库侧则专注于加载过程，避免把“配置模型”和“加载动作”混在一起
+- 关于为什么当前不把 `LoadConfig` 的参数进一步收敛成统一接口，可参考 [loader_qa.md](file:///Users/lhdht/product/firefly/go-micro/config/loader_qa.md)
 
 ## 使用方式
 
