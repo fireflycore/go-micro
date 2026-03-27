@@ -6,21 +6,21 @@ import (
 	"fmt"
 )
 
-// LocalConfigLoader 定义“本地配置加载器”函数签名。
-// 典型实现是：按 fileName 读取 JSON 文件并反序列化到 target。
-type LocalConfigLoader func(fileName string, target any) error
+// LocalLoaderFunc 定义本地配置加载函数签名。
+// 典型实现是按 fileName 读取配置文件并反序列化到 target。
+type LocalLoaderFunc func(fileName string, target any) error
 
-// RemoteConfigGetter 定义“远程配置获取器”函数签名。
-// 典型实现是：从数据库/配置中心按 appId+group+key 取到配置字符串。
-type RemoteConfigGetter func(appId, group, key string) (string, error)
+// RemoteLoaderFunc 定义远程配置读取函数签名。
+// 典型实现是从配置中心按 appId + group + key 获取配置文本。
+type RemoteLoaderFunc func(appId, group, key string) (string, error)
 
-// PayloadDecoder 定义“配置内容解码器”函数签名。
-// 用于处理密文场景（例如 base64 + decrypt + decompress + json）。
-type PayloadDecoder func(content string, secret []byte, target any) error
+// PayloadDecodeFunc 定义配置内容解码函数签名。
+// 用于处理密文场景（例如解密后再反序列化到 target）。
+type PayloadDecodeFunc func(content string, secret []byte, target any) error
 
-// StoreBootstrapRequest 描述“初始化后端配置对象”所需参数。
-// 该结构用于把 local/remote 两条加载链路的入参统一起来。
-type StoreBootstrapRequest struct {
+// BootstrapParams 描述初始化后端配置对象所需参数。
+// 该结构把 local / remote 两条加载链路的输入参数统一起来。
+type BootstrapParams struct {
 	// LoadMode 指定加载模式：local / remote。
 	LoadMode string
 	// AppId 远程模式下用于定位配置所属应用。
@@ -35,9 +35,9 @@ type StoreBootstrapRequest struct {
 	FileName string
 }
 
-// StoreReadRequest 描述“从 Store 读取一条配置并解析”所需参数。
-// 如果 Key 的某些字段为空，会用 AppId/Env/Group/Name 做回填。
-type StoreReadRequest struct {
+// StoreParams 描述从 Store 读取一条配置并解析所需参数。
+// 当 Key 某些字段为空时，会用 AppId / Env / Group / Name 回填。
+type StoreParams struct {
 	// Key 是优先使用的业务键。
 	Key Key
 	// AppId 用于回填 Key.AppId。
@@ -52,93 +52,90 @@ type StoreReadRequest struct {
 	AppSecret []byte
 }
 
-// DecodeBootstrapConfig 按 local/remote 规则加载并解析后端配置。
-func DecodeBootstrapConfig[T any](request StoreBootstrapRequest, localLoader LocalConfigLoader, remoteGetter RemoteConfigGetter, payloadDecoder PayloadDecoder) (T, error) {
-	var target T
+// LoadBootstrapConfig 按 local / remote 规则加载并解析后端配置。
+func LoadBootstrapConfig[T any](params BootstrapParams, localLoad LocalLoaderFunc, remoteLoad RemoteLoaderFunc, payloadDecode PayloadDecodeFunc) (T, error) {
+	var target, zero T
 
-	switch request.LoadMode {
+	switch params.LoadMode {
 	case "local":
-		if localLoader == nil {
-			var zero T
+		if localLoad == nil {
 			return zero, fmt.Errorf("config local loader is nil")
 		}
-		if err := localLoader(request.FileName, &target); err != nil {
-			var zero T
+
+		if err := localLoad(params.FileName, &target); err != nil {
 			return zero, err
 		}
+
 		return target, nil
 	case "remote":
-		if remoteGetter == nil {
-			var zero T
+		if remoteLoad == nil {
 			return zero, fmt.Errorf("config remote getter is nil")
 		}
-		row, err := remoteGetter(request.AppId, request.Group, request.Key)
+
+		row, err := remoteLoad(params.AppId, params.Group, params.Key)
 		if err != nil {
-			var zero T
 			return zero, err
 		}
-		if payloadDecoder != nil {
-			if err = payloadDecoder(row, request.AppSecret, &target); err != nil {
-				var zero T
+
+		if payloadDecode != nil {
+			if err = payloadDecode(row, params.AppSecret, &target); err != nil {
 				return zero, err
 			}
 			return target, nil
 		}
+
 		if err = json.Unmarshal([]byte(row), &target); err != nil {
-			var zero T
 			return zero, err
 		}
+
 		return target, nil
 	default:
-		var zero T
-		return zero, fmt.Errorf("unsupported load mode: %s", request.LoadMode)
+		return zero, fmt.Errorf("unsupported load mode: %s", params.LoadMode)
 	}
 }
 
-// DecodeStoreJSON 从 Store 读取配置并按 JSON 规则解析。
-func DecodeStoreJSON[T any](ctx context.Context, store Store, request StoreReadRequest, payloadDecoder PayloadDecoder) (T, error) {
-	var target T
+// LoadStoreConfig 从 Store 读取当前配置并解析为目标类型 T。
+func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams, payloadDecode PayloadDecodeFunc) (T, error) {
+	var target, zero T
 
 	if store == nil {
-		var zero T
 		return zero, ErrStoreIsNil
 	}
 
-	key := request.Key
+	key := params.Key
 	if key.AppId == "" {
-		key.AppId = request.AppId
+		key.AppId = params.AppId
 	}
 	if key.Env == "" {
-		key.Env = request.Env
+		key.Env = params.Env
 	}
 	if key.Group == "" {
-		key.Group = request.Group
+		key.Group = params.Group
 	}
 	if key.Name == "" {
-		key.Name = request.Name
+		key.Name = params.Name
 	}
 
 	item, err := store.Get(ctx, key)
 	if err != nil {
-		var zero T
 		return zero, err
 	}
 
 	if item.Encrypted {
-		if payloadDecoder == nil {
-			var zero T
+		if payloadDecode == nil {
 			return zero, fmt.Errorf("config payload decoder is nil")
 		}
-		if err = payloadDecoder(string(item.Content), request.AppSecret, &target); err != nil {
-			var zero T
+
+		if err = payloadDecode(string(item.Content), params.AppSecret, &target); err != nil {
 			return zero, err
 		}
+
 		return target, nil
 	}
 
 	if err = json.Unmarshal(item.Content, &target); err != nil {
-		var zero T
 		return zero, err
 	}
+
 	return target, nil
 }
