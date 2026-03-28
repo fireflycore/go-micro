@@ -11,7 +11,7 @@ type ServiceConf struct {
 	// 网卡
 	Network *Network `json:"network"`
 	// 内核
-	Kernel *Kernel `json:"kernel"`
+	Kernel *ServiceKernel `json:"kernel"`
 
 	// 最大重试次数, 间隔时间是TTL*5
 	MaxRetry uint32 `json:"max_retry"`
@@ -37,7 +37,7 @@ func (sc *ServiceConf) Bootstrap() {
 	}
 
 	if sc.Kernel == nil {
-		sc.Kernel = &Kernel{}
+		sc.Kernel = &ServiceKernel{}
 	}
 	sc.Kernel.Bootstrap()
 

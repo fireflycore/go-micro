@@ -7,9 +7,9 @@ type ServiceNode struct {
 	RunDate    string          `json:"run_date"`
 	Methods    map[string]bool `json:"methods"`
 
-	Network *Network `json:"network"`
-	Kernel  *Kernel  `json:"kernel"`
-	Meta    *Meta    `json:"meta"`
+	Network *Network       `json:"network"`
+	Kernel  *ServiceKernel `json:"kernel"`
+	Meta    *ServiceMeta   `json:"meta"`
 }
 
 // ParseMethod 将节点方法映射写入方法表（method -> appId）。
