@@ -11,6 +11,12 @@
 
 长期方向以 `invocation` 为主，`registry` 将在迁移完成后退出主路径。
 
+同时，`go-micro` 已明确采用 OpenTelemetry 作为统一观测体系：
+
+- gRPC 调用链默认接入 OTel
+- 指标、链路、日志相关能力围绕 OTel 生态组织
+- `invocation` 的后续实现也应默认对齐这一观测模型
+
 ## 安装
 
 ```bash
@@ -43,6 +49,7 @@ _ = s
 - 用 `Locator` 把服务身份解析成目标地址
 - 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
 - 用 `Invoker` 统一串起 metadata、Authz 与底层调用
+- 并默认把调用链路接入 OTel 观测体系
 
 适用场景：
 
@@ -66,6 +73,7 @@ _ = s
 - 新项目优先围绕 `invocation` 设计服务间调用
 - 旧项目若仍依赖 `registry`，可继续使用，但不建议再基于它扩展新模型
 - `rpc` 包中的现有工具仍可复用，但长期应逐步向 `invocation` 收敛
+- 新的调用能力默认应与 `telemetry`、`middleware/grpc` 中现有的 OTel 能力保持一致
 
 ## 许可证
 

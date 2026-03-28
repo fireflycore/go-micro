@@ -17,6 +17,7 @@
 - `K8s + Istio` 标准实现
 - `etcd / consul` 轻量实现
 - 统一的 `service -> service` 调用模型
+- 与 OTel 对齐的统一调用观测模型
 
 它不再承担旧 `registry` 中的中心语义，例如：
 
@@ -109,6 +110,20 @@ auth.default.svc.cluster.local:9000
 - 调用的完整 method 是什么
 - 当前身份元信息是什么
 
+## 观测约定
+
+`invocation` 在设计上默认与 `go-micro` 现有的 OpenTelemetry 体系对齐。
+
+这意味着：
+
+- 调用链默认应接入 OTel trace
+- gRPC client 默认应挂载 OTel 相关 handler
+- 调用前后的关键行为应便于接入 metric / trace / log
+- `Authz`、`Locator`、`Dialer`、`Invoker` 的后续实现都不应绕开统一观测体系
+
+当前版本中，`ConnectionManager` 的默认拨号选项已经默认挂载了 `otelgrpc` client handler，
+这是后续统一观测体系的基础入口之一。
+
 ## 当前默认实现
 
 当前版本已经提供：
@@ -181,3 +196,4 @@ func Example() error {
 - `Authz` 默认作为调用前外挂能力接入
 - `K8s + Istio` 是标准路径
 - `etcd / consul` 应实现相同的调用语义，而不是暴露另一套模型
+- OTel 是统一观测标准，新的实现不应引入另一套平行观测语义
