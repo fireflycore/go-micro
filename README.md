@@ -4,6 +4,13 @@
 
 建议配合 **go-layout**（Firefly 微服务框架的 Go 版本标准项目模板）使用，以获得最佳开发体验。
 
+当前版本同时处于两条能力线并行阶段：
+
+- 旧能力线：`registry`，延续服务注册与节点发现模型
+- 新能力线：`invocation`，面向 `service -> service` 的统一调用模型
+
+长期方向以 `invocation` 为主，`registry` 将在迁移完成后退出主路径。
+
 ## 安装
 
 ```bash
@@ -30,15 +37,35 @@ s := grpc.NewServer(
 _ = s
 ```
 
+如果要面向新的服务调用模型，建议优先使用 `invocation` 包提供的能力：
+
+- 用 `ServiceRef` 表达“我要调用哪个服务”
+- 用 `Locator` 把服务身份解析成目标地址
+- 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
+- 用 `Invoker` 统一串起 metadata、Authz 与底层调用
+
+适用场景：
+
+- `K8s + Istio` 标准主路径
+- `etcd / consul` 轻量实现路径
+- 需要统一调用入口而不是直接操作节点列表的场景
+
 ## 模块说明
 
 详细文档请参考各子包目录下的 README：
 
+- [invocation](./invocation/README.md)：新的服务调用模型（推荐）
 - [registry](./registry/README.md)：服务发现与注册
 - [rpc](./rpc/README.md)：RPC 调用封装
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
 - [logger](./logger/README.md)：zap/otelzap 日志封装
 - [constant](./constant/README.md)：通用常量
+
+## 当前建议
+
+- 新项目优先围绕 `invocation` 设计服务间调用
+- 旧项目若仍依赖 `registry`，可继续使用，但不建议再基于它扩展新模型
+- `rpc` 包中的现有工具仍可复用，但长期应逐步向 `invocation` 收敛
 
 ## 许可证
 
