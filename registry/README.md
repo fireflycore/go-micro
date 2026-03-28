@@ -1,11 +1,12 @@
 # Registry
 
-`registry` 包定义了服务注册与发现的核心接口与通用模型，供各类注册中心实现复用。
+`registry` 包当前只保留迁移兼容层职责，用于承接历史的服务注册与节点发现模型。
 
 ## 当前定位
 
-- `go-micro/registry` 是统一契约层，不包含具体注册中心客户端实现
+- `go-micro/registry` 是旧模型的兼容契约层，不包含具体注册中心客户端实现
 - `go-etcd/registry`、`go-consul/registry`、`go-k8s/registry` 是契约层之下的对等适配器
+- 新的主路径已经切换到 `go-micro/invocation`
 - IDC 环境可选：
   - `go-etcd/registry`
   - `go-consul/registry`
@@ -15,6 +16,13 @@
 
 - **Register**：定义服务注册行为（`Install`、`Uninstall`）。
 - **Discovery**：定义服务发现行为（`GetService`、`Watcher`、`Unwatch`、`WatchEvent`），仅网关使用。
+
+## 当前建议
+
+- 新业务调用优先使用 `go-micro/invocation`
+- `registry` 只继续承接服务注册、旧网关发现与存量兼容
+- 不再向 `registry` 扩展新的调用语义
+- `ServiceConf`、`GatewayConf` 等实现配置应继续下沉到实现包或业务本地配置层
 
 ## 通用模型与辅助
 
@@ -35,13 +43,13 @@
 
 - 业务服务只依赖 `Register`，不依赖 `Discovery`
 - `Discovery` 的主职责是维护本地索引，回调订阅属于可选扩展能力
-- `registry` 只保留接口与模型，不承载具体适配实现
+- `registry` 只保留旧接口与模型，不承载具体适配实现
 - `ServiceConf`、`GatewayConf` 等实现专属配置对象不放在契约层
 - etcd、consul、k8s/istio 的实现完全独立维护，但统一服从同一套契约
 
 ## 分层建议
 
-- `go-micro/registry` 保留接口和跨实现共享模型
+- `go-micro/registry` 保留旧接口和跨实现共享模型
 - `go-etcd/registry`、`go-consul/registry`、`go-k8s/registry` 各自维护实现细节与实现专属模型
 - 不把某个注册中心专属字段上提到 `go-micro/registry`
 - `ServiceConf`、`GatewayConf` 等实现配置模型下沉到各实现包维护
@@ -63,7 +71,7 @@
 
 建议维持“核心契约 + 实现扩展”：
 
-- 核心契约放 `go-micro/registry`
+- 旧兼容契约放 `go-micro/registry`
 - 实现专属字段放 `go-etcd/go-consul/go-k8s`
 - 通过实现包内部转换，避免把实现细节泄漏给业务层
 

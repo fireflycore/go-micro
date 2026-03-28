@@ -6,8 +6,8 @@
 
 当前版本同时处于两条能力线并行阶段：
 
-- 旧能力线：`registry`，延续服务注册与节点发现模型
-- 新能力线：`invocation`，面向 `service -> service` 的统一调用模型
+- 旧兼容能力线：`registry`，延续服务注册与节点发现模型
+- 新主能力线：`invocation`，面向 `service -> service` 的统一调用模型
 
 长期方向以 `invocation` 为主，`registry` 将在迁移完成后退出主路径。
 
@@ -62,7 +62,7 @@ _ = s
 详细文档请参考各子包目录下的 README：
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
-- [registry](./registry/README.md)：服务发现与注册
+- [registry](./registry/README.md)：旧兼容层中的服务发现与注册
 - [rpc](./rpc/README.md)：RPC 调用封装
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
 - [logger](./logger/README.md)：zap/otelzap 日志封装
@@ -72,6 +72,7 @@ _ = s
 
 - 新项目优先围绕 `invocation` 设计服务间调用
 - 旧项目若仍依赖 `registry`，可继续使用，但不建议再基于它扩展新模型
+- 新增的客户端接入优先通过 `ConnectionManager + Invoker` 组合落地
 - `rpc` 包中的现有工具仍可复用，但长期应逐步向 `invocation` 收敛
 - 新的调用能力默认应与 `telemetry`、`middleware/grpc` 中现有的 OTel 能力保持一致
 
