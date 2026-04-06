@@ -38,6 +38,8 @@
 - `LocalRuntime`
 - `RegistryDescriptor`
 - `RegistryProvider`
+- `GRPCDescriptorOptions`
+- `NewServiceLifecycleFromGRPC(...)`
 
 暂不包含：
 
@@ -102,3 +104,14 @@ go func() {
   }
 }()
 ```
+
+如果业务服务当前更接近 “`grpc.ServiceDesc + registry.ServiceConf`” 这类输入，也可以直接使用：
+
+- `GRPCDescriptorOptions`
+- `NewServiceLifecycleFromGRPC(...)`
+
+它会自动：
+
+- 解析 `grpc.ServiceDesc` 中的完整 method path
+- 复用 `ServiceConf` 中的 `weight / kernel / instance_id`
+- 组装 sidecar-agent 所需的标准注册描述
