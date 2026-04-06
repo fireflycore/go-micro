@@ -23,6 +23,8 @@
 - `registry` 只继续承接服务注册、旧网关发现与存量兼容
 - 不再向 `registry` 扩展新的调用语义
 - `ServiceConf`、`GatewayConf` 等实现配置应继续下沉到实现包或业务本地配置层
+- 业务服务与本机 `sidecar-agent` 的联动能力统一收敛到 [agent/README.md](file:///Users/lhdht/product/firefly/go-micro/registry/agent/README.md)
+- 若业务已使用 `ServiceNode`、`ServiceMeta`、`ServiceKernel`，可直接通过 `registry/agent` 的 `RegistryDescriptor` 做适配
 
 ## 通用模型与辅助
 
