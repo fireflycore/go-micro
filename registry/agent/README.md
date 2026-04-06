@@ -40,6 +40,8 @@
 - `RegistryProvider`
 - `GRPCDescriptorOptions`
 - `NewServiceLifecycleFromGRPC(...)`
+- `ServiceLifecycle`
+- `ManagedServer`
 
 暂不包含：
 
@@ -115,3 +117,16 @@ go func() {
 - 解析 `grpc.ServiceDesc` 中的完整 method path
 - 复用 `ServiceConf` 中的 `weight / kernel / instance_id`
 - 组装 sidecar-agent 所需的标准注册描述
+
+如果你希望把“业务服务启动/退出”和“agent 注册/摘流/注销”统一收敛成一个入口，还可以继续使用：
+
+- `ServiceLifecycle`
+- `ManagedServer`
+
+这样业务侧可以把：
+
+- 本地 agent 连接恢复后的自动重放 register
+- 退出时的 `drain + deregister`
+- 业务服务自己的 `serve + shutdown`
+
+统一收敛到一个 `Run(ctx)` 入口。
