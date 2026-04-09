@@ -62,7 +62,7 @@ _ = s
 详细文档请参考各子包目录下的 README：
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
-- [registry](./registry/README.md)：旧兼容层中的服务发现与注册
+- [registry](./registry/README.md)：裸机 sidecar-agent 接入索引与迁移入口
 - [registry/agent](./registry/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
 - [rpc](./rpc/README.md)：RPC 调用封装
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
