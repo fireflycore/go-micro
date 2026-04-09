@@ -40,10 +40,10 @@ func NewServiceLifecycle(options LifecycleOptions) (*ServiceLifecycle, error) {
 	}, nil
 }
 
-// NewServiceLifecycleFromRegistry 允许业务直接基于 go-micro registry 描述组装生命周期桥接对象。
-func NewServiceLifecycleFromRegistry(descriptor RegistryDescriptor, runtimeOptions LocalRuntimeOptions, lifecycleOptions LifecycleOptions) (*ServiceLifecycle, error) {
-	// 先用 registry 描述组装本地运行时。
-	runtime, err := NewLocalRuntimeFromRegistry(descriptor, runtimeOptions)
+// NewServiceLifecycleFromServiceRegistration 允许业务直接基于 go-micro 服务描述组装生命周期桥接对象。
+func NewServiceLifecycleFromServiceRegistration(descriptor ServiceRegistration, runtimeOptions LocalRuntimeOptions, lifecycleOptions LifecycleOptions) (*ServiceLifecycle, error) {
+	// 先用服务描述组装本地运行时。
+	runtime, err := NewLocalRuntimeFromServiceRegistration(descriptor, runtimeOptions)
 	if err != nil {
 		return nil, err
 	}

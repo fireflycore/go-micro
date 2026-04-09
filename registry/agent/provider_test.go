@@ -3,28 +3,26 @@ package agent
 import (
 	"context"
 	"testing"
-
-	baseregistry "github.com/fireflycore/go-micro/registry"
 )
 
-// TestRegistryProviderBuildRegisterRequest 验证 go-micro registry 描述会被正确转换成 register 请求。
-func TestRegistryProviderBuildRegisterRequest(t *testing.T) {
-	// 创建一个包含 kernel、methods 与 meta 的最小 registry 节点。
-	node := &baseregistry.ServiceNode{
+// TestServiceRegistrationProviderBuildRegisterRequest 验证 go-micro 服务描述会被正确转换成 register 请求。
+func TestServiceRegistrationProviderBuildRegisterRequest(t *testing.T) {
+	// 创建一个包含 kernel、methods 与 meta 的最小服务节点。
+	node := &ServiceNode{
 		Weight: 80,
 		Methods: map[string]bool{
 			"/acme.auth.v1.AuthService/Login": true,
 		},
-		Kernel: &baseregistry.ServiceKernel{
+		Kernel: &ServiceKernel{
 			Language: "go",
 			Version:  "go-micro/v1.12.0",
 		},
-		Meta: &baseregistry.ServiceMeta{
+		Meta: &ServiceMeta{
 			AppId: "10001",
 		},
 	}
 	// 创建待测 provider。
-	provider, err := NewRegistryProvider(RegistryDescriptor{
+	provider, err := NewServiceRegistrationProvider(ServiceRegistration{
 		ServiceName: "auth",
 		Namespace:   "default",
 		DNS:         "auth.default.svc.cluster.local",
@@ -57,10 +55,10 @@ func TestRegistryProviderBuildRegisterRequest(t *testing.T) {
 	}
 }
 
-// TestNewLocalRuntimeFromRegistry 验证可直接用 go-micro registry 描述组装本地运行时。
-func TestNewLocalRuntimeFromRegistry(t *testing.T) {
-	// 使用最小 registry 描述直接构造 local runtime。
-	runtime, err := NewLocalRuntimeFromRegistry(RegistryDescriptor{
+// TestNewLocalRuntimeFromServiceRegistration 验证可直接用 go-micro 服务描述组装本地运行时。
+func TestNewLocalRuntimeFromServiceRegistration(t *testing.T) {
+	// 使用最小服务描述直接构造 local runtime。
+	runtime, err := NewLocalRuntimeFromServiceRegistration(ServiceRegistration{
 		ServiceName: "payment",
 		Namespace:   "default",
 		DNS:         "payment.default.svc.cluster.local",

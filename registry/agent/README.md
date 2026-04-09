@@ -1,10 +1,12 @@
-# Agent Registry Bridge
+# Baremetal Agent Bridge
 
 `go-micro/registry/agent` 用于承接业务服务与本机 `sidecar-agent` 的联动能力。
 
 ## 定位
 
-这个包不直接对接 Consul，也不直接承担服务发现职责。
+这个包是当前 Firefly **裸机版本的主路径**。
+
+它不直接对接 Consul，也不直接承担服务发现职责。
 
 它只负责：
 
@@ -19,6 +21,7 @@
 - 不让业务服务直接处理 agent 重启逻辑
 - 把“注册描述缓存 + 连接恢复后重放”收敛到核心库
 - 给后续 v2.2 的 agent lifecycle 机制提供统一接入点
+- 把业务服务和 `consul / envoy` 的耦合统一收口到 `sidecar-agent`
 
 ## 当前范围
 
@@ -36,9 +39,10 @@
 - `JSONHTTPClient`
 - `WatchSource`
 - `LocalRuntime`
-- `RegistryDescriptor`
-- `RegistryProvider`
+- `ServiceRegistration`
+- `ServiceRegistrationProvider`
 - `GRPCDescriptorOptions`
+- `NewServiceRegistrationFromGRPC(...)`
 - `NewServiceLifecycleFromGRPC(...)`
 - `ServiceLifecycle`
 - `ManagedServer`
@@ -47,6 +51,38 @@
 
 - 与业务框架自动启动集成的完整实现
 - 与 sidecar-agent 的 lease / stream 协议实现
+
+## 当前边界
+
+当前默认假设：
+
+```text
+业务服务
+  → registry/agent
+  → 本机 sidecar-agent
+  → sidecar-agent 对接 consul / envoy
+```
+
+因此：
+
+- 业务服务不再直接对接 `go-consul/registry`
+- 业务服务不再直接感知 `envoy`
+- `registry/agent` 只处理本机 agent 生命周期，不处理云原生 mesh 语义
+
+## K8s 说明
+
+这个包是**裸机专用桥接层**。
+
+在 K8s 中应视为：
+
+- 不进入业务服务主链
+- 不承担注册/摘流/注销职责
+- 不复用本机 `sidecar-agent + consul + envoy` 这一套运行模型
+
+也就是说：
+
+- 裸机走 `registry/agent`
+- K8s 走 `k8s + mesh + invocation`
 
 ## 后续演进
 
@@ -59,30 +95,30 @@
 
 ## 建议接入方式
 
-业务服务若已经在使用 `go-micro/registry` 的节点模型，可优先复用：
+业务服务若已经在使用本地服务节点模型，可优先复用：
 
-- `RegistryDescriptor`
-- `RegistryProvider`
-- `NewLocalRuntimeFromRegistry(...)`
+- `ServiceRegistration`
+- `ServiceRegistrationProvider`
+- `NewLocalRuntimeFromServiceRegistration(...)`
 
 这样可以直接把已有服务元信息映射成 sidecar-agent 的注册请求，减少重复拼装代码。
 
 ```go
-node := &registry.ServiceNode{
+node := &agent.ServiceNode{
   Weight: 100,
   Methods: map[string]bool{
     "/acme.auth.v1.AuthService/Login": true,
   },
-  Kernel: &registry.ServiceKernel{
+  Kernel: &agent.ServiceKernel{
     Language: "go",
     Version:  "go-micro/v1.12.0",
   },
-  Meta: &registry.ServiceMeta{
+  Meta: &agent.ServiceMeta{
     AppId: "10001",
   },
 }
 
-lifecycle, err := agent.NewServiceLifecycleFromRegistry(agent.RegistryDescriptor{
+lifecycle, err := agent.NewServiceLifecycleFromServiceRegistration(agent.ServiceRegistration{
   ServiceName: "auth",
   Namespace:   "default",
   DNS:         "auth.default.svc.cluster.local",
@@ -107,7 +143,7 @@ go func() {
 }()
 ```
 
-如果业务服务当前更接近 “`grpc.ServiceDesc + registry.ServiceConf`” 这类输入，也可以直接使用：
+如果业务服务当前更接近 “`grpc.ServiceDesc + agent.ServiceOptions`” 这类输入，也可以直接使用：
 
 - `GRPCDescriptorOptions`
 - `NewServiceLifecycleFromGRPC(...)`
@@ -115,7 +151,7 @@ go func() {
 它会自动：
 
 - 解析 `grpc.ServiceDesc` 中的完整 method path
-- 复用 `ServiceConf` 中的 `weight / kernel / instance_id`
+- 复用 `ServiceOptions` 中的 `weight / kernel / instance_id`
 - 组装 sidecar-agent 所需的标准注册描述
 
 如果你希望把“业务服务启动/退出”和“agent 注册/摘流/注销”统一收敛成一个入口，还可以继续使用：

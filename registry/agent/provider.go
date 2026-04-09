@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"strings"
-
-	baseregistry "github.com/fireflycore/go-micro/registry"
 )
 
-// RegistryDescriptor 描述如何把 go-micro 的注册信息映射成 sidecar-agent register 请求。
-type RegistryDescriptor struct {
-	// AppID 表示应用标识；为空时优先回退到 Node.Meta.AppId。
-	AppID string
+// ServiceRegistration 描述如何把 go-micro 的服务信息映射成 sidecar-agent register 请求。
+type ServiceRegistration struct {
+	// AppId 表示应用标识；为空时优先回退到 Node.Meta.AppID。
+	AppId string
 	// AppName 表示应用名称；为空时回退到 ServiceName。
 	AppName string
 	// ServiceName 表示逻辑服务名。
@@ -30,18 +28,18 @@ type RegistryDescriptor struct {
 	Version string
 	// Weight 表示实例权重；为空时优先回退到 Node.Weight。
 	Weight int
-	// Node 表示 go-micro 现有注册节点信息。
-	Node *baseregistry.ServiceNode
+	// Node 表示业务服务当前的注册节点信息。
+	Node *ServiceNode
 }
 
-// RegistryProvider 负责把 go-micro 的注册节点信息转换成 agent 注册描述。
-type RegistryProvider struct {
+// ServiceRegistrationProvider 负责把 go-micro 的服务节点信息转换成 agent 注册描述。
+type ServiceRegistrationProvider struct {
 	// descriptor 保存当前服务的静态注册描述。
-	descriptor RegistryDescriptor
+	descriptor ServiceRegistration
 }
 
-// NewRegistryProvider 创建一个基于 go-micro registry 信息的 provider。
-func NewRegistryProvider(descriptor RegistryDescriptor) (*RegistryProvider, error) {
+// NewServiceRegistrationProvider 创建一个基于 go-micro 服务描述的 provider。
+func NewServiceRegistrationProvider(descriptor ServiceRegistration) (*ServiceRegistrationProvider, error) {
 	// 服务名与端口是 register 最小必要信息，缺失时直接返回错误。
 	if strings.TrimSpace(descriptor.ServiceName) == "" {
 		return nil, errors.New("service name is required")
@@ -50,19 +48,19 @@ func NewRegistryProvider(descriptor RegistryDescriptor) (*RegistryProvider, erro
 		return nil, errors.New("port is required")
 	}
 	// 构造 provider 时做一次固定描述校验，避免运行时反复失败。
-	return &RegistryProvider{
+	return &ServiceRegistrationProvider{
 		descriptor: descriptor,
 	}, nil
 }
 
 // BuildRegisterRequest 生成 sidecar-agent 所需的标准注册请求。
-func (p *RegistryProvider) BuildRegisterRequest(ctx context.Context) (RegisterRequest, error) {
-	// 当前实现不依赖上下文，但保留参数以兼容统一接口。
+func (p *ServiceRegistrationProvider) BuildRegisterRequest(ctx context.Context) (RegisterRequest, error) {
+	// 当前实现不依赖上下文，但保留参数以对齐统一 provider 接口。
 	_ = ctx
 	// 从静态描述中提取节点信息，便于后续回退默认值。
 	node := p.descriptor.Node
 	// 先决出最终 app_id，优先使用显式值。
-	appID := strings.TrimSpace(p.descriptor.AppID)
+	appID := strings.TrimSpace(p.descriptor.AppId)
 	if appID == "" && node != nil && node.Meta != nil {
 		appID = strings.TrimSpace(node.Meta.AppId)
 	}
@@ -79,7 +77,7 @@ func (p *RegistryProvider) BuildRegisterRequest(ctx context.Context) (RegisterRe
 	if weight <= 0 {
 		weight = 100
 	}
-	// kernel 与 methods 都允许为空，但优先从已有 registry 节点中复用。
+	// kernel 与 methods 都允许为空，但优先从已有服务节点中复用。
 	kernel := KernelInfo{}
 	methods := []string{}
 	if node != nil {
@@ -108,10 +106,10 @@ func (p *RegistryProvider) BuildRegisterRequest(ctx context.Context) (RegisterRe
 	}, nil
 }
 
-// NewLocalRuntimeFromRegistry 使用 go-micro registry 描述直接组装本地 agent 运行时。
-func NewLocalRuntimeFromRegistry(descriptor RegistryDescriptor, options LocalRuntimeOptions) (*LocalRuntime, error) {
-	// 先把 go-micro registry 描述转换成标准 provider。
-	provider, err := NewRegistryProvider(descriptor)
+// NewLocalRuntimeFromServiceRegistration 使用 go-micro 服务描述直接组装本地 agent 运行时。
+func NewLocalRuntimeFromServiceRegistration(descriptor ServiceRegistration, options LocalRuntimeOptions) (*LocalRuntime, error) {
+	// 先把 go-micro 服务描述转换成标准 provider。
+	provider, err := NewServiceRegistrationProvider(descriptor)
 	if err != nil {
 		return nil, err
 	}

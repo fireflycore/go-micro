@@ -3,12 +3,11 @@ package agent
 import (
 	"testing"
 
-	baseregistry "github.com/fireflycore/go-micro/registry"
 	"google.golang.org/grpc"
 )
 
-// TestNewRegistryDescriptorFromGRPC 验证 gRPC service desc 会被正确映射成 registry 描述。
-func TestNewRegistryDescriptorFromGRPC(t *testing.T) {
+// TestNewServiceRegistrationFromGRPC 验证 gRPC service desc 会被正确映射成服务注册描述。
+func TestNewServiceRegistrationFromGRPC(t *testing.T) {
 	// 构造一个最小 gRPC service desc，模拟业务服务已注册的方法。
 	rawServices := []*grpc.ServiceDesc{
 		{
@@ -20,18 +19,18 @@ func TestNewRegistryDescriptorFromGRPC(t *testing.T) {
 			},
 		},
 	}
-	// 用最小 service conf 构造待测描述。
-	descriptor, err := NewRegistryDescriptorFromGRPC(GRPCDescriptorOptions{
-		AppID:       "10001",
-		ServiceName: "auth",
-		Namespace:   "default",
-		DNS:         "auth.default.svc.cluster.local",
-		Env:         "prod",
-		Port:        9090,
-		Protocol:    "grpc",
-		Version:     "v1.0.0",
-		ServiceConf: &baseregistry.ServiceConf{},
-		RawServices: rawServices,
+	// 用最小 service options 构造待测描述。
+	descriptor, err := NewServiceRegistrationFromGRPC(GRPCDescriptorOptions{
+		AppId:          "10001",
+		ServiceName:    "auth",
+		Namespace:      "default",
+		DNS:            "auth.default.svc.cluster.local",
+		Env:            "prod",
+		Port:           9090,
+		Protocol:       "grpc",
+		Version:        "v1.0.0",
+		ServiceOptions: &ServiceOptions{},
+		RawServices:    rawServices,
 	})
 	if err != nil {
 		t.Fatalf("new descriptor from grpc failed: %v", err)
@@ -52,7 +51,7 @@ func TestNewRegistryDescriptorFromGRPC(t *testing.T) {
 func TestNewServiceLifecycleFromGRPC(t *testing.T) {
 	// 使用最小 gRPC 描述直接创建 lifecycle。
 	lifecycle, err := NewServiceLifecycleFromGRPC(GRPCDescriptorOptions{
-		AppID:       "10002",
+		AppId:       "10002",
 		ServiceName: "payment",
 		Namespace:   "default",
 		DNS:         "payment.default.svc.cluster.local",
