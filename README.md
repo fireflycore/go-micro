@@ -4,12 +4,12 @@
 
 建议配合 **go-layout**（Firefly 微服务框架的 Go 版本标准项目模板）使用，以获得最佳开发体验。
 
-当前版本同时处于两条能力线并行阶段：
+当前版本已经收敛为两条明确路径：
 
-- 旧兼容能力线：`registry`，延续服务注册与节点发现模型
-- 新主能力线：`invocation`，面向 `service -> service` 的统一调用模型
+- 裸机接入路径：`registry/agent`，负责对接本机 `sidecar-agent`
+- 服务调用路径：`invocation`，面向 `service -> service` 的统一调用模型
 
-长期方向以 `invocation` 为主，`registry` 将在迁移完成后退出主路径。
+`go-micro/registry` 根目录已不再承载旧注册中心抽象代码，只保留索引与迁移文档。
 
 同时，`go-micro` 已明确采用 OpenTelemetry 作为统一观测体系：
 
@@ -72,7 +72,7 @@ _ = s
 ## 当前建议
 
 - 新项目优先围绕 `invocation` 设计服务间调用
-- 旧项目若仍依赖 `registry`，可继续使用，但不建议再基于它扩展新模型
+- 裸机业务服务统一通过 `registry/agent` 接入 sidecar-agent
 - 新增的客户端接入优先通过 `ConnectionManager + Invoker` 组合落地
 - `rpc` 包中的现有工具仍可复用，但长期应逐步向 `invocation` 收敛
 - 新的调用能力默认应与 `telemetry`、`middleware/grpc` 中现有的 OTel 能力保持一致
