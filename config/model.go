@@ -23,9 +23,10 @@ type Item struct {
 	Meta map[string]string `json:"meta"`
 	// Version 表示配置版本号。
 	Version string `json:"version"`
-	// Content 是配置原始内容。
+	// Content 是当前整份配置的原始内容。
 	Content []byte `json:"content"`
-	// Encrypted 标识 Content 是否已加密。
+	// Encrypted 标识当前整份 Content 是否已加密。
+	// 当值为 true 时，读取方必须先解密整份内容，再做反序列化。
 	Encrypted bool `json:"encrypted"`
 	// UpdatedAt 表示最近更新时间。
 	UpdatedAt time.Time `json:"updated_at"`

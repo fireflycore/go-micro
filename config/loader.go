@@ -15,7 +15,7 @@ type LocalLoaderFunc func(fileName string, target any) error
 type RemoteLoaderFunc func(appId, group, key string) (string, error)
 
 // PayloadDecodeFunc 定义配置内容解码函数签名。
-// 用于处理密文场景（例如解密后再反序列化到 target）。
+// 用于处理整份配置为密文的场景：先解密完整内容，再反序列化到 target。
 type PayloadDecodeFunc func(content string, secret []byte, target any) error
 
 // LoaderParams 描述加载后端配置对象所需参数。
@@ -25,7 +25,7 @@ type LoaderParams struct {
 	LoadMode string
 	// AppId 远程模式下用于定位配置所属应用。
 	AppId string
-	// AppSecret 远程模式下用于解密配置内容（如果是密文）。
+	// AppSecret 远程模式下用于解密整份配置内容（如果是密文）。
 	AppSecret []byte
 	// Group 配置分组（如 database）。
 	Group string
@@ -48,7 +48,7 @@ type StoreParams struct {
 	Group string
 	// Name 用于回填 Key.Name。
 	Name string
-	// AppSecret 当读取到密文配置时用于解码。
+	// AppSecret 当读取到密文配置项时用于解码。
 	AppSecret []byte
 }
 
@@ -95,6 +95,7 @@ func LoadConfig[T any](params LoaderParams, localLoad LocalLoaderFunc, remoteLoa
 }
 
 // LoadStoreConfig 从 Store 读取当前配置并解析为目标类型 T。
+// 当 Item.Encrypted=true 时，会先通过 payloadDecode 解密整份内容，再解析为目标结构。
 func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams, payloadDecode PayloadDecodeFunc) (T, error) {
 	var target, zero T
 

@@ -1,6 +1,8 @@
 # Config
 
-`config` 包定义了统一配置能力的核心契约，目标是让业务只依赖 `go-micro/config`，由 `go-etcd`、`go-consul`、`go-k8s` 提供具体实现。
+`config` 包定义了统一配置能力的核心契约，目标是让业务只依赖 `go-micro/config`，再由具体后端实现包提供存储与监听能力。
+
+> 当前主线口径：统一的是契约、读取语义与控制面边界，不是把多个后端实现同时打进一个运行时产物。当前交付主线中，IDC 使用 `go-consul/config`，`K8s + Istio` 使用 `go-k8s/config`。
 
 ## 设计目标
 
@@ -8,6 +10,7 @@
 - 统一存储与监听接口，降低后端切换成本
 - 统一选项与错误语义，减少重复治理逻辑
 - 支持运行时按上下文读取（TenantId/AppId/UserId）
+- 统一加密语义：一份配置要加密就整份加密，读取时按 `Item.Encrypted` 决定是否先解密再解析
 
 ## 目录说明
 
@@ -25,6 +28,7 @@
 - `go-micro/config` 不定义具体业务侧的 `BootstrapConf` 结构，而是提供通用加载能力，因此这里使用 `loader` 命名
 - `LoaderParams` + `LoadConfig` 用于描述“如何从 local / remote 加载一份基础配置”
 - `StoreParams` + `LoadStoreConfig` 用于描述“如何从统一配置存储中读取并解析一份配置”
+- `Item.Encrypted` 表示“当前整份配置内容是否为密文”，不支持字段级加密
 - 这样区分后，业务侧可以继续保留 `BootstrapConf` 语义，基础库侧则专注于加载过程，避免把“配置模型”和“加载动作”混在一起
 - 关于为什么当前不把 `LoadConfig` 的参数进一步收敛成统一接口，可参考 [loader_qa.md](file:///Users/lhdht/product/firefly/go-micro/config/loader_qa.md)
 
@@ -32,11 +36,12 @@
 
 ### 1) 实现 Store + Watcher
 
-由各后端实现包完成：
+由各后端实现包完成。
 
-- `go-etcd/config`
-- `go-consul/config`
-- `go-k8s/config`
+当前主线交付中：
+
+- IDC：`go-consul/config`
+- `K8s + Istio`：`go-k8s/config`
 
 ### 2) 业务侧依赖抽象
 
@@ -47,6 +52,12 @@
 - 启动层：本地 `BootstrapConf`
 - 动态层：后端 watch 热更新
 - 场景层：按 `TenantId/AppId/UserId` 查询
+
+### 4) 加密读取规则
+
+- `Item.Encrypted=false`：直接解析配置内容
+- `Item.Encrypted=true`：先解密整份配置内容，再解析目标结构
+- 如果只有部分敏感信息需要保护，应拆成独立配置项，而不是在同一份 JSON 中做字段级加密
 
 ## 最小示例
 
