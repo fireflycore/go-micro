@@ -1,6 +1,6 @@
-package conf
+package config
 
-type BootstrapConf interface {
+type BootstrapConfig interface {
 	GetAppId() string
 	GetAppSecret() string
 	GetAppName() string
@@ -17,11 +17,9 @@ type BootstrapConf interface {
 	GetGatewayEndpoint() string
 	GetGatewayAuthToken() string
 
-	// GetServerPort 获取业务服务端口
 	GetServerPort() uint
-	// GetManagementPort 获取管理/监控端口
 	GetManagementPort() uint
 
-	LoggerConf
-	TelemetryConf
+	LoggerConfig
+	TelemetryConfig
 }

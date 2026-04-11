@@ -1,6 +1,6 @@
-package conf
+package config
 
-type LoggerConf interface {
+type LoggerConfig interface {
 	GetLoggerConsole() bool
 	GetLoggerRemote() bool
 }

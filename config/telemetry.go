@@ -1,6 +1,6 @@
-package conf
+package config
 
-type TelemetryConf interface {
+type TelemetryConfig interface {
 	GetOtelEndpoint() string
 	GetOtelInsecure() bool
 
