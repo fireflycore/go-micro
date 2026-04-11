@@ -1,6 +1,6 @@
 package config
 
 type LoggerConfig interface {
-	GetLoggerConsole() bool
-	GetLoggerRemote() bool
+	IsEnableConsole() bool
+	IsEnableRemote() bool
 }

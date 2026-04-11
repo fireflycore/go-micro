@@ -64,7 +64,7 @@ func LoadConfig[T any](params LoaderParams, deps LoadDeps) (T, error)
 
 - `BootstrapConfig`：业务服务自己的启动配置模型，通常只初始化一次，不参与热更新
 - `loader`：`go-micro/config` 中负责配置加载动作的通用能力
-- `Item.Encrypted`：表示当前整份配置内容是否为密文；读取时若为 `true`，则先解密整份内容，再解析目标结构
+- `Raw.Encrypted`：表示当前整份配置内容是否为密文；读取时若为 `true`，则先解密整份内容，再解析目标结构
 
 ### 加密边界
 

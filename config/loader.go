@@ -95,7 +95,7 @@ func LoadConfig[T any](params LoaderParams, localLoad LocalLoaderFunc, remoteLoa
 }
 
 // LoadStoreConfig 从 Store 读取当前配置并解析为目标类型 T。
-// 当 Item.Encrypted=true 时，会先通过 payloadDecode 解密整份内容，再解析为目标结构。
+// 当 Raw.Encrypted=true 时，会先通过 payloadDecode 解密整份内容，再解析为目标结构。
 func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams, payloadDecode PayloadDecodeFunc) (T, error) {
 	var target, zero T
 
@@ -117,24 +117,24 @@ func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams
 		key.Name = params.Name
 	}
 
-	item, err := store.Get(ctx, key)
+	raw, err := store.Get(ctx, key)
 	if err != nil {
 		return zero, err
 	}
 
-	if item.Encrypted {
+	if raw.Encrypted {
 		if payloadDecode == nil {
 			return zero, ErrPayloadDecoderIsNil
 		}
 
-		if err = payloadDecode(string(item.Content), params.AppSecret, &target); err != nil {
+		if err = payloadDecode(string(raw.Content), params.AppSecret, &target); err != nil {
 			return zero, err
 		}
 
 		return target, nil
 	}
 
-	if err = json.Unmarshal(item.Content, &target); err != nil {
+	if err = json.Unmarshal(raw.Content, &target); err != nil {
 		return zero, err
 	}
 

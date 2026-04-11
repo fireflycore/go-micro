@@ -9,8 +9,8 @@
 - 统一配置模型，避免不同后端字段语义漂移
 - 统一存储与监听接口，降低后端切换成本
 - 统一选项与错误语义，减少重复治理逻辑
-- 支持运行时按上下文读取（TenantId/AppId/UserId）
-- 统一加密语义：一份配置要加密就整份加密，读取时按 `Item.Encrypted` 决定是否先解密再解析
+- 支持运行时按 `Key + Tags` 上下文读取
+- 统一加密语义：一份配置要加密就整份加密，读取时按 `Raw.Encrypted` 决定是否先解密再解析
 
 ## 目录说明
 
@@ -28,7 +28,7 @@
 - `go-micro/config` 不定义具体业务侧的 `BootstrapConfig` 结构，而是提供通用加载能力，因此这里使用 `loader` 命名
 - `LoaderParams` + `LoadConfig` 用于描述“如何从 local / remote 加载一份基础配置”
 - `StoreParams` + `LoadStoreConfig` 用于描述“如何从统一配置存储中读取并解析一份配置”
-- `Item.Encrypted` 表示“当前整份配置内容是否为密文”，不支持字段级加密
+- `Raw.Encrypted` 表示“当前整份配置内容是否为密文”，不支持字段级加密
 - 这样区分后，业务侧可以继续保留 `BootstrapConfig` 语义，基础库侧则专注于加载过程，避免把“配置模型”和“加载动作”混在一起
 - 关于为什么当前不把 `LoadConfig` 的参数进一步收敛成统一接口，可参考 [loader_qa.md](file:///Users/lhdht/product/firefly/go-micro/config/loader_qa.md)
 
@@ -51,12 +51,12 @@
 
 - 启动层：本地 `BootstrapConfig`
 - 动态层：后端 watch 热更新
-- 场景层：按 `TenantId/AppId/UserId` 查询
+- 场景层：按 `Key + Tags` 查询
 
 ### 4) 加密读取规则
 
-- `Item.Encrypted=false`：直接解析配置内容
-- `Item.Encrypted=true`：先解密整份配置内容，再解析目标结构
+- `Raw.Encrypted=false`：直接解析配置内容
+- `Raw.Encrypted=true`：先解密整份配置内容，再解析目标结构
 - 如果只有部分敏感信息需要保护，应拆成独立配置项，而不是在同一份 JSON 中做字段级加密
 
 ## 最小示例
@@ -70,7 +70,7 @@ import (
 	microcfg "github.com/fireflycore/go-micro/config"
 )
 
-func load(ctx context.Context, store microcfg.Store) (*microcfg.Item, error) {
+func load(ctx context.Context, store microcfg.Store) (*microcfg.Raw, error) {
 	key := microcfg.Key{
 		TenantId: "t1",
 		Env:      "prod",

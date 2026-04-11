@@ -2,6 +2,14 @@ package config
 
 import "time"
 
+// Meta 表示一组配置的版本游标信息。
+type Meta struct {
+	// CurrentVersion 表示当前生效版本。
+	CurrentVersion string `json:"current_version"`
+	// LatestVersion 表示最新发布版本。
+	LatestVersion string `json:"latest_version"`
+}
+
 // Key 描述一条配置在存储中的业务主键。
 type Key struct {
 	// TenantId 表示租户标识，用于多租户隔离。
@@ -17,8 +25,8 @@ type Key struct {
 	Name string `json:"name"`
 }
 
-// Item 表示一条可发布、可读取的配置内容。
-type Item struct {
+// Raw 表示一条可发布、可读取的配置内容。
+type Raw struct {
 	// Meta 记录扩展元信息。
 	Meta map[string]string `json:"meta"`
 	// Version 表示配置版本号。
@@ -28,32 +36,18 @@ type Item struct {
 	// Encrypted 标识当前整份 Content 是否已加密。
 	// 当值为 true 时，读取方必须先解密整份内容，再做反序列化。
 	Encrypted bool `json:"encrypted"`
+	// CreatedAt 表示创建时间。
+	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt 表示最近更新时间。
 	UpdatedAt time.Time `json:"updated_at"`
 	// UpdatedBy 表示最近更新人。
 	UpdatedBy string `json:"updated_by"`
 }
 
-// Meta 表示一组配置的版本游标信息。
-type Meta struct {
-	// CurrentVersion 表示当前生效版本。
-	CurrentVersion string `json:"current_version"`
-	// LatestVersion 表示最新发布版本。
-	LatestVersion string `json:"latest_version"`
-}
-
 // Query 表示运行时按上下文查询配置的入参。
 type Query struct {
 	// Key 是基础配置键。
 	Key Key `json:"key"`
-
-	// UserId 表示请求上下文中的用户标识。
-	UserId string `json:"user_id"`
-	// AppId 表示请求上下文中的应用标识。
-	AppId string `json:"app_id"`
-	// TenantId 表示请求上下文中的租户标识。
-	TenantId string `json:"tenant_id"`
-
 	// Tags 表示额外标签条件。
 	Tags map[string]string `json:"tags"`
 }
@@ -74,6 +68,6 @@ type WatchEvent struct {
 	Type EventType `json:"type"`
 	// Key 表示事件对应的配置键。
 	Key Key `json:"key"`
-	// Item 表示事件携带的配置内容。
-	Item *Item `json:"item"`
+	// Raw 表示事件携带的配置内容。
+	Raw *Raw `json:"raw"`
 }

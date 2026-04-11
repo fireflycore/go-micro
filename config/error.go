@@ -19,8 +19,8 @@ var (
 	ErrEncryptorIsNil = errors.New("config encryptor is nil")
 	// ErrInvalidKey 表示配置键不合法。
 	ErrInvalidKey = errors.New("invalid config key")
-	// ErrInvalidItem 表示配置内容不合法。
-	ErrInvalidItem = errors.New("invalid config item")
+	// ErrInvalidRaw 表示配置内容不合法。
+	ErrInvalidRaw = errors.New("invalid config raw")
 	// ErrResourceNotFound 表示配置资源不存在。
 	ErrResourceNotFound = errors.New("config resource not found")
 	// ErrVersionConflict 表示写入版本冲突。
