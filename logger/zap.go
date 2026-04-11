@@ -1,13 +1,13 @@
 package logger
 
 import (
-	"github.com/fireflycore/go-micro/conf"
+	"github.com/fireflycore/go-micro/config"
 	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-func NewZapLogger(bootstrapConf conf.BootstrapConf) *zap.Logger {
+func NewZapLogger(bootstrapConf config.BootstrapConfig) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 
 	cores := make([]zapcore.Core, 0, 2)

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fireflycore/go-micro/conf"
+	"github.com/fireflycore/go-micro/config"
 	"github.com/fireflycore/go-micro/constant"
 	"google.golang.org/grpc/metadata"
 )
@@ -15,12 +15,12 @@ import (
 type ServiceContext struct {
 	metadata metadata.MD
 
-	bootstrapConf conf.BootstrapConf
+	bootstrapConf config.BootstrapConfig
 }
 
 // NewServiceContext 初始化服务上下文。
 // 基于启动配置构建服务级别的静态 metadata，后续每次远程调用都会以此为基础进行扩展。
-func NewServiceContext(bootstrapConf conf.BootstrapConf) *ServiceContext {
+func NewServiceContext(bootstrapConf config.BootstrapConfig) *ServiceContext {
 	ist := &ServiceContext{
 		bootstrapConf: bootstrapConf,
 	}

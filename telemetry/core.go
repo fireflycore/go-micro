@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fireflycore/go-micro/conf"
+	"github.com/fireflycore/go-micro/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log/global"
@@ -44,7 +44,7 @@ const DefaultInitTimeout = 3 * time.Second
 // 返回:
 //   - *Providers: 包含 Tracer, Meter, Logger Provider
 //   - error: 初始化错误
-func NewProviders(bootstrapConf conf.BootstrapConf) (*Providers, error) {
+func NewProviders(bootstrapConf config.BootstrapConfig) (*Providers, error) {
 	if bootstrapConf == nil {
 		return nil, errors.New("bootstrap conf is nil")
 	}

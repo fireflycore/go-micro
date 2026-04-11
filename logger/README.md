@@ -9,17 +9,18 @@
 
 ## 使用
 
-`NewZapLogger` 需要一个实现了 `conf.BootstrapConf` 接口的配置对象。
+`NewZapLogger` 需要一个实现了 `config.BootstrapConfig` 接口的配置对象。
 
 ```go
 import (
 	"context"
 
+	"github.com/fireflycore/go-micro/config"
 	"github.com/fireflycore/go-micro/logger"
 	"go.uber.org/zap"
 )
 
-// MyConf 实现了 conf.BootstrapConf
+// MyConf 实现了 config.BootstrapConfig
 type MyConf struct {
 	AppName string
 	Logger  *logger.Conf
@@ -36,7 +37,7 @@ func main() {
 		Logger:  &logger.Conf{Console: true, Remote: true},
 	}
 	
-	// 注意：实际项目中还需要实现 conf.BootstrapConf 的其他方法
+	// 注意：实际项目中还需要实现 config.BootstrapConfig 的其他方法
 	zl := logger.NewZapLogger(myConf)
 	log := logger.NewAccessLogger(zl)
 

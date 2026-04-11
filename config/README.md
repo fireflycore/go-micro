@@ -24,12 +24,12 @@
 
 ## 命名约定
 
-- `BootstrapConf` 是业务服务自己的启动配置模型，表示程序启动时只初始化一次的基础引导配置，这类配置通常不参与热更新
-- `go-micro/config` 不定义具体业务侧的 `BootstrapConf` 结构，而是提供通用加载能力，因此这里使用 `loader` 命名
+- `BootstrapConfig` 是业务服务自己的启动配置模型，表示程序启动时只初始化一次的基础引导配置，这类配置通常不参与热更新
+- `go-micro/config` 不定义具体业务侧的 `BootstrapConfig` 结构，而是提供通用加载能力，因此这里使用 `loader` 命名
 - `LoaderParams` + `LoadConfig` 用于描述“如何从 local / remote 加载一份基础配置”
 - `StoreParams` + `LoadStoreConfig` 用于描述“如何从统一配置存储中读取并解析一份配置”
 - `Item.Encrypted` 表示“当前整份配置内容是否为密文”，不支持字段级加密
-- 这样区分后，业务侧可以继续保留 `BootstrapConf` 语义，基础库侧则专注于加载过程，避免把“配置模型”和“加载动作”混在一起
+- 这样区分后，业务侧可以继续保留 `BootstrapConfig` 语义，基础库侧则专注于加载过程，避免把“配置模型”和“加载动作”混在一起
 - 关于为什么当前不把 `LoadConfig` 的参数进一步收敛成统一接口，可参考 [loader_qa.md](file:///Users/lhdht/product/firefly/go-micro/config/loader_qa.md)
 
 ## 使用方式
@@ -49,7 +49,7 @@
 
 ### 3) 配置分层建议
 
-- 启动层：本地 `BootstrapConf`
+- 启动层：本地 `BootstrapConfig`
 - 动态层：后端 watch 热更新
 - 场景层：按 `TenantId/AppId/UserId` 查询
 
