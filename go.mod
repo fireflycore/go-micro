@@ -4,7 +4,6 @@ go 1.25.1
 
 require (
 	buf.build/go/protovalidate v1.1.3
-	github.com/fireflycore/go-utils v0.3.6
 	github.com/prometheus/client_golang v1.23.2
 	github.com/shirou/gopsutil/v4 v4.26.2
 	go.opentelemetry.io/contrib/bridges/otelzap v0.17.0
