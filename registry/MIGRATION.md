@@ -7,7 +7,7 @@
 `go-micro/registry` 根目录下的旧 Go 包已经移除。  
 裸机场景统一迁移到：
 
-- `github.com/fireflycore/go-micro/registry/agent`
+- `github.com/fireflycore/go-consul/agent`
 
 K8s 场景不应迁移到这套裸机语义。
 
@@ -76,7 +76,7 @@ import "github.com/fireflycore/go-micro/registry"
 改成：
 
 ```go
-import agent "github.com/fireflycore/go-micro/registry/agent"
+import agent "github.com/fireflycore/go-consul/agent"
 ```
 
 ### 2. 替换模型
@@ -136,11 +136,11 @@ registry.NewRegisterService(raw, register)
 
 ### 裸机服务
 
-直接迁移到 `registry/agent`。
+直接迁移到 `go-consul/agent`。
 
 ### K8s 服务
 
-不要迁移到 `registry/agent`，而应改走：
+不要迁移到 `go-consul/agent`，而应改走：
 
 - `invocation`
 - `mesh`
