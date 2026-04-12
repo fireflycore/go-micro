@@ -124,6 +124,18 @@ func (t Target) GRPCTarget() string {
 	return fmt.Sprintf("%s:///%s", t.ResolverScheme, address)
 }
 
+type ServiceEndpointMeta struct {
+	AppId      string `json:"app_id"`
+	InstanceId string `json:"instance_id"`
+	Version    string `json:"version"`
+	Env        string `json:"env"`
+}
+
+type ServiceEndpointKernel struct {
+	Language string `json:"language"`
+	Version  string `json:"version"`
+}
+
 // ServiceEndpoint 表示底层实例级端点。
 //
 // 它只服务于 Locator、Dialer、轻量实现内部缓存等基础设施场景，
@@ -136,7 +148,10 @@ type ServiceEndpoint struct {
 	// Healthy 表示实例当前健康状态。
 	Healthy bool `json:"healthy"`
 	// Meta 表示实例附带的轻量元信息，例如标签、版本、可用区等。
-	Meta map[string]string `json:"meta"`
+	Meta        map[string]string      `json:"meta"`
+	ServiceMeta *ServiceEndpointMeta   `json:"service_meta,omitempty"`
+	Kernel      *ServiceEndpointKernel `json:"kernel,omitempty"`
+	Methods     []string               `json:"methods,omitempty"`
 }
 
 // TargetOptions 表示将 ServiceRef 解析为 Target 时使用的公共选项。
