@@ -27,6 +27,44 @@
 
 ## 核心概念
 
+### UserContext 管理
+
+`invocation` 提供了高效的用户上下文管理机制，避免重复解析 metadata：
+
+**推荐用法：解析一次，到处使用**
+
+```go
+// 1. 在 gRPC server interceptor 中解析一次并存入 context
+func UserContextInterceptor() grpc.UnaryServerInterceptor {
+    return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+        md, ok := metadata.FromIncomingContext(ctx)
+        if ok {
+            userMeta, err := invocation.ParseUserContextMeta(md)
+            if err == nil {
+                ctx = invocation.WithUserContext(ctx, userMeta)
+            }
+        }
+        return handler(ctx, req)
+    }
+}
+
+// 2. 在 handler 中直接获取，无需重复解析
+func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
+    userMeta, ok := invocation.UserContextFromContext(ctx)
+    if !ok {
+        return nil, status.Error(codes.Unauthenticated, "user context not found")
+    }
+    
+    log.Info("user request", "user_id", userMeta.UserId, "tenant_id", userMeta.TenantId)
+    // ...
+}
+```
+
+**性能优势：**
+- ✅ 只解析一次，后续直接从 context 获取（O(1)）
+- ✅ 避免重复调用 metadata.Get()
+- ✅ 代码更简洁，不易出错
+
 ### ServiceRef
 
 `ServiceRef` 用于表达一次调用面向的服务身份。

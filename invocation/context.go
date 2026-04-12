@@ -2,6 +2,7 @@ package invocation
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
@@ -23,6 +24,18 @@ type Caller struct {
 	OrgIds []string `json:"org_ids"`
 	// RoleIds 表示当前角色范围，可为空。
 	RoleIds []string `json:"role_ids"`
+}
+
+type UserContextMeta struct {
+	Session  string `json:"session"`
+	ClientIp string `json:"client_ip"`
+
+	UserId   string `json:"user_id"`
+	AppId    string `json:"app_id"`
+	TenantId string `json:"tenant_id"`
+
+	RoleIds []string `json:"role_ids"`
+	OrgIds  []string `json:"org_ids"`
 }
 
 // InvocationContext 表示一次调用附带的统一上下文。
@@ -84,6 +97,141 @@ func (c InvocationContext) BuildMetadata() metadata.MD {
 	}
 
 	return md
+}
+
+const MetaKeyParseErrorFormat = "%s 解析失败"
+
+// contextKey 是 context.Value 的 key 类型，用于避免 key 冲突。
+type contextKey string
+
+const (
+	// userContextKey 是 UserContextMeta 在 context 中的 key。
+	userContextKey contextKey = "invocation.user_context"
+)
+
+// WithUserContext 将 UserContextMeta 存入 context。
+//
+// 通常在 gRPC server interceptor 中调用，解析一次后存入 context，
+// 后续 handler 可以直接通过 UserContextFromContext 获取，无需重复解析。
+//
+// 示例：
+//
+//	func UserContextInterceptor() grpc.UnaryServerInterceptor {
+//	    return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+//	        md, ok := metadata.FromIncomingContext(ctx)
+//	        if ok {
+//	            userMeta, err := invocation.ParseUserContextMeta(md)
+//	            if err == nil {
+//	                ctx = invocation.WithUserContext(ctx, userMeta)
+//	            }
+//	        }
+//	        return handler(ctx, req)
+//	    }
+//	}
+func WithUserContext(ctx context.Context, meta *UserContextMeta) context.Context {
+	if meta == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, userContextKey, meta)
+}
+
+// UserContextFromContext 从 context 获取 UserContextMeta。
+//
+// 返回值：
+//   - meta: UserContextMeta 指针，如果不存在则返回 nil
+//   - ok: 是否成功获取
+//
+// 示例：
+//
+//	func Handler(ctx context.Context) error {
+//	    userMeta, ok := invocation.UserContextFromContext(ctx)
+//	    if !ok {
+//	        return errors.New("user context not found")
+//	    }
+//	    log.Info("user request", "user_id", userMeta.UserId)
+//	    return nil
+//	}
+func UserContextFromContext(ctx context.Context) (*UserContextMeta, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	meta, ok := ctx.Value(userContextKey).(*UserContextMeta)
+	return meta, ok
+}
+
+// MustUserContextFromContext 从 context 获取 UserContextMeta。
+//
+// 如果 context 中不存在 UserContextMeta，则 panic。
+// 适用于明确知道 context 中一定有 UserContextMeta 的场景。
+//
+// 示例：
+//
+//	func Handler(ctx context.Context) error {
+//	    userMeta := invocation.MustUserContextFromContext(ctx)
+//	    log.Info("user request", "user_id", userMeta.UserId)
+//	    return nil
+//	}
+func MustUserContextFromContext(ctx context.Context) *UserContextMeta {
+	meta, ok := UserContextFromContext(ctx)
+	if !ok {
+		panic("invocation: user context not found in context")
+	}
+	return meta
+}
+
+func ParseMetaKey(md metadata.MD, key string) (string, error) {
+	values := md.Get(key)
+	if len(values) == 0 {
+		return "", fmt.Errorf(MetaKeyParseErrorFormat, key)
+	}
+	return values[0], nil
+}
+
+// ParseUserContextMeta 从 metadata 解析用户上下文元信息。
+//
+// 推荐使用方式：
+//  1. 在 gRPC server interceptor 中调用 ParseUserContextMeta 解析一次
+//  2. 使用 WithUserContext 存入 context
+//  3. 后续使用 UserContextFromContext 直接获取
+//
+// 不推荐在每个 handler 中重复调用此函数。
+//
+// 示例：
+//
+//	// 在 interceptor 中解析一次
+//	md, _ := metadata.FromIncomingContext(ctx)
+//	userMeta, err := invocation.ParseUserContextMeta(md)
+//	if err == nil {
+//	    ctx = invocation.WithUserContext(ctx, userMeta)
+//	}
+//
+//	// 在 handler 中直接获取
+//	userMeta, ok := invocation.UserContextFromContext(ctx)
+func ParseUserContextMeta(md metadata.MD) (raw *UserContextMeta, err error) {
+	raw = &UserContextMeta{}
+	raw.Session, err = ParseMetaKey(md, constant.Session)
+	if err != nil {
+		return nil, err
+	}
+	raw.ClientIp, err = ParseMetaKey(md, constant.ClientIp)
+	if err != nil {
+		return nil, err
+	}
+	raw.UserId, err = ParseMetaKey(md, constant.UserId)
+	if err != nil {
+		return nil, err
+	}
+	raw.AppId, err = ParseMetaKey(md, constant.AppId)
+	if err != nil {
+		return nil, err
+	}
+	raw.TenantId, err = ParseMetaKey(md, constant.TenantId)
+	if err != nil {
+		return nil, err
+	}
+	raw.RoleIds = md.Get(constant.RoleIds)
+	raw.OrgIds = md.Get(constant.OrgIds)
+	return raw, nil
 }
 
 // NewOutgoingContext 基于父上下文构造新的 gRPC 出站上下文。
