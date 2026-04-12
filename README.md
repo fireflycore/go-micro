@@ -63,7 +63,6 @@ _ = s
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
 - [go-consul/agent](file:///Users/lhdht/product/firefly/go-consul/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
-- [rpc](./rpc/README.md)：RPC 调用封装
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
 - [logger](./logger/README.md)：zap/otelzap 日志封装
 - [constant](./constant/README.md)：通用常量
@@ -72,8 +71,7 @@ _ = s
 
 - 新项目优先围绕 `invocation` 设计服务间调用
 - 裸机业务服务统一通过 `go-consul/agent` 接入 sidecar-agent
-- 新增的客户端接入优先通过 `ConnectionManager + Invoker` 组合落地
-- `rpc` 包中的现有工具仍可复用，但长期应逐步向 `invocation` 收敛
+- 新增的客户端接入统一通过 `invocation` 提供的连接、metadata 与调用能力落地
 - 新的调用能力默认应与 `telemetry`、`middleware/grpc` 中现有的 OTel 能力保持一致
 
 ## 许可证
