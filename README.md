@@ -6,7 +6,7 @@
 
 当前版本已经收敛为两条明确路径：
 
-- 裸机接入路径：`registry/agent`，负责对接本机 `sidecar-agent`
+- 裸机接入路径：`go-consul/agent`，负责对接本机 `sidecar-agent`
 - 服务调用路径：`invocation`，面向 `service -> service` 的统一调用模型
 
 `go-micro/registry` 根目录已不再承载旧注册中心抽象代码，只保留索引与迁移文档。
@@ -63,7 +63,7 @@ _ = s
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
 - [registry](./registry/README.md)：裸机 sidecar-agent 接入索引与迁移入口
-- [registry/agent](./registry/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
+- [go-consul/agent](file:///Users/lhdht/product/firefly/go-consul/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
 - [rpc](./rpc/README.md)：RPC 调用封装
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
 - [logger](./logger/README.md)：zap/otelzap 日志封装
@@ -72,7 +72,7 @@ _ = s
 ## 当前建议
 
 - 新项目优先围绕 `invocation` 设计服务间调用
-- 裸机业务服务统一通过 `registry/agent` 接入 sidecar-agent
+- 裸机业务服务统一通过 `go-consul/agent` 接入 sidecar-agent
 - 新增的客户端接入优先通过 `ConnectionManager + Invoker` 组合落地
 - `rpc` 包中的现有工具仍可复用，但长期应逐步向 `invocation` 收敛
 - 新的调用能力默认应与 `telemetry`、`middleware/grpc` 中现有的 OTel 能力保持一致
