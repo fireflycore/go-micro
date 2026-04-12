@@ -53,8 +53,8 @@ _ = s
 
 适用场景：
 
-- `K8s + Istio` 标准主路径
-- `etcd / consul` 轻量实现路径
+- `go-k8s + K8s + Istio` 标准主路径
+- `go-consul + consul + envoy + sidecar-agent` 裸机主路径
 - 需要统一调用入口而不是直接操作节点列表的场景
 
 ## 模块说明

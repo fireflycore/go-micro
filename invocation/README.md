@@ -15,7 +15,7 @@
 `invocation` 是新的主路径能力，适合承载：
 
 - `K8s + Istio` 标准实现
-- `etcd / consul` 轻量实现
+- `go-consul + sidecar-agent + consul / envoy` 裸机调用实现
 - 统一的 `service -> service` 调用模型
 - 与 OTel 对齐的统一调用观测模型
 
@@ -194,6 +194,6 @@ func Example() error {
 - 业务侧优先面向 `ServiceRef`，而不是节点列表
 - `invocation` 不承载后端专属实现细节
 - `Authz` 默认作为调用前外挂能力接入
-- `K8s + Istio` 是标准路径
-- `etcd / consul` 应实现相同的调用语义，而不是暴露另一套模型
+- `go-k8s + K8s + Istio` 是标准路径
+- `go-consul` 应在裸机路径中实现相同的调用语义，而不是暴露另一套模型
 - OTel 是统一观测标准，新的实现不应引入另一套平行观测语义

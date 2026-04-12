@@ -40,7 +40,7 @@
 - `Options` / `Codec` / `Encryptor`
 - `LoaderParams` / `StoreParams`
 - `LoadConfig(...)` / `LoadStoreConfig(...)`
-- `go-consul/config`、`go-k8s/config`、`go-etcd/config` 对 `go-micro/config` 的依赖方式
+- `go-consul/config`、`go-k8s/config` 对 `go-micro/config` 的依赖方式
 
 也就是说，这次迁移主要是把原来 `conf` 中的接口并入了 `config` 根包，不是重做整套配置契约。
 
