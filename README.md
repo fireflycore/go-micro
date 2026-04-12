@@ -9,7 +9,7 @@
 - 裸机接入路径：`go-consul/agent`，负责对接本机 `sidecar-agent`
 - 服务调用路径：`invocation`，面向 `service -> service` 的统一调用模型
 
-`go-micro/registry` 根目录已不再承载旧注册中心抽象代码，只保留索引与迁移文档。
+旧 `registry` 体系文档已经迁入 design 仓库的 `design/registry` 目录。
 
 同时，`go-micro` 已明确采用 OpenTelemetry 作为统一观测体系：
 
@@ -62,7 +62,6 @@ _ = s
 详细文档请参考各子包目录下的 README：
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
-- [registry](./registry/README.md)：裸机 sidecar-agent 接入索引与迁移入口
 - [go-consul/agent](file:///Users/lhdht/product/firefly/go-consul/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
 - [rpc](./rpc/README.md)：RPC 调用封装
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
