@@ -11,10 +11,10 @@ func NewZapLogger(bootstrapConf config.BootstrapConfig) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 
 	cores := make([]zapcore.Core, 0, 2)
-	if bootstrapConf.IsEnableConsole() {
+	if bootstrapConf.GetLoggerConsole() {
 		cores = append(cores, NewConsoleCore(atomicLevel))
 	}
-	if bootstrapConf.IsEnableRemote() {
+	if bootstrapConf.GetLoggerRemote() {
 		cores = append(cores, otelzap.NewCore(bootstrapConf.GetAppName()))
 	}
 

@@ -44,14 +44,6 @@ type Raw struct {
 	UpdatedBy string `json:"updated_by"`
 }
 
-// Query 表示运行时按上下文查询配置的入参。
-type Query struct {
-	// Key 是基础配置键。
-	Key Key `json:"key"`
-	// Tags 表示额外标签条件。
-	Tags map[string]string `json:"tags"`
-}
-
 // EventType 表示配置变更事件类型。
 type EventType int
 

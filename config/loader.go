@@ -21,8 +21,8 @@ type PayloadDecodeFunc func(content string, secret []byte, target any) error
 // LoaderParams 描述加载后端配置对象所需参数。
 // 该结构把 local / remote 两条加载链路的输入参数统一起来。
 type LoaderParams struct {
-	// LoadMode 指定加载模式：local / remote。
-	LoadMode string
+	// Mode 指定加载模式：local / remote。
+	Mode string
 	// AppId 远程模式下用于定位配置所属应用。
 	AppId string
 	// AppSecret 远程模式下用于解密整份配置内容（如果是密文）。
@@ -56,7 +56,7 @@ type StoreParams struct {
 func LoadConfig[T any](params LoaderParams, localLoad LocalLoaderFunc, remoteLoad RemoteLoaderFunc, payloadDecode PayloadDecodeFunc) (T, error) {
 	var target, zero T
 
-	switch params.LoadMode {
+	switch params.Mode {
 	case "local":
 		if localLoad == nil {
 			return zero, ErrLocalLoaderIsNil
@@ -90,12 +90,15 @@ func LoadConfig[T any](params LoaderParams, localLoad LocalLoaderFunc, remoteLoa
 
 		return target, nil
 	default:
-		return zero, fmt.Errorf("%w: %s", ErrUnsupportedLoadMode, params.LoadMode)
+		return zero, fmt.Errorf("%w: %s", ErrUnsupportedLoadMode, params.Mode)
 	}
 }
 
 // LoadStoreConfig 从 Store 读取当前配置并解析为目标类型 T。
-// 当 Raw.Encrypted=true 时，会先通过 payloadDecode 解密整份内容，再解析为目标结构。
+// 加密处理规则：
+// - 当 Raw.Encrypted=false 时，直接 JSON 解析 Content
+// - 当 Raw.Encrypted=true 时，必须先通过 payloadDecode 解密整份 Content，再解析为目标结构
+// - 不支持字段级加密，一份配置要加密就整份加密
 func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams, payloadDecode PayloadDecodeFunc) (T, error) {
 	var target, zero T
 
@@ -103,6 +106,7 @@ func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams
 		return zero, ErrStoreIsNil
 	}
 
+	// 回填 Key 字段
 	key := params.Key
 	if key.AppId == "" {
 		key.AppId = params.AppId
@@ -117,12 +121,15 @@ func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams
 		key.Name = params.Name
 	}
 
+	// 从 Store 读取配置
 	raw, err := store.Get(ctx, key)
 	if err != nil {
 		return zero, err
 	}
 
+	// 根据 Encrypted 标识决定解析方式
 	if raw.Encrypted {
+		// 加密配置：必须先解密整份内容
 		if payloadDecode == nil {
 			return zero, ErrPayloadDecoderIsNil
 		}
@@ -134,6 +141,7 @@ func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams
 		return target, nil
 	}
 
+	// 明文配置：直接 JSON 解析
 	if err = json.Unmarshal(raw.Content, &target); err != nil {
 		return zero, err
 	}

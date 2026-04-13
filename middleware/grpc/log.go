@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-micro/invocation"
 	"github.com/fireflycore/go-micro/logger"
-	"github.com/fireflycore/go-micro/rpc"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -59,52 +59,52 @@ func NewAccessLogger(log *logger.AccessLogger) grpc.UnaryServerInterceptor {
 			fields = append(fields, zap.ByteString("response", response))
 		}
 
-		if v, e := rpc.ParseMetaKey(md, constant.SourceIp); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.SourceIp); e == nil && v != "" {
 			fields = append(fields, zap.String("source_ip", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.ClientIp); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.ClientIp); e == nil && v != "" {
 			fields = append(fields, zap.String("client_ip", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.InvokeServiceAppId); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.InvokeServiceAppId); e == nil && v != "" {
 			fields = append(fields, zap.String("invoke_service_app_id", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.InvokeServiceEndpoint); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.InvokeServiceEndpoint); e == nil && v != "" {
 			fields = append(fields, zap.String("invoke_service_endpoint", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.TargetServiceAppId); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.TargetServiceAppId); e == nil && v != "" {
 			fields = append(fields, zap.String("target_service_app_id", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.TargetServiceEndpoint); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.TargetServiceEndpoint); e == nil && v != "" {
 			fields = append(fields, zap.String("target_service_endpoint", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.SystemName); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.SystemName); e == nil && v != "" {
 			fields = append(fields, zap.String("system_name", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.ClientName); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.ClientName); e == nil && v != "" {
 			fields = append(fields, zap.String("client_name", v))
 		}
-		if raw, e := rpc.ParseMetaKey(md, constant.SystemType); e == nil {
+		if raw, e := invocation.ParseMetaKey(md, constant.SystemType); e == nil {
 			fields = append(fields, zap.Uint32("system_type", parseInt32OrZero(raw)))
 		}
-		if raw, e := rpc.ParseMetaKey(md, constant.ClientType); e == nil {
+		if raw, e := invocation.ParseMetaKey(md, constant.ClientType); e == nil {
 			fields = append(fields, zap.Uint32("client_type", parseInt32OrZero(raw)))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.SystemVersion); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.SystemVersion); e == nil && v != "" {
 			fields = append(fields, zap.String("system_version", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.ClientVersion); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.ClientVersion); e == nil && v != "" {
 			fields = append(fields, zap.String("client_version", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.AppVersion); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.AppVersion); e == nil && v != "" {
 			fields = append(fields, zap.String("app_version", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.UserId); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.UserId); e == nil && v != "" {
 			fields = append(fields, zap.String("user_id", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.AppId); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.AppId); e == nil && v != "" {
 			fields = append(fields, zap.String("app_id", v))
 		}
-		if v, e := rpc.ParseMetaKey(md, constant.TenantId); e == nil && v != "" {
+		if v, e := invocation.ParseMetaKey(md, constant.TenantId); e == nil && v != "" {
 			fields = append(fields, zap.String("tenant_id", v))
 		}
 
