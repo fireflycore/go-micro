@@ -2,14 +2,6 @@ package config
 
 import "time"
 
-// Meta 表示一组配置的版本游标信息。
-type Meta struct {
-	// CurrentVersion 表示当前生效版本。
-	CurrentVersion string `json:"current_version"`
-	// LatestVersion 表示最新发布版本。
-	LatestVersion string `json:"latest_version"`
-}
-
 // Key 描述一条配置在存储中的业务主键。
 type Key struct {
 	// TenantId 表示租户标识，用于多租户隔离。
