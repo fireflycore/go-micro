@@ -82,6 +82,19 @@ auth.default.svc.cluster.local:9090
 - 接入 Authz
 - 发起真实 gRPC unary 调用
 
+### RemoteServiceCaller
+
+`RemoteServiceCaller` 是在 `UnaryInvoker` 之上提供的一层薄封装。
+
+它解决的问题不是“替代 gRPC”，而是把业务 repo 里重复出现的这组样板收口：
+
+- 绑定一个远程业务服务的 `ServiceDNS`
+- 复用同一个 `UnaryInvoker`
+- 用统一方式构造 `InvocationContext`
+- 让 repo 方法只保留 `full method + req + resp`
+
+它绑定的是“远程业务服务”，不是某个 proto 子服务。
+
 ### InvocationContext
 
 `InvocationContext` 负责：
@@ -130,6 +143,45 @@ auth.default.svc.cluster.local:9090
 - 在调用侧做实例发现
 - 在调用侧感知 Consul / K8s 细节
 
+## 为什么不是直接 grpc client
+
+generated gRPC client 本身没有问题，但它更适合解决：
+
+- 我已经拿到了 `grpc.ClientConn`
+- 我已经知道要调哪个 stub client
+- 我现在只需要发起 RPC
+
+而 invocation 当前要统一的是另一层语义：
+
+- 业务服务 DNS 如何表达
+- 连接如何统一复用
+- metadata / caller / trace 如何统一透传
+- Authz 如何统一前置
+- OTel 如何统一接入
+
+如果继续让每个 repo 直接面向 generated gRPC client：
+
+- 上下文构造容易散在不同 repo 中
+- metadata 透传容易出现不一致
+- 调用前的统一能力不好收口
+
+因此当前推荐是：
+
+- `UnaryInvoker` 作为底层统一调用器
+- `RemoteServiceCaller` 作为远程业务服务级别的薄封装
+- generated gRPC client 不作为内部统一调用主模型
+
+## 为什么 helper 要放在 invocation
+
+因为这层重复不是 auth 特有逻辑，而是所有远程业务服务都会遇到的框架级重复：
+
+- ServiceDNS 绑定
+- InvocationContext 构造
+- UnaryInvoker 调用
+
+这类重复放在业务 repo 中，会让每个服务都各写一遍模板；
+放在 `go-micro/invocation` 中，才能保持统一调用语义。
+
 ## 示例
 
 ```go
@@ -160,19 +212,23 @@ func Example() error {
 		Dialer: manager,
 	}
 
-	service := &invocation.ServiceDNS{
-		Service: "auth",
+	caller := &invocation.RemoteServiceCaller{
+		Service: &invocation.ServiceDNS{
+			Service: "auth",
+		},
+		Invoker: invoker,
+		BuildContext: func(ctx context.Context) *invocation.InvocationContext {
+			return &invocation.InvocationContext{
+				Timeout: 3 * time.Second,
+			}
+		},
 	}
 
-	return invoker.Invoke(
+	return caller.Invoke(
 		context.Background(),
-		service,
 		"/acme.auth.app.v1.AuthAppService/GetAppSecret",
 		&struct{}{},
 		&struct{}{},
-		invocation.WithInvocationContext(&invocation.InvocationContext{
-			Timeout: 3 * time.Second,
-		}),
 	)
 }
 ```
@@ -189,5 +245,6 @@ func Example() error {
 
 - 业务侧只表达业务服务 DNS，不表达实例选择逻辑
 - `invocation` 只保留通用调用语义，不承载后端专属实现
+- `RemoteServiceCaller` 只做样板代码收口，不替代 `UnaryInvoker`
 - `go-consul/invocation`、`go-k8s/invocation` 不再作为主路径保留
 - `Authz` 默认作为调用前外挂能力接入
