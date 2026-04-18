@@ -15,7 +15,7 @@ type UnaryInvokeFunc func(ctx context.Context, conn *grpc.ClientConn, method str
 // InvokeOptions 表示一次调用的附加配置。
 type InvokeOptions struct {
 	// InvocationContext 表示本次调用要附带的统一上下文。
-	InvocationContext InvocationContext
+	InvocationContext *InvocationContext
 	// CallOptions 表示附加的 gRPC CallOption。
 	CallOptions []grpc.CallOption
 }
@@ -24,7 +24,7 @@ type InvokeOptions struct {
 type InvokeOption func(*InvokeOptions)
 
 // WithInvocationContext 设置本次调用使用的 InvocationContext。
-func WithInvocationContext(invocation InvocationContext) InvokeOption {
+func WithInvocationContext(invocation *InvocationContext) InvokeOption {
 	return func(options *InvokeOptions) {
 		options.InvocationContext = invocation
 	}
@@ -38,7 +38,10 @@ func WithCallOptions(callOptions ...grpc.CallOption) InvokeOption {
 }
 
 func buildInvokeOptions(options ...InvokeOption) InvokeOptions {
-	var out InvokeOptions
+	// 默认给一份零值调用上下文，避免调用路径上出现 nil 解引用。
+	out := InvokeOptions{
+		InvocationContext: &InvocationContext{},
+	}
 	for _, apply := range options {
 		if apply == nil {
 			continue
@@ -51,7 +54,7 @@ func buildInvokeOptions(options ...InvokeOption) InvokeOptions {
 // UnaryInvoker 是默认的 Invoker 实现。
 //
 // 它的执行流程非常明确：
-// 1. 基于 ServiceRef 获取连接；
+// 1. 基于 ServiceDNS 获取连接；
 // 2. 基于 InvocationContext 构造统一 metadata；
 // 3. 在真正发起 gRPC 调用前执行 Authz 判定；
 // 4. 使用 grpc.ClientConn.Invoke 发起 unary 调用。
@@ -65,7 +68,7 @@ type UnaryInvoker struct {
 }
 
 // Invoke 执行一次标准 unary 调用。
-func (u *UnaryInvoker) Invoke(ctx context.Context, ref ServiceRef, method string, req any, resp any, options ...InvokeOption) error {
+func (u *UnaryInvoker) Invoke(ctx context.Context, service *ServiceDNS, method string, req any, resp any, options ...InvokeOption) error {
 	if u == nil || u.Dialer == nil {
 		return ErrInvokerDialerIsNil
 	}
@@ -74,19 +77,26 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, ref ServiceRef, method string
 	}
 
 	invokeOptions := buildInvokeOptions(options...)
+	// 再兜底一次，确保后续逻辑拿到的调用上下文一定非 nil。
+	if invokeOptions.InvocationContext == nil {
+		invokeOptions.InvocationContext = &InvocationContext{}
+	}
 
-	authzContext := NewAuthzContext(ref, method, invokeOptions.InvocationContext)
+	// 先把本次调用的身份、方法和 metadata 统一成 AuthzContext。
+	authzContext := NewAuthzContext(service, method, invokeOptions.InvocationContext)
 	if u.Authorizer != nil {
 		if err := u.Authorizer.Authorize(ctx, authzContext); err != nil {
 			return err
 		}
 	}
 
-	conn, err := u.Dialer.Dial(ctx, ref)
+	// 然后按业务服务 DNS 获取可复用连接。
+	conn, err := u.Dialer.Dial(ctx, service)
 	if err != nil {
 		return err
 	}
 
+	// 最后把调用上下文转成出站 metadata 上下文。
 	outCtx, cancel := invokeOptions.InvocationContext.NewOutgoingContext(ctx)
 	defer cancel()
 

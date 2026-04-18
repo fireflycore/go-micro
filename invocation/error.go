@@ -12,8 +12,8 @@ var (
 	ErrTargetHostEmpty = errors.New("target host is empty")
 	// ErrTargetPortInvalid 表示端口既未显式提供，也无法从默认值中补齐。
 	ErrTargetPortInvalid = errors.New("target port is invalid")
-	// ErrLocatorIsNil 表示定位器为空，调用方无法把服务身份解析为最终目标。
-	ErrLocatorIsNil = errors.New("locator is nil")
+	// ErrDNSManagerIsNil 表示 DNS 管理器为空。
+	ErrDNSManagerIsNil = errors.New("dns manager is nil")
 	// ErrDialFnIsNil 表示底层拨号函数为空。
 	ErrDialFnIsNil = errors.New("dial function is nil")
 	// ErrConnectionManagerClosed 表示连接管理器已经关闭，不能再创建新连接。

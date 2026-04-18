@@ -18,8 +18,8 @@ type DialFunc func(ctx context.Context, target Target, options []grpc.DialOption
 
 // ConnectionManagerOptions 定义连接管理器的配置。
 type ConnectionManagerOptions struct {
-	// Locator 用于把 ServiceRef 解析为最终 Target。
-	Locator Locator
+	// DNSManager 用于把业务服务 DNS 描述解析为最终 Target。
+	DNSManager *DNSManager
 	// DialFunc 用于创建新的 grpc.ClientConn。
 	// 若为空，则使用默认拨号实现。
 	DialFunc DialFunc
@@ -29,6 +29,10 @@ type ConnectionManagerOptions struct {
 
 // normalize 补齐 ConnectionManagerOptions 的默认值。
 func (o ConnectionManagerOptions) normalize() ConnectionManagerOptions {
+	// 若未显式提供 DNS 管理器，则使用一份默认配置。
+	if o.DNSManager == nil {
+		o.DNSManager = NewDNSManager(&DNSConfig{})
+	}
 	if o.DialFunc == nil {
 		o.DialFunc = DefaultDialFunc
 	}
@@ -41,9 +45,9 @@ func (o ConnectionManagerOptions) normalize() ConnectionManagerOptions {
 	return o
 }
 
-// ConnectionManager 负责缓存基于 ServiceRef 创建出的 grpc.ClientConn。
+// ConnectionManager 负责缓存基于 ServiceDNS 创建出的 grpc.ClientConn。
 //
-// 它把“服务身份 -> 目标解析 -> 连接缓存”统一收敛在一处，
+// 它把“业务服务 DNS -> 目标解析 -> 连接缓存”统一收敛在一处，
 // 让业务层无需关心：
 // - target 拼装；
 // - resolver scheme；
@@ -61,8 +65,8 @@ type ConnectionManager struct {
 func NewConnectionManager(options ConnectionManagerOptions) (*ConnectionManager, error) {
 	options = options.normalize()
 
-	if options.Locator == nil {
-		return nil, ErrLocatorIsNil
+	if options.DNSManager == nil {
+		return nil, ErrDNSManagerIsNil
 	}
 	if options.DialFunc == nil {
 		return nil, ErrDialFnIsNil
@@ -86,13 +90,13 @@ func DefaultDialFunc(_ context.Context, target Target, options []grpc.DialOption
 	return grpc.NewClient(target.GRPCTarget(), options...)
 }
 
-// Dial 根据 ServiceRef 获取或创建对应的 grpc.ClientConn。
+// Dial 根据 ServiceDNS 获取或创建对应的 grpc.ClientConn。
 //
-// 连接缓存键采用最终 gRPC target，而不是 ServiceRef 原始字段，
+// 连接缓存键采用最终 gRPC target，而不是 ServiceDNS 原始字段，
 // 这样可以保证：
 // - 逻辑上等价的服务身份只会生成一条连接；
 // - 端口覆盖、cluster domain、resolver scheme 的变化都能体现在缓存键上。
-func (m *ConnectionManager) Dial(ctx context.Context, ref ServiceRef) (*grpc.ClientConn, error) {
+func (m *ConnectionManager) Dial(ctx context.Context, service *ServiceDNS) (*grpc.ClientConn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -100,7 +104,8 @@ func (m *ConnectionManager) Dial(ctx context.Context, ref ServiceRef) (*grpc.Cli
 		return nil, ErrConnectionManagerClosed
 	}
 
-	target, err := m.options.Locator.Resolve(ctx, ref)
+	// 通过 DNS 管理器把业务服务配置转成最终目标。
+	target, err := m.options.DNSManager.Build(service)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +115,7 @@ func (m *ConnectionManager) Dial(ctx context.Context, ref ServiceRef) (*grpc.Cli
 		return conn, nil
 	}
 
-	conn, err := m.options.DialFunc(ctx, target, m.options.DialOptions)
+	conn, err := m.options.DialFunc(ctx, *target, m.options.DialOptions)
 	if err != nil {
 		return nil, err
 	}

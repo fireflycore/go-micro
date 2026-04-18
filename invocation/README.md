@@ -1,181 +1,134 @@
 # Invocation
 
-`invocation` 包定义了 Firefly 新一代的服务调用模型。
+`invocation` 包定义 Firefly 当前唯一推荐的服务调用模型。
 
-它不再围绕“节点注册中心”组织能力，而是围绕下面几个问题组织能力：
+它只解决四件事：
 
-- 我要调用哪个服务
-- 如何把服务身份解析为最终目标
-- 如何复用连接
-- 如何统一注入 metadata
-- 如何在调用前接入 Authz
+- 业务侧如何声明一个远程业务服务的标准 DNS
+- 如何把 DNS 组装成稳定的 gRPC target
+- 如何复用 `grpc.ClientConn`
+- 如何统一传递 metadata、调用者身份与 Authz 上下文
 
-## 包定位
+它**不再**负责：
 
-`invocation` 是新的主路径能力，适合承载：
+- 实例发现
+- 节点选择
+- Consul / K8s 后端适配
+- endpoint 轮询
 
-- `K8s + Istio` 标准实现
-- `go-consul + sidecar-agent + consul / envoy` 裸机调用实现
-- 统一的 `service -> service` 调用模型
-- 与 OTel 对齐的统一调用观测模型
+## 核心理念
 
-它不再承担旧 `registry` 中的中心语义，例如：
-
-- `ServiceNode`
-- `Network`
-- `Discovery(method -> nodes)`
-
-## 核心概念
-
-### UserContext 管理
-
-`invocation` 提供了高效的用户上下文管理机制，避免重复解析 metadata：
-
-**推荐用法：解析一次，到处使用**
-
-```go
-// 1. 在 gRPC server interceptor 中解析一次并存入 context
-func UserContextInterceptor() grpc.UnaryServerInterceptor {
-    return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-        md, ok := metadata.FromIncomingContext(ctx)
-        if ok {
-            userMeta, err := invocation.ParseUserContextMeta(md)
-            if err == nil {
-                ctx = invocation.WithUserContext(ctx, userMeta)
-            }
-        }
-        return handler(ctx, req)
-    }
-}
-
-// 2. 在 handler 中直接获取，无需重复解析
-func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-    userMeta, ok := invocation.UserContextFromContext(ctx)
-    if !ok {
-        return nil, status.Error(codes.Unauthenticated, "user context not found")
-    }
-    
-    log.Info("user request", "user_id", userMeta.UserId, "tenant_id", userMeta.TenantId)
-    // ...
-}
-```
-
-**性能优势：**
-- ✅ 只解析一次，后续直接从 context 获取（O(1)）
-- ✅ 避免重复调用 metadata.Get()
-- ✅ 代码更简洁，不易出错
-
-### ServiceRef
-
-`ServiceRef` 用于表达一次调用面向的服务身份。
-
-当前字段包括：
-
-- `Service`
-- `Namespace`
-- `Env`
-- `Port`
-
-其中：
-
-- `Service + Namespace` 主要参与目标地址生成
-- `Env` 更偏向环境与策略域语义
-- `Port` 作为可选覆盖项存在，默认建议由核心库补齐
-
-### Target
-
-`Target` 表示最终可拨号目标。
-
-默认构造规则是：
-
-```text
-<service>.<namespace>.svc.cluster.local:<port>
-```
+业务服务之间的调用，本质上就是面向一个稳定的业务服务 DNS。
 
 例如：
 
 ```text
-auth.default.svc.cluster.local:9000
+auth.default.svc.cluster.local:9090
 ```
 
-### ServiceEndpoint
+含义如下：
 
-`ServiceEndpoint` 表示底层实例级端点。
+- `auth`：业务服务名
+- `default`：命名空间
+- `svc`：Kubernetes Service 类型片段
+- `cluster.local`：Cluster Domain
+- `9090`：业务服务端口
 
-注意：
+业务代码只需要表达这份 DNS 结构。
 
-- 它只服务于基础设施层
-- 不作为业务调用侧主模型
+后续流量如何命中实例：
 
-### Locator
+- 裸机环境交给 `sidecar-agent`
+- 云原生环境交给 `K8s + Istio + service mesh`
 
-`Locator` 负责把 `ServiceRef` 解析成 `Target`。
+## 当前模型
 
-标准实现下，它可以只是一个简单的目标构造器；  
-轻量实现下，它也可以在内部维护缓存、watch 和服务地址解析逻辑。
+### ServiceDNS
 
-### Dialer
+`ServiceDNS` 表示业务服务的标准 DNS 配置。
 
-`Dialer` 负责把 `ServiceRef` 转成 `grpc.ClientConn`。
+它直接描述：
 
-### Invoker
+- `service`
+- `namespace`
+- `service_type`
+- `cluster_domain`
+- `port`
 
-`Invoker` 是统一调用入口，负责把：
+### DNSManager
 
-- 服务身份
-- 调用上下文
-- Authz 预检查
-- 连接获取
-- 实际 gRPC 调用
+`DNSManager` 只负责补齐默认值并构造最终 `Target`。
 
-串起来。
+它不会做：
+
+- service 校验
+- endpoint 拉取
+- 实例选择
+
+### ConnectionManager
+
+`ConnectionManager` 负责：
+
+- 基于 `ServiceDNS` 构造 `Target`
+- 按最终 gRPC target 缓存连接
+- 统一挂载 gRPC client dial options
+
+### UnaryInvoker
+
+`UnaryInvoker` 负责：
+
+- 取连接
+- 注入调用 metadata
+- 接入 Authz
+- 发起真实 gRPC unary 调用
 
 ### InvocationContext
 
-`InvocationContext` 表示一次调用附带的统一上下文，例如：
+`InvocationContext` 负责：
 
-- trace
-- metadata
-- 调用方身份
-- timeout / deadline
+- 统一 metadata
+- 调用者身份
+- timeout
+- trace 相关上下文
 
-### AuthzContext
+## 一个业务服务多个 proto 子服务
 
-`AuthzContext` 表示外挂 Authz 所需的标准化输入，例如：
+这是当前模型里的重要约束：
 
-- 调用者是谁
-- 调用目标服务是谁
-- 调用的完整 method 是什么
-- 当前身份元信息是什么
+- 一个远程**业务服务**只维护一份 `ServiceDNS`
+- 同一个业务服务下的多个 proto 子服务，共用同一份 DNS 和连接
+- 具体调用哪个子服务，由 gRPC full method 决定
 
-## 观测约定
+例如：
 
-`invocation` 在设计上默认与 `go-micro` 现有的 OpenTelemetry 体系对齐。
+- 远程业务服务：`auth`
+- proto 子服务：
+  - `AuthAppService`
+  - `AuthUserService`
+  - `AuthPermissionService`
 
-这意味着：
+这些调用都应该共用：
 
-- 调用链默认应接入 OTel trace
-- gRPC client 默认应挂载 OTel 相关 handler
-- 调用前后的关键行为应便于接入 metric / trace / log
-- `Authz`、`Locator`、`Dialer`、`Invoker` 的后续实现都不应绕开统一观测体系
+```text
+auth.default.svc.cluster.local:9090
+```
 
-当前版本中，`ConnectionManager` 的默认拨号选项已经默认挂载了 `otelgrpc` client handler，
-这是后续统一观测体系的基础入口之一。
+## 推荐接入方式
 
-## 当前默认实现
+业务服务应在自己的 `internal/data/rs_*.go` 中，按“远程业务服务”聚合配置。
 
-当前版本已经提供：
+推荐做法：
 
-- `StaticLocator`
-- `ConnectionManager`
-- `UnaryInvoker`
+- 在 `New*Repo` 中声明该 repo 依赖哪个远程业务服务
+- 为该远程业务服务组装一份 `ServiceDNS`
+- 复用同一份 `ConnectionManager / UnaryInvoker`
+- 通过不同 full method 区分具体 proto 子服务
 
-它们共同构成一个最小可用的调用模型闭环：
+不推荐做法：
 
-1. 通过 `ServiceRef` 标识目标服务
-2. 通过 `Locator` 解析目标
-3. 通过 `ConnectionManager` 缓存连接
-4. 通过 `UnaryInvoker` 执行 Authz + metadata + gRPC 调用
+- 按每个 proto 子服务单独维护一份远程地址配置
+- 在调用侧做实例发现
+- 在调用侧感知 Consul / K8s 细节
 
 ## 示例
 
@@ -190,14 +143,13 @@ import (
 )
 
 func Example() error {
-	locator := invocation.StaticLocator{
-		Options: invocation.TargetOptions{
-			DefaultPort: 9000,
-		},
-	}
+	dnsManager := invocation.NewDNSManager(&invocation.DNSConfig{
+		DefaultNamespace: "default",
+		DefaultPort:      9090,
+	})
 
 	manager, err := invocation.NewConnectionManager(invocation.ConnectionManagerOptions{
-		Locator: locator,
+		DNSManager: dnsManager,
 	})
 	if err != nil {
 		return err
@@ -208,30 +160,34 @@ func Example() error {
 		Dialer: manager,
 	}
 
-	ref := invocation.ServiceRef{
-		Service:   "auth",
-		Namespace: "default",
-		Env:       "dev",
+	service := &invocation.ServiceDNS{
+		Service: "auth",
 	}
 
 	return invoker.Invoke(
 		context.Background(),
-		ref,
-		"/acme.auth.v1.AuthService/Check",
+		service,
+		"/acme.auth.app.v1.AuthAppService/GetAppSecret",
 		&struct{}{},
 		&struct{}{},
-		invocation.WithInvocationContext(invocation.InvocationContext{
+		invocation.WithInvocationContext(&invocation.InvocationContext{
 			Timeout: 3 * time.Second,
 		}),
 	)
 }
 ```
 
+## 观测约定
+
+`invocation` 默认和 `go-micro` 的 OTel 链路保持一致：
+
+- gRPC client 默认挂 `otelgrpc`
+- metadata 由 `InvocationContext` 统一构造
+- Authz 上下文由 `NewAuthzContext()` 统一生成
+
 ## 设计约束
 
-- 业务侧优先面向 `ServiceRef`，而不是节点列表
-- `invocation` 不承载后端专属实现细节
+- 业务侧只表达业务服务 DNS，不表达实例选择逻辑
+- `invocation` 只保留通用调用语义，不承载后端专属实现
+- `go-consul/invocation`、`go-k8s/invocation` 不再作为主路径保留
 - `Authz` 默认作为调用前外挂能力接入
-- `go-k8s + K8s + Istio` 是标准路径
-- `go-consul` 应在裸机路径中实现相同的调用语义，而不是暴露另一套模型
-- OTel 是统一观测标准，新的实现不应引入另一套平行观测语义

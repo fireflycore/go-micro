@@ -14,7 +14,7 @@ type testDialer struct {
 	err  error
 }
 
-func (d testDialer) Dial(ctx context.Context, ref ServiceRef) (*grpc.ClientConn, error) {
+func (d testDialer) Dial(ctx context.Context, service *ServiceDNS) (*grpc.ClientConn, error) {
 	return d.conn, d.err
 }
 
@@ -27,7 +27,7 @@ type testAuthorizer struct {
 	err    error
 }
 
-func (a *testAuthorizer) Authorize(ctx context.Context, input AuthzContext) error {
+func (a *testAuthorizer) Authorize(ctx context.Context, input *AuthzContext) error {
 	a.called = true
 	return a.err
 }
@@ -54,11 +54,11 @@ func TestUnaryInvoker_Invoke_CallsAuthorizerAndInvokeFunc(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), ServiceRef{
+	err := invoker.Invoke(context.Background(), &ServiceDNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{},
-		WithInvocationContext(InvocationContext{
+		WithInvocationContext(&InvocationContext{
 			Caller: Caller{UserId: "u-1"},
 		}),
 	)
@@ -86,11 +86,33 @@ func TestUnaryInvoker_Invoke_ReturnsAuthorizerError(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), ServiceRef{
+	err := invoker.Invoke(context.Background(), &ServiceDNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected %v, got %v", expectedErr, err)
+	}
+}
+
+func TestUnaryInvoker_Invoke_WithoutInvocationContextDoesNotPanic(t *testing.T) {
+	invoked := false
+	invoker := &UnaryInvoker{
+		Dialer: testDialer{conn: &grpc.ClientConn{}},
+		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
+			invoked = true
+			return nil
+		},
+	}
+
+	err := invoker.Invoke(context.Background(), &ServiceDNS{
+		Service:   "auth",
+		Namespace: "default",
+	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if !invoked {
+		t.Fatal("expected invoke func to be called")
 	}
 }

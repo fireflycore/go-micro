@@ -221,3 +221,24 @@ func BenchmarkUserContextFromContext(b *testing.B) {
 		_, _ = UserContextFromContext(ctx)
 	}
 }
+
+func TestNewAuthzContext_NilInvocationContext(t *testing.T) {
+	service := &ServiceDNS{
+		Service:   "auth",
+		Namespace: "default",
+	}
+
+	authz := NewAuthzContext(service, "/acme.auth.app.v1.AuthAppService/GetAppSecret", nil)
+	if authz == nil {
+		t.Fatal("expected authz context, got nil")
+	}
+	if authz.Service != service {
+		t.Fatalf("unexpected service pointer: %+v", authz.Service)
+	}
+	if authz.FullMethod != "/acme.auth.app.v1.AuthAppService/GetAppSecret" {
+		t.Fatalf("unexpected full method: %s", authz.FullMethod)
+	}
+	if authz.Metadata == nil {
+		t.Fatal("expected metadata map, got nil")
+	}
+}

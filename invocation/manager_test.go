@@ -13,14 +13,10 @@ func TestConnectionManager_Dial_CachesByResolvedTarget(t *testing.T) {
 	var dialCount atomic.Int32
 
 	manager, err := NewConnectionManager(ConnectionManagerOptions{
-		Locator: StaticLocator{
-			Options: TargetOptions{
-				DefaultPort: 9000,
-			},
-		},
+		DNSManager: NewDNSManager(&DNSConfig{DefaultPort: 9090}),
 		DialFunc: func(ctx context.Context, target Target, options []grpc.DialOption) (*grpc.ClientConn, error) {
 			dialCount.Add(1)
-			return grpc.NewClient("passthrough:///auth.default.svc.cluster.local:9000", grpc.WithTransportCredentials(insecure.NewCredentials()))
+			return grpc.NewClient("passthrough:///auth.default.svc.cluster.local:9090", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		},
 	})
 	if err != nil {
@@ -28,16 +24,16 @@ func TestConnectionManager_Dial_CachesByResolvedTarget(t *testing.T) {
 	}
 	defer func() { _ = manager.Close() }()
 
-	ref := ServiceRef{
+	service := &ServiceDNS{
 		Service:   "auth",
 		Namespace: "default",
 	}
 
-	conn1, err := manager.Dial(context.Background(), ref)
+	conn1, err := manager.Dial(context.Background(), service)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	conn2, err := manager.Dial(context.Background(), ref)
+	conn2, err := manager.Dial(context.Background(), service)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -52,11 +48,9 @@ func TestConnectionManager_Dial_CachesByResolvedTarget(t *testing.T) {
 
 func TestConnectionManager_Dial_AfterCloseReturnsError(t *testing.T) {
 	manager, err := NewConnectionManager(ConnectionManagerOptions{
-		Locator: StaticLocator{
-			Options: TargetOptions{DefaultPort: 9000},
-		},
+		DNSManager: NewDNSManager(&DNSConfig{DefaultPort: 9090}),
 		DialFunc: func(ctx context.Context, target Target, options []grpc.DialOption) (*grpc.ClientConn, error) {
-			return grpc.NewClient("passthrough:///auth.default.svc.cluster.local:9000", grpc.WithTransportCredentials(insecure.NewCredentials()))
+			return grpc.NewClient("passthrough:///auth.default.svc.cluster.local:9090", grpc.WithTransportCredentials(insecure.NewCredentials()))
 		},
 	})
 	if err != nil {
@@ -67,7 +61,7 @@ func TestConnectionManager_Dial_AfterCloseReturnsError(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
-	_, err = manager.Dial(context.Background(), ServiceRef{
+	_, err = manager.Dial(context.Background(), &ServiceDNS{
 		Service:   "auth",
 		Namespace: "default",
 	})

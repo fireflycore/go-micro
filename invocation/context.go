@@ -259,8 +259,8 @@ func (c InvocationContext) NewOutgoingContext(parent context.Context) (context.C
 // 该对象不直接绑定某个 Authz 实现，
 // 只表达“做权限判断时必须稳定得到的字段”。
 type AuthzContext struct {
-	// Service 表示目标服务身份。
-	Service ServiceRef `json:"service"`
+	// Service 表示目标业务服务的 DNS 身份。
+	Service *ServiceDNS `json:"service"`
 	// FullMethod 表示完整 gRPC 方法，例如 /acme.user.v1.UserService/GetUser。
 	FullMethod string `json:"full_method"`
 	// TraceID 表示链路 ID。
@@ -271,14 +271,18 @@ type AuthzContext struct {
 	Metadata metadata.MD `json:"-"`
 }
 
-// NewAuthzContext 根据 ServiceRef、方法名和 InvocationContext 生成标准 AuthzContext。
-func NewAuthzContext(ref ServiceRef, method string, invocation InvocationContext) AuthzContext {
-	invocation = invocation.Clone()
-	return AuthzContext{
-		Service:    ref,
+// NewAuthzContext 根据 ServiceDNS、方法名和 InvocationContext 生成标准 AuthzContext。
+func NewAuthzContext(service *ServiceDNS, method string, invocation *InvocationContext) *AuthzContext {
+	// 若上游未提供调用上下文，则用零值上下文参与构造。
+	if invocation == nil {
+		invocation = &InvocationContext{}
+	}
+	inv := invocation.Clone()
+	return &AuthzContext{
+		Service:    service,
 		FullMethod: method,
-		TraceId:    invocation.TraceId,
-		Caller:     invocation.Caller,
-		Metadata:   invocation.BuildMetadata(),
+		TraceId:    inv.TraceId,
+		Caller:     inv.Caller,
+		Metadata:   inv.BuildMetadata(),
 	}
 }
