@@ -55,6 +55,10 @@ auth.default.svc.cluster.local:9090
 - `cluster_domain`
 - `port`
 
+当前推荐直接使用 `ServiceDNS` 字面量。
+
+除非后续出现稳定且跨仓库复用的构造规则，否则不建议再额外包一层 `ServiceDNS` builder 或 option helper。
+
 ### DNSManager
 
 `DNSManager` 只负责补齐默认值并构造最终 `Target`。
@@ -94,6 +98,13 @@ auth.default.svc.cluster.local:9090
 - 让 repo 方法只保留 `full method + req + resp`
 
 它绑定的是“远程业务服务”，不是某个 proto 子服务。
+
+当前推荐直接通过：
+
+- `NewRemoteServiceCaller(...)`
+- `BuildInvocationContextFromContext(...)`
+
+完成标准装配。
 
 ### InvocationContext
 
@@ -182,6 +193,12 @@ generated gRPC client 本身没有问题，但它更适合解决：
 这类重复放在业务 repo 中，会让每个服务都各写一遍模板；
 放在 `go-micro/invocation` 中，才能保持统一调用语义。
 
+但也要注意：
+
+- `ServiceDNS` 本身已经很薄
+- 业务侧通常直接写 `&ServiceDNS{...}` 即可
+- 不要为了“统一”再包出一层没有明显收益的本地 helper
+
 ## 示例
 
 ```go
@@ -212,17 +229,17 @@ func Example() error {
 		Dialer: manager,
 	}
 
-	caller := &invocation.RemoteServiceCaller{
-		Service: &invocation.ServiceDNS{
+	caller := invocation.NewRemoteServiceCaller(
+		invoker,
+		&invocation.ServiceDNS{
 			Service: "auth",
 		},
-		Invoker: invoker,
-		BuildContext: func(ctx context.Context) *invocation.InvocationContext {
+		func(ctx context.Context) *invocation.InvocationContext {
 			return &invocation.InvocationContext{
 				Timeout: 3 * time.Second,
 			}
 		},
-	}
+	)
 
 	return caller.Invoke(
 		context.Background(),
