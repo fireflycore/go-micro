@@ -45,8 +45,8 @@ _ = s
 
 如果要面向新的服务调用模型，建议优先使用 `invocation` 包提供的能力：
 
-- 用 `ServiceRef` 表达“我要调用哪个服务”
-- 用 `Locator` 把服务身份解析成目标地址
+- 用 `ServiceDNS` 表达“我要调用哪个业务服务 DNS”
+- 用 `DNSManager` 统一组装标准 gRPC target
 - 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
 - 用 `Invoker` 统一串起 metadata、Authz 与底层调用
 - 并默认把调用链路接入 OTel 观测体系
