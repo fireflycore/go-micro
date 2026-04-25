@@ -192,11 +192,10 @@ generated gRPC client 本身没有问题，但它更适合解决：
 
 `invocation` 只负责出站调用语义。
 
-服务端入站 metadata 解析、服务内主上下文建立与读取，统一收口到 `middleware/grpc`：
+服务端入站 metadata 解析与主上下文注入由 `middleware/grpc` 负责，服务内读取入口由 `service` 包负责：
 
 - `gm.NewServiceContextUnaryInterceptor(...)`
-- `gm.ServiceContextFromContext(...)`
-- `gm.IncomingMetadataFromContext(...)`
+- `service.FromContext(...)`
 
 ## 示例
 

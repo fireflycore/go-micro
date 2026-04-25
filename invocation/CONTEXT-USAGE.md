@@ -1,4 +1,4 @@
-﻿# Invocation Context Usage
+# Invocation Context Usage
 
 本文件已废弃。
 
@@ -13,7 +13,7 @@
 ## 推荐入口
 
 - `gm.NewServiceContextUnaryInterceptor(...)`
-- `gm.ServiceContextFromContext(...)`
+- `service.FromContext(...)`
 - `invocation.NewRemoteServiceCaller(...)`
 - `invocation.WithMetadata(...)`
 - `invocation.WithTimeout(...)`

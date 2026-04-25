@@ -52,7 +52,7 @@ _ = s
 - 用 `ServiceDNS` 表达“我要调用哪个业务服务 DNS”
 - 用 `DNSManager` 统一组装标准 gRPC target
 - 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
-- 用 `Invoker` 统一串起 metadata、Authz 与底层调用
+- 用 `Invoker` 统一串起 metadata、连接复用与底层调用
 - 并默认把调用链路接入 OTel 观测体系
 
 适用场景：
@@ -66,6 +66,7 @@ _ = s
 详细文档请参考各子包目录下的 README：
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
+- [service](./service/README.md)：服务内统一主上下文模型
 - [go-consul/agent](file:///Users/lhdht/product/firefly/go-consul/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
 - [logger](./logger/README.md)：zap/otelzap 日志封装
