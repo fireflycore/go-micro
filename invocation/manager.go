@@ -54,15 +54,20 @@ func (o ConnectionManagerOptions) normalize() ConnectionManagerOptions {
 // - 拨号选项；
 // - 多次调用的连接复用。
 type ConnectionManager struct {
+	// mu 保护 conns 与 closed，避免并发 Dial/Close 时出现竞态。
 	mu sync.Mutex
 
+	// options 保存连接管理器初始化后的规范化配置。
 	options ConnectionManagerOptions
-	conns   map[string]*grpc.ClientConn
-	closed  bool
+	// conns 按最终 gRPC target 缓存可复用连接。
+	conns map[string]*grpc.ClientConn
+	// closed 标记当前管理器是否已经关闭。
+	closed bool
 }
 
 // NewConnectionManager 创建连接管理器。
 func NewConnectionManager(options ConnectionManagerOptions) (*ConnectionManager, error) {
+	// 先统一补齐默认值，再进行依赖校验。
 	options = options.normalize()
 
 	if options.DNSManager == nil {
@@ -112,6 +117,7 @@ func (m *ConnectionManager) Dial(ctx context.Context, service *ServiceDNS) (*grp
 
 	key := target.GRPCTarget()
 	if conn, ok := m.conns[key]; ok {
+		// 命中缓存时直接复用已有连接，避免重复拨号。
 		return conn, nil
 	}
 
@@ -120,6 +126,7 @@ func (m *ConnectionManager) Dial(ctx context.Context, service *ServiceDNS) (*grp
 		return nil, err
 	}
 
+	// 仅在拨号成功后写入缓存，避免缓存无效连接。
 	m.conns[key] = conn
 	return conn, nil
 }
