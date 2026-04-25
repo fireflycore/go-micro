@@ -15,7 +15,8 @@
 - `ClientIp`：客户端 IP（`x-firefly-client-ip`）
 - `XRealIp`：反向代理透传真实 IP（`x-real-ip`）
 
-> 链路追踪使用 W3C `traceparent`/`tracestate`（OpenTelemetry 自动注入/提取），本库不再定义自定义 trace 字段常量。
+> 链路追踪统一使用 OpenTelemetry tracer 注入/提取的 W3C `traceparent`/`tracestate`。
+> 历史字段 `x-trace-id` 已从常量定义中移除，不应再作为服务间 header 或 metadata 使用。
 
 ### 客户端信息
 - `SystemName` / `SystemVersion`：系统名称与版本
@@ -28,12 +29,12 @@
 
 ```go
 import "google.golang.org/grpc/metadata"
-import "github.com/fireflycore/go-micro/rpc"
 import "github.com/fireflycore/go-micro/constant"
+import "github.com/fireflycore/go-micro/invocation"
 
 // 从 gRPC metadata 获取用户信息字段
 md, _ := metadata.FromIncomingContext(ctx)
-userId, err := rpc.ParseMetaKey(md, constant.UserId)
+userId, err := invocation.ParseMetaKey(md, constant.UserId)
 ```
 
 ## 规范设计
