@@ -7,7 +7,7 @@
 - 业务侧如何声明一个远程业务服务的标准 DNS
 - 如何把 DNS 组装成稳定的 gRPC target
 - 如何复用 `grpc.ClientConn`
-- 如何统一传递 metadata、调用者身份与 Authz 上下文
+- 如何统一传递 metadata
 
 它**不再**负责：
 
@@ -39,7 +39,7 @@ auth.default.svc.cluster.local:9090
 后续流量如何命中实例：
 
 - 裸机环境交给 `sidecar-agent`
-- 云原生环境交给 `K8s + Istio + service mesh`
+- 云原生环境交给 `K8s`
 
 ## 当前模型
 
@@ -83,7 +83,6 @@ auth.default.svc.cluster.local:9090
 
 - 取连接
 - 注入调用 metadata
-- 接入 Authz
 - 发起真实 gRPC unary 调用
 
 ### RemoteServiceCaller
@@ -94,26 +93,24 @@ auth.default.svc.cluster.local:9090
 
 - 绑定一个远程业务服务的 `ServiceDNS`
 - 复用同一个 `UnaryInvoker`
-- 用统一方式构造 `InvocationContext`
 - 让 repo 方法只保留 `full method + req + resp`
 
 它绑定的是“远程业务服务”，不是某个 proto 子服务。
 
-当前推荐直接通过：
+当前推荐直接通过 `NewRemoteServiceCaller(...)` 完成标准装配。
 
-- `NewRemoteServiceCaller(...)`
-- `BuildInvocationContextFromContext(...)`
+### Invoke Options
 
-完成标准装配。
+当前调用侧只保留两类显式参数：
 
-### InvocationContext
+- `WithMetadata(...)`：补充出站 metadata
+- `WithTimeout(...)`：设置本次调用 timeout
 
-`InvocationContext` 负责：
+注意：
 
-- 统一 metadata
-- 调用者身份
-- timeout
-- trace 相关上下文
+- 调用选项不负责从 `ServiceContext` 推导字段
+- 用户相关字段应沿入站 metadata 透传，不允许由业务侧覆写
+- 若当前请求上下文中已带有入站 metadata，`UnaryInvoker` 会在调用时直接复用
 
 ## 一个业务服务多个 proto 子服务
 
@@ -166,8 +163,7 @@ generated gRPC client 本身没有问题，但它更适合解决：
 
 - 业务服务 DNS 如何表达
 - 连接如何统一复用
-- metadata / caller / trace 如何统一透传
-- Authz 如何统一前置
+- metadata 如何统一透传
 - OTel 如何统一接入
 
 如果继续让每个 repo 直接面向 generated gRPC client：
@@ -182,22 +178,23 @@ generated gRPC client 本身没有问题，但它更适合解决：
 - `RemoteServiceCaller` 作为远程业务服务级别的薄封装
 - generated gRPC client 不作为内部统一调用主模型
 
-## 为什么 helper 要放在 invocation
+## 为什么不再提供默认上下文拼装 helper
 
-因为这层重复不是 auth 特有逻辑，而是所有远程业务服务都会遇到的框架级重复：
+根据最新边界约束：
 
-- ServiceDNS 绑定
-- InvocationContext 构造
-- UnaryInvoker 调用
+- `ServiceContext` 仅供服务内读取，不反向成为出站调用参数来源
+- `IncomingContext` / `OutgoingContext` 只是 transport metadata 语义，不在 `invocation` 中额外落成公共上下文对象
+- 服务调用时若需要沿链路透传上下文，本质上应直接复用 metadata，而不是从服务内上下文对象反向拼装
 
-这类重复放在业务 repo 中，会让每个服务都各写一遍模板；
-放在 `go-micro/invocation` 中，才能保持统一调用语义。
+## 服务端边界
 
-但也要注意：
+`invocation` 只负责出站调用语义。
 
-- `ServiceDNS` 本身已经很薄
-- 业务侧通常直接写 `&ServiceDNS{...}` 即可
-- 不要为了“统一”再包出一层没有明显收益的本地 helper
+服务端入站 metadata 解析、服务内主上下文建立与读取，统一收口到 `middleware/grpc`：
+
+- `gm.NewServiceContextUnaryInterceptor(...)`
+- `gm.ServiceContextFromContext(...)`
+- `gm.IncomingMetadataFromContext(...)`
 
 ## 示例
 
@@ -234,11 +231,6 @@ func Example() error {
 		&invocation.ServiceDNS{
 			Service: "auth",
 		},
-		func(ctx context.Context) *invocation.InvocationContext {
-			return &invocation.InvocationContext{
-				Timeout: 3 * time.Second,
-			}
-		},
 	)
 
 	return caller.Invoke(
@@ -246,6 +238,7 @@ func Example() error {
 		"/acme.auth.app.v1.AuthAppService/GetAppSecret",
 		&struct{}{},
 		&struct{}{},
+		invocation.WithTimeout(3*time.Second),
 	)
 }
 ```
@@ -255,8 +248,7 @@ func Example() error {
 `invocation` 默认和 `go-micro` 的 OTel 链路保持一致：
 
 - gRPC client 默认挂 `otelgrpc`
-- metadata 由 `InvocationContext` 统一构造
-- Authz 上下文由 `NewAuthzContext()` 统一生成
+- 出站 metadata 由 `UnaryInvoker` 基于继承 metadata 与显式调用选项统一构造
 
 ## 设计约束
 
@@ -264,4 +256,3 @@ func Example() error {
 - `invocation` 只保留通用调用语义，不承载后端专属实现
 - `RemoteServiceCaller` 只做样板代码收口，不替代 `UnaryInvoker`
 - `go-consul/invocation`、`go-k8s/invocation` 不再作为主路径保留
-- `Authz` 默认作为调用前外挂能力接入
