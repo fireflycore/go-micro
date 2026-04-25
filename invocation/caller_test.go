@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func TestRemoteServiceCaller_Invoke_UsesBuildContextByDefault(t *testing.T) {
+func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T) {
 	invoked := false
 	caller := NewRemoteServiceCaller(
 		&UnaryInvoker{
@@ -24,6 +24,9 @@ func TestRemoteServiceCaller_Invoke_UsesBuildContextByDefault(t *testing.T) {
 				if got := md.Get("x-firefly-user-id"); len(got) == 0 || got[0] != "u-100" {
 					t.Fatalf("unexpected user id metadata: %v", got)
 				}
+				if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-1" {
+					t.Fatalf("unexpected request metadata: %v", got)
+				}
 				return nil
 			},
 		},
@@ -31,14 +34,14 @@ func TestRemoteServiceCaller_Invoke_UsesBuildContextByDefault(t *testing.T) {
 			Service:   "auth",
 			Namespace: "default",
 		},
-		func(ctx context.Context) *InvocationContext {
-			return &InvocationContext{
-				Caller: Caller{UserId: "u-100"},
-			}
-		},
 	)
 
-	err := caller.Invoke(context.Background(), "/acme.auth.app.v1.AuthAppService/GetAppSecret", &struct{}{}, &struct{}{})
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.UserId, "u-100",
+		"x-request-id", "req-1",
+	))
+
+	err := caller.Invoke(ctx, "/acme.auth.app.v1.AuthAppService/GetAppSecret", &struct{}{}, &struct{}{})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -47,7 +50,7 @@ func TestRemoteServiceCaller_Invoke_UsesBuildContextByDefault(t *testing.T) {
 	}
 }
 
-func TestRemoteServiceCaller_Invoke_ExplicitInvocationContextOverridesDefault(t *testing.T) {
+func TestRemoteServiceCaller_Invoke_ExplicitMetadataAddsNonProtectedMetadata(t *testing.T) {
 	caller := NewRemoteServiceCaller(
 		&UnaryInvoker{
 			Dialer: testDialer{conn: &grpc.ClientConn{}},
@@ -56,8 +59,11 @@ func TestRemoteServiceCaller_Invoke_ExplicitInvocationContextOverridesDefault(t 
 				if !ok {
 					t.Fatal("expected outgoing metadata")
 				}
-				if got := md.Get("x-firefly-user-id"); len(got) == 0 || got[0] != "u-explicit" {
+				if got := md.Get("x-firefly-user-id"); len(got) == 0 || got[0] != "u-incoming" {
 					t.Fatalf("unexpected user id metadata: %v", got)
+				}
+				if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-explicit" {
+					t.Fatalf("unexpected explicit metadata: %v", got)
 				}
 				return nil
 			},
@@ -66,21 +72,18 @@ func TestRemoteServiceCaller_Invoke_ExplicitInvocationContextOverridesDefault(t 
 			Service:   "auth",
 			Namespace: "default",
 		},
-		func(ctx context.Context) *InvocationContext {
-			return &InvocationContext{
-				Caller: Caller{UserId: "u-default"},
-			}
-		},
 	)
 
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.UserId, "u-incoming",
+	))
+
 	err := caller.Invoke(
-		context.Background(),
+		ctx,
 		"/acme.auth.user.v1.AuthUserService/GetUser",
 		&struct{}{},
 		&struct{}{},
-		WithInvocationContext(&InvocationContext{
-			Caller: Caller{UserId: "u-explicit"},
-		}),
+		WithMetadata(metadata.Pairs("x-request-id", "req-explicit")),
 	)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -91,47 +94,10 @@ func TestRemoteServiceCaller_Invoke_ReturnsInvokerErrorWhenInvokerMissing(t *tes
 	caller := NewRemoteServiceCaller(nil, &ServiceDNS{
 		Service:   "auth",
 		Namespace: "default",
-	}, nil)
+	})
 
 	err := caller.Invoke(context.Background(), "/acme.auth.app.v1.AuthAppService/GetAppSecret", &struct{}{}, &struct{}{})
 	if err != ErrInvokerDialerIsNil {
 		t.Fatalf("expected %v, got %v", ErrInvokerDialerIsNil, err)
-	}
-}
-
-func TestBuildInvocationContextFromContext_PreservesMetadataAndUserContext(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-request-id", "req-1"))
-	ctx = WithUserContext(ctx, &UserContextMeta{
-		UserId:   "u-1",
-		AppId:    "app-1",
-		TenantId: "tenant-1",
-		RoleIds:  []string{"r1", "r2"},
-		OrgIds:   []string{"o1"},
-	})
-
-	out := BuildInvocationContextFromContext(ctx)
-	if out == nil {
-		t.Fatal("expected invocation context, got nil")
-	}
-	if got := out.Metadata.Get("x-request-id"); len(got) == 0 || got[0] != "req-1" {
-		t.Fatalf("unexpected request metadata: %v", got)
-	}
-	if out.Caller.UserId != "u-1" || out.Caller.AppId != "app-1" || out.Caller.TenantId != "tenant-1" {
-		t.Fatalf("unexpected caller: %+v", out.Caller)
-	}
-	if len(out.Caller.RoleIds) != 2 || len(out.Caller.OrgIds) != 1 {
-		t.Fatalf("unexpected caller scopes: %+v", out.Caller)
-	}
-}
-
-func TestBuildInvocationContextFromContext_UsesOutgoingMetadata(t *testing.T) {
-	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(constant.TraceId, "trace-1"))
-
-	out := BuildInvocationContextFromContext(ctx)
-	if out == nil {
-		t.Fatal("expected invocation context, got nil")
-	}
-	if got := out.Metadata.Get(constant.TraceId); len(got) == 0 || got[0] != "trace-1" {
-		t.Fatalf("unexpected trace metadata: %v", got)
 	}
 }
