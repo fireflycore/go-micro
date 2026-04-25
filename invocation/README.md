@@ -85,6 +85,8 @@ auth.default.svc.cluster.local:9090
 - 注入调用 metadata
 - 发起真实 gRPC unary 调用
 
+当前代码组织上，`Dialer`、`Invoker` 与 `UnaryInvoker` 已统一收口在 `invoker.go`，避免把很薄的契约层单独拆成一个文件。
+
 ### RemoteServiceCaller
 
 `RemoteServiceCaller` 是在 `UnaryInvoker` 之上提供的一层薄封装。

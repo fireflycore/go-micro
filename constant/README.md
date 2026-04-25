@@ -30,11 +30,14 @@
 ```go
 import "google.golang.org/grpc/metadata"
 import "github.com/fireflycore/go-micro/constant"
-import "github.com/fireflycore/go-micro/invocation"
 
 // 从 gRPC metadata 获取用户信息字段
 md, _ := metadata.FromIncomingContext(ctx)
-userId, err := invocation.ParseMetaKey(md, constant.UserId)
+values := md.Get(constant.UserId)
+if len(values) > 0 {
+	userId := values[0]
+	_ = userId
+}
 ```
 
 ## 规范设计

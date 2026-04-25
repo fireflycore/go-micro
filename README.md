@@ -36,6 +36,10 @@ import (
 s := grpc.NewServer(
 	grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
 	grpc.ChainUnaryInterceptor(
+		gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
+			ServiceAppId:      "auth",
+			ServiceInstanceId: "auth-1",
+		}),
 		gm.ValidationErrorToInvalidArgument(),
 		gm.NewAccessLogger(log),
 	),
