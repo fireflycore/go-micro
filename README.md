@@ -52,7 +52,7 @@ _ = s
 - 用 `service.DNS` 表达“我要调用哪个业务服务 DNS”
 - 用 `DNSManager` 统一组装标准 gRPC target
 - 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
-- 用 `RemoteServices / RemoteServiceCaller / UnaryInvoker` 统一串起 metadata、连接复用与底层调用
+- 用 `RemoteServiceManaged / RemoteServiceCaller / UnaryInvoker` 统一串起 metadata、连接复用与底层调用
 - 并默认把调用链路接入 OTel 观测体系
 
 适用场景：

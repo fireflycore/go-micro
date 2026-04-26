@@ -8,15 +8,14 @@
 
 - 服务端入站 metadata 的解析与服务内主上下文建立，统一由 `middleware/grpc` 负责
 - 服务内代码只读取 `ServiceContext`
-- 服务调用侧只关注出站 metadata 与 timeout，不再从服务内上下文对象反向拼装公共出站上下文对象
+- 服务调用侧只复用当前链路 metadata，并使用 `UnaryInvoker` 初始化时注入的统一 timeout
 
 ## 推荐入口
 
 - `gm.NewServiceContextUnaryInterceptor(...)`
 - `service.FromContext(...)`
 - `invocation.NewRemoteServiceCaller(...)`
-- `invocation.WithMetadata(...)`
-- `invocation.WithTimeout(...)`
+- `invocation.NewUnaryInvoker(...)`
 
 ## 参考文档
 

@@ -4,7 +4,7 @@
 
 它只解决四件事：
 
-- 业务侧如何声明一个远程业务服务的标准 DNS
+- 业务侧如何使用 `service.DNS` 声明一个远程业务服务的标准 DNS
 - 如何把 DNS 组装成稳定的 gRPC target
 - 如何复用 `grpc.ClientConn`
 - 如何统一传递 metadata
@@ -43,9 +43,9 @@ auth.default.svc.cluster.local:9090
 
 ## 当前模型
 
-### ServiceDNS
+### service.DNS
 
-`ServiceDNS` 表示业务服务的标准 DNS 配置。
+`service.DNS` 表示业务服务的标准 DNS 配置。
 
 它直接描述：
 
@@ -55,9 +55,9 @@ auth.default.svc.cluster.local:9090
 - `cluster_domain`
 - `port`
 
-当前推荐直接使用 `ServiceDNS` 字面量。
+当前推荐直接使用 `service.DNS` 字面量。
 
-除非后续出现稳定且跨仓库复用的构造规则，否则不建议再额外包一层 `ServiceDNS` builder 或 option helper。
+除非后续出现稳定且跨仓库复用的构造规则，否则不建议再额外包一层 `service.DNS` builder 或 option helper。
 
 ### DNSManager
 
@@ -73,7 +73,7 @@ auth.default.svc.cluster.local:9090
 
 `ConnectionManager` 负责：
 
-- 基于 `ServiceDNS` 构造 `Target`
+- 基于 `service.DNS` 构造 `Target`
 - 按最终 gRPC target 缓存连接
 - 统一挂载 gRPC client dial options
 
@@ -83,9 +83,12 @@ auth.default.svc.cluster.local:9090
 
 - 取连接
 - 注入调用 metadata
+- 注入当前服务自身的 `ServiceAppId` / `ServiceInstanceId`
 - 发起真实 gRPC unary 调用
 
 当前代码组织上，`Dialer`、`Invoker` 与 `UnaryInvoker` 已统一收口在 `invoker.go`，避免把很薄的契约层单独拆成一个文件。
+
+推荐优先通过 `NewUnaryInvoker(...)` 装配，显式传入当前服务自身身份。
 
 ### RemoteServiceCaller
 
@@ -93,7 +96,7 @@ auth.default.svc.cluster.local:9090
 
 它解决的问题不是“替代 gRPC”，而是把业务 repo 里重复出现的这组样板收口：
 
-- 绑定一个远程业务服务的 `ServiceDNS`
+- 绑定一个远程业务服务的 `service.DNS`
 - 复用同一个 `UnaryInvoker`
 - 让 repo 方法只保留 `full method + req + resp`
 
@@ -101,24 +104,33 @@ auth.default.svc.cluster.local:9090
 
 当前推荐直接通过 `NewRemoteServiceCaller(...)` 完成标准装配。
 
-### Invoke Options
+### RemoteServiceManaged
 
-当前调用侧只保留两类显式参数：
+`RemoteServiceManaged` 提供一层轻量的多业务服务装配能力。
 
-- `WithMetadata(...)`：补充出站 metadata
-- `WithTimeout(...)`：设置本次调用 timeout
+它只负责：
 
-注意：
+- 统一登记多组远程业务服务 `service.DNS`
+- 统一复用同一个 `UnaryInvoker`
+- 按业务服务名返回 `RemoteServiceCaller`
+- 按业务服务名直接发起 `full method` 调用
 
-- 调用选项不负责从 `ServiceContext` 推导字段
-- 用户相关字段应沿入站 metadata 透传，不允许由业务侧覆写
-- 若当前请求上下文中已带有入站 metadata，`UnaryInvoker` 会在调用时直接复用
+### Invoke Contract
+
+当前调用侧不再暴露 metadata / timeout 的单次调用覆盖能力。
+
+统一约束如下：
+
+- `UnaryInvoker` 直接复用当前链路 metadata
+- `UnaryInvoker` 会在出站前注入 `ServiceAppId` / `ServiceInstanceId`
+- 远程调用 timeout 在 `NewUnaryInvoker(...)` 初始化时注入
+- 未显式配置 timeout 时，默认使用 `5s`
 
 ## 一个业务服务多个 proto 子服务
 
 这是当前模型里的重要约束：
 
-- 一个远程**业务服务**只维护一份 `ServiceDNS`
+- 一个远程**业务服务**只维护一份 `service.DNS`
 - 同一个业务服务下的多个 proto 子服务，共用同一份 DNS 和连接
 - 具体调用哪个子服务，由 gRPC full method 决定
 
@@ -142,9 +154,9 @@ auth.default.svc.cluster.local:9090
 
 推荐做法：
 
-- 在 `New*Repo` 中声明该 repo 依赖哪个远程业务服务
-- 为该远程业务服务组装一份 `ServiceDNS`
-- 复用同一份 `ConnectionManager / UnaryInvoker`
+- 在服务启动时集中声明多组远程业务服务 `service.DNS`
+- 统一创建一份 `ConnectionManager / UnaryInvoker / RemoteServiceManaged`
+- 在 `New*Repo` 中按业务服务名获取 caller
 - 通过不同 full method 区分具体 proto 子服务
 
 不推荐做法：
@@ -178,6 +190,7 @@ generated gRPC client 本身没有问题，但它更适合解决：
 
 - `UnaryInvoker` 作为底层统一调用器
 - `RemoteServiceCaller` 作为远程业务服务级别的薄封装
+- 多业务服务装配优先使用 `RemoteServiceManaged`
 - generated gRPC client 不作为内部统一调用主模型
 
 ## 为什么不再提供默认上下文拼装 helper
@@ -207,6 +220,7 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/invocation"
+	"github.com/fireflycore/go-micro/service"
 )
 
 func Example() error {
@@ -223,23 +237,65 @@ func Example() error {
 	}
 	defer func() { _ = manager.Close() }()
 
-	invoker := &invocation.UnaryInvoker{
-		Dialer: manager,
-	}
-
-	caller := invocation.NewRemoteServiceCaller(
-		invoker,
-		&invocation.ServiceDNS{
+	services := invocation.NewRemoteServiceManaged(
+		invocation.NewUnaryInvoker(manager, "config", "config-1", 3*time.Second),
+		service.DNS{
 			Service: "auth",
 		},
 	)
+
+	caller, err := services.Caller("auth")
+	if err != nil {
+		return err
+	}
 
 	return caller.Invoke(
 		context.Background(),
 		"/acme.auth.app.v1.AuthAppService/GetAppSecret",
 		&struct{}{},
 		&struct{}{},
-		invocation.WithTimeout(3*time.Second),
+	)
+}
+```
+
+如果 repo 层已经明确绑定某个远程业务服务，也可以直接构造单服务 caller：
+
+```go
+package example
+
+import (
+	"context"
+	"time"
+
+	"github.com/fireflycore/go-micro/invocation"
+	"github.com/fireflycore/go-micro/service"
+)
+
+func ExampleSingleCaller() error {
+	dnsManager := invocation.NewDNSManager(&invocation.DNSConfig{
+		DefaultNamespace: "default",
+		DefaultPort:      9090,
+	})
+
+	manager, err := invocation.NewConnectionManager(invocation.ConnectionManagerOptions{
+		DNSManager: dnsManager,
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = manager.Close() }()
+
+	caller := invocation.NewRemoteServiceCaller(
+		invocation.NewUnaryInvoker(manager, "config", "config-1", 3*time.Second),
+		&service.DNS{
+			Service: "auth",
+		},
+	)
+	return caller.Invoke(
+		context.Background(),
+		"/acme.auth.app.v1.AuthAppService/GetAppSecret",
+		&struct{}{},
+		&struct{}{},
 	)
 }
 ```
@@ -249,7 +305,7 @@ func Example() error {
 `invocation` 默认和 `go-micro` 的 OTel 链路保持一致：
 
 - gRPC client 默认挂 `otelgrpc`
-- 出站 metadata 由 `UnaryInvoker` 基于继承 metadata 与显式调用选项统一构造
+- 出站 metadata 由 `UnaryInvoker` 基于当前链路 metadata 与服务自身身份统一构造
 
 ## 设计约束
 
