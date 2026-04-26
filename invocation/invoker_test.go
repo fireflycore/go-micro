@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
+	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -15,12 +16,25 @@ type testDialer struct {
 	err  error
 }
 
-func (d testDialer) Dial(ctx context.Context, service *ServiceDNS) (*grpc.ClientConn, error) {
+func (d testDialer) Dial(ctx context.Context, service *svc.DNS) (*grpc.ClientConn, error) {
 	return d.conn, d.err
 }
 
 func (d testDialer) Close() error {
 	return nil
+}
+
+func TestNewUnaryInvoker_SetsCallerServiceIdentity(t *testing.T) {
+	invoker := NewUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, "config", "config-1", 0)
+	if invoker == nil {
+		t.Fatal("expected invoker")
+	}
+	if invoker.ServiceAppId != "config" || invoker.ServiceInstanceId != "config-1" {
+		t.Fatalf("unexpected invoker identity: %+v", invoker)
+	}
+	if invoker.Timeout != DefaultInvokeTimeout {
+		t.Fatalf("unexpected invoker timeout: %s", invoker.Timeout)
+	}
 }
 
 func TestUnaryInvoker_Invoke_ReusesIncomingMetadataAndInvokeFunc(t *testing.T) {
@@ -47,7 +61,7 @@ func TestUnaryInvoker_Invoke_ReusesIncomingMetadataAndInvokeFunc(t *testing.T) {
 		constant.UserId, "u-1",
 	))
 
-	err := invoker.Invoke(ctx, &ServiceDNS{
+	err := invoker.Invoke(ctx, &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -59,7 +73,7 @@ func TestUnaryInvoker_Invoke_ReusesIncomingMetadataAndInvokeFunc(t *testing.T) {
 	}
 }
 
-func TestUnaryInvoker_Invoke_WithoutExplicitOptionsDoesNotPanic(t *testing.T) {
+func TestUnaryInvoker_Invoke_WithoutExtraOptionsDoesNotPanic(t *testing.T) {
 	invoked := false
 	invoker := &UnaryInvoker{
 		Dialer: testDialer{conn: &grpc.ClientConn{}},
@@ -69,7 +83,7 @@ func TestUnaryInvoker_Invoke_WithoutExplicitOptionsDoesNotPanic(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), &ServiceDNS{
+	err := invoker.Invoke(context.Background(), &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -81,19 +95,24 @@ func TestUnaryInvoker_Invoke_WithoutExplicitOptionsDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestUnaryInvoker_Invoke_ExplicitMetadataCannotOverrideProtectedCallerFields(t *testing.T) {
+func TestUnaryInvoker_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: &grpc.ClientConn{}},
+		Dialer:            testDialer{conn: &grpc.ClientConn{}},
+		ServiceAppId:      "config",
+		ServiceInstanceId: "config-1",
 		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 			md, ok := metadata.FromOutgoingContext(ctx)
 			if !ok {
 				t.Fatal("expected outgoing metadata")
 			}
 			if got := md.Get(constant.UserId); len(got) == 0 || got[0] != "u-incoming" {
-				t.Fatalf("unexpected protected user id metadata: %v", got)
+				t.Fatalf("unexpected inherited user id metadata: %v", got)
 			}
-			if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-1" {
-				t.Fatalf("unexpected explicit metadata: %v", got)
+			if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "config" {
+				t.Fatalf("unexpected service app id metadata: %v", got)
+			}
+			if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "config-1" {
+				t.Fatalf("unexpected service instance id metadata: %v", got)
 			}
 			return nil
 		},
@@ -103,21 +122,42 @@ func TestUnaryInvoker_Invoke_ExplicitMetadataCannotOverrideProtectedCallerFields
 		constant.UserId, "u-incoming",
 	))
 
-	err := invoker.Invoke(ctx, &ServiceDNS{
+	err := invoker.Invoke(ctx, &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{},
-		WithMetadata(metadata.Pairs(
-			constant.UserId, "u-explicit",
-			"x-request-id", "req-1",
-		)),
-	)
+	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 }
 
-func TestUnaryInvoker_Invoke_WithTimeoutAddsDeadline(t *testing.T) {
+func TestUnaryInvoker_Invoke_UsesConfiguredTimeout(t *testing.T) {
+	invoker := &UnaryInvoker{
+		Dialer:  testDialer{conn: &grpc.ClientConn{}},
+		Timeout: 200 * time.Millisecond,
+		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatal("expected deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 || remaining > time.Second {
+				t.Fatalf("unexpected configured timeout remaining: %s", remaining)
+			}
+			return nil
+		},
+	}
+
+	err := invoker.Invoke(context.Background(), &svc.DNS{
+		Service:   "auth",
+		Namespace: "default",
+	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+}
+
+func TestUnaryInvoker_Invoke_UsesDefaultTimeoutWhenUnset(t *testing.T) {
 	invoker := &UnaryInvoker{
 		Dialer: testDialer{conn: &grpc.ClientConn{}},
 		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
@@ -125,17 +165,18 @@ func TestUnaryInvoker_Invoke_WithTimeoutAddsDeadline(t *testing.T) {
 			if !ok {
 				t.Fatal("expected deadline")
 			}
-			if time.Until(deadline) <= 0 {
-				t.Fatal("expected future deadline")
+			remaining := time.Until(deadline)
+			if remaining <= 4*time.Second || remaining > DefaultInvokeTimeout {
+				t.Fatalf("unexpected default timeout remaining: %s", remaining)
 			}
 			return nil
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), &ServiceDNS{
+	err := invoker.Invoke(context.Background(), &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{}, WithTimeout(200*time.Millisecond))
+	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -158,7 +199,7 @@ func TestUnaryInvoker_Invoke_PreservesParentCancellation(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(parent, &ServiceDNS{
+	err := invoker.Invoke(parent, &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -200,41 +241,26 @@ func TestNewOutgoingCallContext_PreservesParentCancellationAndTimeout(t *testing
 	}
 }
 
-func TestMergeOptionMetadata_CopiesInputs(t *testing.T) {
-	base := metadata.Pairs("x-request-id", "req-1")
-	extra := metadata.Pairs("x-debug", "1")
-
-	merged := mergeOptionMetadata(base, extra)
-	base.Set("x-request-id", "req-2")
-	extra.Set("x-debug", "0")
-
-	if got := merged.Get("x-request-id"); len(got) == 0 || got[0] != "req-1" {
-		t.Fatalf("unexpected merged request id metadata: %v", got)
-	}
-	if got := merged.Get("x-debug"); len(got) == 0 || got[0] != "1" {
-		t.Fatalf("unexpected merged debug metadata: %v", got)
-	}
-}
-
-func TestMergeOptionMetadata_AllowsOverrideByLaterOption(t *testing.T) {
-	merged := mergeOptionMetadata(
-		metadata.Pairs("x-request-id", "req-1"),
-		metadata.Pairs("x-request-id", "req-2"),
-	)
-
-	if got := merged.Get("x-request-id"); len(got) == 0 || got[0] != "req-2" {
-		t.Fatalf("expected later metadata to override earlier value: %v", got)
-	}
-}
-
-func TestPrepareOutgoingMetadata_ReusesOutgoingContextMetadata(t *testing.T) {
+func TestResolveOutgoingMetadata_ReusesOutgoingContextMetadata(t *testing.T) {
 	parent := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-request-id", "req-inherited"))
-	md := prepareOutgoingMetadata(parent, metadata.Pairs("x-debug", "1"))
+	md := resolveOutgoingMetadata(parent, "", "")
 
 	if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-inherited" {
 		t.Fatalf("unexpected inherited outgoing metadata: %v", got)
 	}
-	if got := md.Get("x-debug"); len(got) == 0 || got[0] != "1" {
-		t.Fatalf("unexpected explicit metadata: %v", got)
+}
+
+func TestResolveOutgoingMetadata_InjectsCallerServiceIdentity(t *testing.T) {
+	md := resolveOutgoingMetadata(
+		context.Background(),
+		"auth",
+		"auth-1",
+	)
+
+	if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "auth" {
+		t.Fatalf("unexpected service app id metadata: %v", got)
+	}
+	if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "auth-1" {
+		t.Fatalf("unexpected service instance id metadata: %v", got)
 	}
 }
