@@ -58,13 +58,10 @@ const (
 	// GatewayAuthSign 网关认证签名, 用于跳过token解析步骤，直接验证用户权限
 	GatewayAuthSign = HeaderPrefix + "gateway-auth-sign"
 
-	// InvokeServiceAuth 服务调用相关（Invoke-服务调用方信息，Target-被调用方服务信息）
-	InvokeServiceAuth     = HeaderPrefix + "invoke-service-auth"
-	InvokeServiceAppId    = HeaderPrefix + "invoke-service-app-id"
-	InvokeServiceEndpoint = HeaderPrefix + "invoke-service-endpoint"
-	TargetServiceAppId    = HeaderPrefix + "target-service-app-id"
-	TargetServiceEndpoint = HeaderPrefix + "target-service-endpoint"
-
-	ClientIp = HeaderPrefix + "client-ip"
-	SourceIp = HeaderPrefix + "source-ip"
+	// ServiceAuth 服务调用认证
+	ServiceAuth = HeaderPrefix + "service-auth"
+	// ServiceAppId 当前发起调用的服务应用标识。
+	ServiceAppId = HeaderPrefix + "service-app-id"
+	// ServiceInstanceId 当前发起调用的服务实例标识。
+	ServiceInstanceId = HeaderPrefix + "service-instance-id"
 )
