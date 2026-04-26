@@ -22,4 +22,6 @@ var (
 	ErrInvokerDialerIsNil = errors.New("invoker dialer is nil")
 	// ErrInvokeMethodEmpty 表示调用方法名为空。
 	ErrInvokeMethodEmpty = errors.New("invoke method is empty")
+	// ErrRemoteServiceNotFound 表示未找到指定远程业务服务。
+	ErrRemoteServiceNotFound = errors.New("remote service not found")
 )
