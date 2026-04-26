@@ -227,6 +227,64 @@ generated gRPC client 本身没有问题，但它更适合解决：
 - `gm.NewServiceContextUnaryInterceptor(...)`
 - `service.FromContext(...)`
 
+## 启动到调用时序
+
+下面这张图描述当前推荐主线下，从服务启动装配 `invocation`，到一次下游调用真正发出的完整时序：
+
+```mermaid
+sequenceDiagram
+    participant Boot as Service Bootstrap
+    participant Repo as Repo/Data
+    participant RSM as RemoteServiceManaged
+    participant RSC as RemoteServiceCaller
+    participant UI as UnaryInvoker
+    participant CM as ConnectionManager
+    participant DM as DNSManager
+    participant MG as middleware/grpc
+    participant RT as Runtime(K8s/sidecar)
+    participant Down as Downstream Service
+
+    Boot->>DM: NewDNSManager(DNSConfig)
+    Boot->>CM: NewConnectionManager(DNSManager, DialOptions)
+    Boot->>UI: NewUnaryInvoker(manager, serviceAppId, serviceInstanceId, timeout)
+    Boot->>RSM: NewRemoteServiceManaged(invoker, service.DNS...)
+    Boot->>Repo: 注入 repo 依赖
+
+    Note over MG,Repo: 一次入站请求到达当前服务
+    MG->>MG: 解析 incoming metadata
+    MG->>MG: Build ServiceContext
+    MG->>Repo: 业务方法获得 ctx
+
+    Repo->>RSM: Caller("auth") / Invoke("auth", fullMethod, req, resp)
+    RSM->>RSM: 按服务名查找 service.DNS
+    RSM->>RSC: NewRemoteServiceCaller(invoker, dns)
+    Repo->>RSC: Invoke(ctx, fullMethod, req, resp)
+
+    RSC->>UI: Invoke(ctx, dns, fullMethod, req, resp)
+    UI->>UI: 复用 incoming/outgoing metadata
+    UI->>UI: 注入 ServiceAppId / ServiceInstanceId
+    UI->>UI: 基于统一 timeout 构造 outgoing ctx
+    UI->>CM: Dial(ctx, dns)
+    CM->>DM: Build(dns)
+    DM->>DM: Normalize + Validate
+    DM-->>CM: Target(dns:///service.namespace.svc.cluster.local:port)
+    CM->>CM: 按最终 gRPC target 查连接缓存
+    alt 命中缓存
+        CM-->>UI: 复用现有 grpc.ClientConn
+    else 未命中
+        CM->>RT: grpc.NewClient(target)
+        RT-->>CM: 建立连接
+        CM-->>UI: 返回新连接
+    end
+
+    UI->>RT: conn.Invoke(outgoing ctx, fullMethod, req, resp)
+    RT->>Down: 路由到目标业务服务
+    Down-->>RT: resp
+    RT-->>UI: resp
+    UI-->>RSC: 返回结果
+    RSC-->>Repo: 返回结果
+```
+
 ## 示例
 
 ```go
