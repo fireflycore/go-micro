@@ -54,24 +54,17 @@ func NewAccessLogger(log *logger.AccessLogger) grpc.UnaryServerInterceptor {
 			fields = append(fields, zap.ByteString("response", response))
 		}
 
-		if v := parseLogMetaKey(md, constant.SourceIp); v != "" {
-			fields = append(fields, zap.String("source_ip", v))
-		}
-		if v := parseLogMetaKey(md, constant.ClientIp); v != "" {
+		if v := parseLogMetaKey(md, constant.XRealIp); v != "" {
 			fields = append(fields, zap.String("client_ip", v))
 		}
-		if v := parseLogMetaKey(md, constant.InvokeServiceAppId); v != "" {
-			fields = append(fields, zap.String("invoke_service_app_id", v))
+
+		if v := parseLogMetaKey(md, constant.ServiceAppId); v != "" {
+			fields = append(fields, zap.String("service_app_id", v))
 		}
-		if v := parseLogMetaKey(md, constant.InvokeServiceEndpoint); v != "" {
-			fields = append(fields, zap.String("invoke_service_endpoint", v))
+		if v := parseLogMetaKey(md, constant.ServiceInstanceId); v != "" {
+			fields = append(fields, zap.String("service_instance_id", v))
 		}
-		if v := parseLogMetaKey(md, constant.TargetServiceAppId); v != "" {
-			fields = append(fields, zap.String("target_service_app_id", v))
-		}
-		if v := parseLogMetaKey(md, constant.TargetServiceEndpoint); v != "" {
-			fields = append(fields, zap.String("target_service_endpoint", v))
-		}
+
 		if v := parseLogMetaKey(md, constant.SystemName); v != "" {
 			fields = append(fields, zap.String("system_name", v))
 		}

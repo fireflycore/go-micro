@@ -82,8 +82,7 @@ func NewAccessLogger(log *logger.AccessLogger) func(next http.Handler) http.Hand
 				zap.String("system_name", request.Header.Get(constant.SystemName)),
 				zap.String("system_version", request.Header.Get(constant.SystemVersion)),
 				zap.String("app_version", request.Header.Get(constant.AppVersion)),
-				zap.String("source_ip", request.Header.Get(constant.SourceIp)),
-				zap.String("client_ip", request.Header.Get(constant.ClientIp)),
+				zap.String("client_ip", request.Header.Get(constant.XRealIp)),
 			)
 
 			if status >= 500 {
