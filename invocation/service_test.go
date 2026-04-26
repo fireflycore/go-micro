@@ -72,3 +72,53 @@ func TestRemoteServiceManaged_Caller_ReturnsNotFoundForUnknownService(t *testing
 		t.Fatalf("expected %v, got %v", ErrRemoteServiceNotFound, err)
 	}
 }
+
+func TestRemoteServiceManaged_DNS_ReturnsClone(t *testing.T) {
+	services := NewRemoteServiceManaged(nil, svc.DNS{Service: "auth", Namespace: "default"})
+
+	dns, err := services.DNS("auth")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	dns.Namespace = "changed"
+
+	again, err := services.DNS("auth")
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if again.Namespace != "default" {
+		t.Fatalf("expected stored service to stay unchanged, got %s", again.Namespace)
+	}
+}
+
+func TestRemoteServiceManaged_Invoke_ReturnsErrorWhenInvokerMissing(t *testing.T) {
+	services := NewRemoteServiceManaged(nil, svc.DNS{Service: "auth", Namespace: "default"})
+
+	err := services.Invoke(context.Background(), "auth", "/acme.auth.v1.AuthService/Check", &struct{}{}, &struct{}{})
+	if err != ErrInvokerDialerIsNil {
+		t.Fatalf("expected %v, got %v", ErrInvokerDialerIsNil, err)
+	}
+}
+
+func TestRemoteServiceManaged_New_SkipsEmptyServiceName(t *testing.T) {
+	services := NewRemoteServiceManaged(nil,
+		svc.DNS{Service: "auth", Namespace: "default"},
+		svc.DNS{Service: " ", Namespace: "default"},
+	)
+
+	if _, err := services.DNS("auth"); err != nil {
+		t.Fatalf("expected auth service to exist, got %v", err)
+	}
+	if _, err := services.DNS(" "); err != ErrRemoteServiceNotFound {
+		t.Fatalf("expected %v, got %v", ErrRemoteServiceNotFound, err)
+	}
+}
+
+func TestRemoteServiceManaged_DNS_ReturnsNotFoundForNilReceiver(t *testing.T) {
+	var services *RemoteServiceManaged
+
+	_, err := services.DNS("auth")
+	if err != ErrRemoteServiceNotFound {
+		t.Fatalf("expected %v, got %v", ErrRemoteServiceNotFound, err)
+	}
+}

@@ -2,6 +2,7 @@ package invocation
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -68,5 +69,68 @@ func TestConnectionManager_Dial_AfterCloseReturnsError(t *testing.T) {
 	})
 	if err != ErrConnectionManagerClosed {
 		t.Fatalf("expected ErrConnectionManagerClosed, got %v", err)
+	}
+}
+
+func TestNewConnectionManager_UsesDefaultsWhenOptionsEmpty(t *testing.T) {
+	manager, err := NewConnectionManager(ConnectionManagerOptions{})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if manager.config == nil {
+		t.Fatal("expected normalized config")
+	}
+	if manager.config.dnsManager == nil {
+		t.Fatal("expected default dns manager")
+	}
+	if manager.config.dialFunc == nil {
+		t.Fatal("expected default dial func")
+	}
+	if len(manager.config.dialOptions) == 0 {
+		t.Fatal("expected default dial options")
+	}
+}
+
+func TestConnectionManager_Close_IsIdempotent(t *testing.T) {
+	manager, err := NewConnectionManager(ConnectionManagerOptions{
+		DNSManager: NewDNSManager(nil),
+		DialFunc: func(ctx context.Context, target Target, options []grpc.DialOption) (*grpc.ClientConn, error) {
+			return &grpc.ClientConn{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	if err := manager.Close(); err != nil {
+		t.Fatalf("expected nil error on first close, got %v", err)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("expected nil error on second close, got %v", err)
+	}
+}
+
+func TestConnectionManager_Dial_PropagatesDialError(t *testing.T) {
+	expectedErr := errors.New("dial failed")
+	manager, err := NewConnectionManager(ConnectionManagerOptions{
+		DNSManager: NewDNSManager(nil),
+		DialFunc: func(ctx context.Context, target Target, options []grpc.DialOption) (*grpc.ClientConn, error) {
+			return nil, expectedErr
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+
+	_, err = manager.Dial(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"})
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected %v, got %v", expectedErr, err)
+	}
+}
+
+func TestDefaultDialFunc_RejectsInvalidTarget(t *testing.T) {
+	_, err := DefaultDialFunc(context.Background(), Target{}, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid target")
 	}
 }

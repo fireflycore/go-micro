@@ -2,12 +2,14 @@ package invocation
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
 	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -262,5 +264,68 @@ func TestResolveOutgoingMetadata_InjectsCallerServiceIdentity(t *testing.T) {
 	}
 	if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "auth-1" {
 		t.Fatalf("unexpected service instance id metadata: %v", got)
+	}
+}
+
+func TestUnaryInvoker_Invoke_ReturnsErrorWhenDialerMissing(t *testing.T) {
+	var invoker *UnaryInvoker
+
+	err := invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	if err != ErrInvokerDialerIsNil {
+		t.Fatalf("expected %v, got %v", ErrInvokerDialerIsNil, err)
+	}
+}
+
+func TestUnaryInvoker_Invoke_ReturnsErrorWhenMethodEmpty(t *testing.T) {
+	invoker := &UnaryInvoker{Dialer: testDialer{conn: &grpc.ClientConn{}}}
+
+	err := invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "", struct{}{}, &struct{}{})
+	if err != ErrInvokeMethodEmpty {
+		t.Fatalf("expected %v, got %v", ErrInvokeMethodEmpty, err)
+	}
+}
+
+func TestUnaryInvoker_Invoke_PropagatesDialError(t *testing.T) {
+	expectedErr := errors.New("dial failed")
+	invoker := &UnaryInvoker{
+		Dialer: testDialer{err: expectedErr},
+	}
+
+	err := invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected %v, got %v", expectedErr, err)
+	}
+}
+
+func TestUnaryInvoker_Invoke_UsesDefaultUnaryInvokeFuncWhenInvokeFuncMissing(t *testing.T) {
+	conn, err := grpc.NewClient("passthrough:///auth.default.svc.cluster.local:9090", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	invoker := &UnaryInvoker{
+		Dialer: testDialer{conn: conn},
+	}
+
+	err = invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	if err == nil {
+		t.Fatal("expected error from default grpc invoke path")
+	}
+}
+
+func TestNewOutgoingCallContext_AllowsNilParentAndNilMetadata(t *testing.T) {
+	ctx, cancel := NewOutgoingCallContext(nil, nil, 0)
+	defer cancel()
+
+	md, ok := metadata.FromOutgoingContext(ctx)
+	if !ok {
+		t.Fatal("expected outgoing metadata")
+	}
+	if len(md) != 0 {
+		t.Fatalf("expected empty metadata, got %v", md)
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("expected default timeout deadline")
 	}
 }
