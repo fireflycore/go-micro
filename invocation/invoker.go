@@ -47,6 +47,12 @@ type Invoker interface {
 // 可以让 UnaryInvoker 在测试中替换掉真实的 grpc.ClientConn.Invoke。
 type UnaryInvokeFunc func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error
 
+// defaultUnaryInvokeFunc 使用 grpc.ClientConn 的标准 Invoke 实现。
+func defaultUnaryInvokeFunc(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
+	// 直接透传给 gRPC 官方调用入口。
+	return conn.Invoke(ctx, method, req, resp, options...)
+}
+
 // UnaryInvoker 是默认的 Invoker 实现。
 //
 // 它的执行流程非常明确：
@@ -85,8 +91,19 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *svc.DNS, method string, 
 		return ErrInvokeMethodEmpty
 	}
 
+	// 先确定最终使用的调用函数，避免热路径上每次创建匿名闭包。
+	invokeFunc := u.InvokeFunc
+	if invokeFunc == nil {
+		invokeFunc = defaultUnaryInvokeFunc
+	}
+	// 统一计算一次 timeout，避免重复归一化。
+	timeout := normalizeInvokeTimeout(u.Timeout)
+	// 服务身份字段提前裁剪空白，避免 metadata 注入时重复处理。
+	serviceAppID := strings.TrimSpace(u.ServiceAppId)
+	serviceInstanceID := strings.TrimSpace(u.ServiceInstanceId)
+
 	// 直接复用当前链路 metadata，并注入当前服务自身身份。
-	resolvedMetadata := resolveOutgoingMetadata(ctx, u.ServiceAppId, u.ServiceInstanceId)
+	resolvedMetadata := resolveOutgoingMetadata(ctx, serviceAppID, serviceInstanceID)
 
 	// 然后按业务服务 DNS 获取可复用连接。
 	conn, err := u.Dialer.Dial(ctx, dns)
@@ -95,16 +112,10 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *svc.DNS, method string, 
 	}
 
 	// 最后把调用上下文转成出站 metadata 上下文。
-	outCtx, cancel := NewOutgoingCallContext(ctx, resolvedMetadata, u.Timeout)
+	outCtx, cancel := newOutgoingCallContextWithOwnedMetadata(ctx, resolvedMetadata, timeout)
 	defer cancel()
 
-	invokeFunc := u.InvokeFunc
-	if invokeFunc == nil {
-		invokeFunc = func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			return conn.Invoke(ctx, method, req, resp, options...)
-		}
-	}
-
+	// 使用最终的 invoke 实现发起调用。
 	return invokeFunc(outCtx, conn, method, req, resp, callOptions...)
 }
 
@@ -113,20 +124,27 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *svc.DNS, method string, 
 // 优先读取 incoming metadata，是因为最常见场景是服务端处理请求后继续发起下游调用；
 // 若当前已经位于客户端调用链，则退化为复用现有 outgoing metadata。
 func resolveOutgoingMetadata(ctx context.Context, serviceAppId string, serviceInstanceId string) metadata.MD {
+	// 优先尝试继承服务端入站 metadata。
 	var md metadata.MD
 	if incoming, ok := metadata.FromIncomingContext(ctx); ok {
+		// 有入站 metadata 时复制一份作为出站基础。
 		md = incoming.Copy()
 	} else if outgoing, ok := metadata.FromOutgoingContext(ctx); ok {
+		// 否则尝试继承已有的出站 metadata。
 		md = outgoing.Copy()
 	} else {
+		// 两者都不存在时创建空 metadata。
 		md = metadata.New(nil)
 	}
-	if value := strings.TrimSpace(serviceAppId); value != "" {
-		md.Set(constant.ServiceAppId, value)
+	if serviceAppId != "" {
+		// 写入当前服务 app id，标记调用来源。
+		md.Set(constant.ServiceAppId, serviceAppId)
 	}
-	if value := strings.TrimSpace(serviceInstanceId); value != "" {
-		md.Set(constant.ServiceInstanceId, value)
+	if serviceInstanceId != "" {
+		// 写入当前服务实例 id，标记具体实例来源。
+		md.Set(constant.ServiceInstanceId, serviceInstanceId)
 	}
+	// 返回当前调用独占使用的 metadata。
 	return md
 }
 
@@ -147,13 +165,22 @@ func NewOutgoingCallContext(parent context.Context, md metadata.MD, timeout time
 		md = md.Copy()
 	}
 
-	ctx := metadata.NewOutgoingContext(parent, md)
-	return context.WithTimeout(ctx, normalizeInvokeTimeout(timeout))
+	return newOutgoingCallContextWithOwnedMetadata(parent, md, timeout)
 }
 
 func normalizeInvokeTimeout(timeout time.Duration) time.Duration {
+	// 非正数统一回落到框架默认超时。
 	if timeout <= 0 {
 		return DefaultInvokeTimeout
 	}
+	// 已配置超时时直接返回。
 	return timeout
+}
+
+// newOutgoingCallContextWithOwnedMetadata 假定 md 已经归当前调用独占持有，不再重复复制。
+func newOutgoingCallContextWithOwnedMetadata(parent context.Context, md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
+	// 先把 metadata 挂载到出站上下文。
+	ctx := metadata.NewOutgoingContext(parent, md)
+	// 再统一施加超时控制。
+	return context.WithTimeout(ctx, normalizeInvokeTimeout(timeout))
 }

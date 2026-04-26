@@ -31,7 +31,7 @@ func TestDNSManager_Build_UsesDefaultPortAndClusterDomain(t *testing.T) {
 }
 
 func TestEffectivePort_PrefersExplicitPort(t *testing.T) {
-	port, err := effectivePort(srv.DNS{Port: 7001}, 9090)
+	port, err := effectivePort(&srv.DNS{Port: 7001}, 9090)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

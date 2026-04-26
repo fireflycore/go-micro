@@ -28,22 +28,41 @@ type ConnectionManagerOptions struct {
 	DialOptions []grpc.DialOption
 }
 
+type connectionManagerConfig struct {
+	// dnsManager 保存标准 DNS 目标构建器。
+	dnsManager *DNSManager
+	// dialFunc 保存最终使用的拨号实现。
+	dialFunc DialFunc
+	// dialOptions 保存创建连接时的固定拨号选项。
+	dialOptions []grpc.DialOption
+}
+
 // normalize 补齐 ConnectionManagerOptions 的默认值。
-func (o ConnectionManagerOptions) normalize() ConnectionManagerOptions {
-	// 若未显式提供 DNS 管理器，则使用一份默认配置。
-	if o.DNSManager == nil {
-		o.DNSManager = NewDNSManager(&DNSConfig{})
+func (o ConnectionManagerOptions) normalize() *connectionManagerConfig {
+	// 先构造内部配置对象，后续统一在这份对象上补齐默认值。
+	config := &connectionManagerConfig{
+		dnsManager: o.DNSManager,
+		dialFunc:   o.DialFunc,
 	}
-	if o.DialFunc == nil {
-		o.DialFunc = DefaultDialFunc
+	// 若未显式提供 DNS 管理器，则使用一份默认配置。
+	if config.dnsManager == nil {
+		config.dnsManager = NewDNSManager(nil)
+	}
+	if config.dialFunc == nil {
+		config.dialFunc = DefaultDialFunc
 	}
 	if len(o.DialOptions) == 0 {
-		o.DialOptions = []grpc.DialOption{
+		// 默认注入基础凭据与 OTel client handler。
+		config.dialOptions = []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		}
+		// 默认选项场景到这里即可返回。
+		return config
 	}
-	return o
+	// 对外部传入的切片做一次复制，避免后续被调用方继续修改。
+	config.dialOptions = append(make([]grpc.DialOption, 0, len(o.DialOptions)), o.DialOptions...)
+	return config
 }
 
 // ConnectionManager 负责缓存基于 service.DNS 创建出的 grpc.ClientConn。
@@ -56,10 +75,10 @@ func (o ConnectionManagerOptions) normalize() ConnectionManagerOptions {
 // - 多次调用的连接复用。
 type ConnectionManager struct {
 	// mu 保护 conns 与 closed，避免并发 Dial/Close 时出现竞态。
-	mu sync.Mutex
+	mu sync.RWMutex
 
 	// options 保存连接管理器初始化后的规范化配置。
-	options ConnectionManagerOptions
+	config *connectionManagerConfig
 	// conns 按最终 gRPC target 缓存可复用连接。
 	conns map[string]*grpc.ClientConn
 	// closed 标记当前管理器是否已经关闭。
@@ -69,18 +88,20 @@ type ConnectionManager struct {
 // NewConnectionManager 创建连接管理器。
 func NewConnectionManager(options ConnectionManagerOptions) (*ConnectionManager, error) {
 	// 先统一补齐默认值，再进行依赖校验。
-	options = options.normalize()
+	config := options.normalize()
 
-	if options.DNSManager == nil {
+	if config.dnsManager == nil {
 		return nil, ErrDNSManagerIsNil
 	}
-	if options.DialFunc == nil {
+	if config.dialFunc == nil {
 		return nil, ErrDialFnIsNil
 	}
 
 	return &ConnectionManager{
-		options: options,
-		conns:   make(map[string]*grpc.ClientConn),
+		// 保存归一化后的内部配置。
+		config: config,
+		// 初始化连接缓存 map。
+		conns: make(map[string]*grpc.ClientConn),
 	}, nil
 }
 
@@ -103,32 +124,66 @@ func DefaultDialFunc(_ context.Context, target Target, options []grpc.DialOption
 // - 逻辑上等价的服务身份只会生成一条连接；
 // - 端口覆盖、cluster domain、resolver scheme 的变化都能体现在缓存键上。
 func (m *ConnectionManager) Dial(ctx context.Context, dns *svc.DNS) (*grpc.ClientConn, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// 先通过 DNS 管理器把业务服务描述转换成稳定目标。
+	// 通过 DNS 管理器把业务服务配置转成最终目标。
+	target, err := m.config.dnsManager.Build(dns)
+	if err != nil {
+		return nil, err
+	}
 
+	// 缓存键统一使用最终 gRPC target，保证语义等价请求命中同一连接。
+	key := target.GRPCTarget()
+	// 第一阶段走读锁快路径，尽量减少命中缓存时的锁竞争。
+	m.mu.RLock()
 	if m.closed {
+		m.mu.RUnlock()
 		return nil, ErrConnectionManagerClosed
 	}
-
-	// 通过 DNS 管理器把业务服务配置转成最终目标。
-	target, err := m.options.DNSManager.Build(dns)
-	if err != nil {
-		return nil, err
-	}
-
-	key := target.GRPCTarget()
 	if conn, ok := m.conns[key]; ok {
 		// 命中缓存时直接复用已有连接，避免重复拨号。
+		m.mu.RUnlock()
 		return conn, nil
 	}
+	m.mu.RUnlock()
 
-	conn, err := m.options.DialFunc(ctx, *target, m.options.DialOptions)
+	// 第二阶段升级到写锁，处理真正需要创建连接的场景。
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return nil, ErrConnectionManagerClosed
+	}
+	if conn, ok := m.conns[key]; ok {
+		// 双检一次，避免多个并发协程同时进入慢路径时重复建连。
+		m.mu.Unlock()
+		return conn, nil
+	}
+	// 在锁内只读取固定配置，避免把真实拨号过程放在锁内阻塞其它协程。
+	dialFunc := m.config.dialFunc
+	dialOptions := m.config.dialOptions
+	m.mu.Unlock()
+
+	// 在锁外执行拨号，降低并发场景的串行等待时间。
+	conn, err := dialFunc(ctx, *target, dialOptions)
 	if err != nil {
 		return nil, err
 	}
 
+	// 拨号完成后重新加锁，把连接安全写入缓存。
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		// 若管理器在拨号期间已被关闭，则主动关闭新建连接。
+		_ = conn.Close()
+		return nil, ErrConnectionManagerClosed
+	}
+	if cached, ok := m.conns[key]; ok {
+		// 若别的协程已经抢先写入缓存，则关闭当前新连接并复用已有连接。
+		_ = conn.Close()
+		return cached, nil
+	}
 	// 仅在拨号成功后写入缓存，避免缓存无效连接。
 	m.conns[key] = conn
+	// 返回缓存中的新连接。
 	return conn, nil
 }
 
