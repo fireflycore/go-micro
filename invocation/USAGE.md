@@ -145,4 +145,6 @@ func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 - `README.md`
 - `ARCHITECTURE.md`
 - `CONTEXT-USAGE.md`
+- `TESTING.md`
+- `PERFORMANCE.md`
 - `TEST_REPORT.md`

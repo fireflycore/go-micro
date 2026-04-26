@@ -22,7 +22,9 @@
 - `ARCHITECTURE.md`：看清组件职责、边界和完整调用时序
 - `USAGE.md`：看实际装配方式、repo 接入模式和示例
 - `CONTEXT-USAGE.md`：查看旧上下文模型废弃说明
-- `TEST_REPORT.md`：查看测试、覆盖率和基准结果
+- `TESTING.md`：查看测试范围、覆盖率和测试结论
+- `PERFORMANCE.md`：查看基准测试、性能对比和基线
+- `TEST_REPORT.md`：兼容历史链接入口
 
 ## 一句话主线
 
@@ -129,4 +131,5 @@ func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.Remo
 - 想看职责边界和完整时序：`ARCHITECTURE.md`
 - 想看 repo 怎么接入：`USAGE.md`
 - 想确认旧上下文为什么废弃：`CONTEXT-USAGE.md`
-- 想看测试与性能现状：`TEST_REPORT.md`
+- 想看测试现状：`TESTING.md`
+- 想看性能基线：`PERFORMANCE.md`
