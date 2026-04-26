@@ -26,8 +26,8 @@
 
 ## 参考文档
 
-- `README.md`
+- `../README.md`
 - `ARCHITECTURE.md`
 - `USAGE.md`
-- `middleware/grpc/README.md`
+- `../../middleware/grpc/README.md`
 - `design/registry/current/invocation-context-boundary-plan.md`

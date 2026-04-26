@@ -2,6 +2,8 @@
 
 `invocation` 包定义 Firefly 当前唯一推荐的出站服务调用模型。
 
+除本文件外，其余说明文档已统一迁移到 `docs/` 目录。
+
 它只负责四件事：
 
 - 用 `service.DNS` 表达远程业务服务
@@ -16,15 +18,14 @@
 - Consul / K8s 后端适配
 - endpoint 轮询
 
-## 必读顺序
+## 文档索引
 
-- `README.md`：快速理解模型与推荐主线
-- `ARCHITECTURE.md`：看清组件职责、边界和完整调用时序
-- `USAGE.md`：看实际装配方式、repo 接入模式和示例
-- `CONTEXT-USAGE.md`：查看旧上下文模型废弃说明
-- `TESTING.md`：查看测试范围、覆盖率和测试结论
-- `PERFORMANCE.md`：查看基准测试、性能对比和基线
-- `TEST_REPORT.md`：兼容历史链接入口
+- `docs/ARCHITECTURE.md`：看清组件职责、边界和完整调用时序
+- `docs/USAGE.md`：看实际装配方式、repo 接入模式和示例
+- `docs/CONTEXT-USAGE.md`：查看旧上下文模型废弃说明
+- `docs/TESTING.md`：查看测试范围、覆盖率和测试结论
+- `docs/PERFORMANCE.md`：查看基准测试、性能对比和基线
+- `docs/TEST_REPORT.md`：兼容历史链接入口
 
 ## 一句话主线
 
@@ -93,7 +94,7 @@ repo 级远程业务服务调用入口。
 - `internal/data/rs_*.go`：在 `New*Repo(...)` 中绑定 `RemoteServiceCaller`
 - repo 方法：只保留 `full method + req + resp`
 
-完整示例见 `USAGE.md`。
+完整示例见 `docs/USAGE.md`。
 
 ## 关键约束
 
@@ -128,8 +129,8 @@ func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.Remo
 
 ## 从哪里继续看
 
-- 想看职责边界和完整时序：`ARCHITECTURE.md`
-- 想看 repo 怎么接入：`USAGE.md`
-- 想确认旧上下文为什么废弃：`CONTEXT-USAGE.md`
-- 想看测试现状：`TESTING.md`
-- 想看性能基线：`PERFORMANCE.md`
+- 想看职责边界和完整时序：`docs/ARCHITECTURE.md`
+- 想看 repo 怎么接入：`docs/USAGE.md`
+- 想确认旧上下文为什么废弃：`docs/CONTEXT-USAGE.md`
+- 想看测试现状：`docs/TESTING.md`
+- 想看性能基线：`docs/PERFORMANCE.md`

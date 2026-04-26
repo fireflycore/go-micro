@@ -142,7 +142,7 @@ func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 
 ## 相关文档
 
-- `README.md`
+- `../README.md`
 - `ARCHITECTURE.md`
 - `CONTEXT-USAGE.md`
 - `TESTING.md`
