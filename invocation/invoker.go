@@ -11,11 +11,6 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-const (
-	// DefaultInvokeTimeout 是统一的默认远程调用超时时间。
-	DefaultInvokeTimeout = 5 * time.Second
-)
-
 // Dialer 定义“如何把业务服务 DNS 变成 grpc.ClientConn”。
 //
 // 在新模型中，Dialer 只关心：
