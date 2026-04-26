@@ -9,6 +9,11 @@
 - 提供 `WithContext(...)` / `FromContext(...)` / `MustFromContext(...)`
 - 提供 `BuildContext(...)` 把入站 metadata 与当前 OTel span 结构化为服务内主上下文
 
+其中：
+
+- `service.DNS` 只表达远程业务服务的标准 DNS 结构
+- `service.DNS` 由 `invocation` 侧的 `DNSManager`、`RemoteServiceCaller`、`RemoteServiceManaged` 统一消费
+
 它不负责：
 
 - gRPC interceptor 装配
