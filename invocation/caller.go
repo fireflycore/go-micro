@@ -1,6 +1,10 @@
 package invocation
 
-import "context"
+import (
+	"context"
+
+	svc "github.com/fireflycore/go-micro/service"
+)
 
 // RemoteServiceCaller 表示一个远程业务服务的通用调用入口。
 //
@@ -14,12 +18,12 @@ import "context"
 //   - AuthPermissionService
 //
 // 这些子服务都应共用一份：
-// - ServiceDNS
+// - service.DNS
 // - ConnectionManager
 // - UnaryInvoker
 type RemoteServiceCaller struct {
 	// Service 表示当前远程业务服务的标准 DNS 身份。
-	Service *ServiceDNS
+	Service *svc.DNS
 	// Invoker 负责统一的连接获取、metadata 注入和实际调用。
 	//
 	// 当前约束下 RemoteServiceCaller 只是一个薄封装，
@@ -32,9 +36,9 @@ type RemoteServiceCaller struct {
 // 这个构造函数的目标是把业务侧最常见的装配模板统一收口：
 // - 指定远程业务服务 DNS；
 // - 指定统一复用的 UnaryInvoker。
-func NewRemoteServiceCaller(invoker *UnaryInvoker, service *ServiceDNS) *RemoteServiceCaller {
+func NewRemoteServiceCaller(invoker *UnaryInvoker, dns *svc.DNS) *RemoteServiceCaller {
 	return &RemoteServiceCaller{
-		Service: service,
+		Service: dns,
 		Invoker: invoker,
 	}
 }
@@ -46,7 +50,7 @@ func NewRemoteServiceCaller(invoker *UnaryInvoker, service *ServiceDNS) *RemoteS
 // - request
 // - response
 //
-// 其余通用逻辑由 ServiceDNS 与 UnaryInvoker 统一处理。
+// 其余通用逻辑由 service.DNS 与 UnaryInvoker 统一处理。
 func (c *RemoteServiceCaller) Invoke(ctx context.Context, method string, req any, resp any, options ...InvokeOption) error {
 	// 若没有绑定 Invoker，则无法发起调用。
 	if c == nil || c.Invoker == nil {

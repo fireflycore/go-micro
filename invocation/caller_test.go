@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/fireflycore/go-micro/constant"
+	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -30,7 +31,7 @@ func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T
 				return nil
 			},
 		},
-		&ServiceDNS{
+		&svc.DNS{
 			Service:   "auth",
 			Namespace: "default",
 		},
@@ -68,7 +69,7 @@ func TestRemoteServiceCaller_Invoke_ExplicitMetadataAddsNonProtectedMetadata(t *
 				return nil
 			},
 		},
-		&ServiceDNS{
+		&svc.DNS{
 			Service:   "auth",
 			Namespace: "default",
 		},
@@ -91,7 +92,7 @@ func TestRemoteServiceCaller_Invoke_ExplicitMetadataAddsNonProtectedMetadata(t *
 }
 
 func TestRemoteServiceCaller_Invoke_ReturnsInvokerErrorWhenInvokerMissing(t *testing.T) {
-	caller := NewRemoteServiceCaller(nil, &ServiceDNS{
+	caller := NewRemoteServiceCaller(nil, &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
 	})
