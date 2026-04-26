@@ -107,7 +107,10 @@ auth.default.svc.cluster.local:9090
 
 它绑定的是“远程业务服务”，不是某个 proto 子服务。
 
-当前推荐直接通过 `NewRemoteServiceCaller(...)` 完成标准装配。
+当 repo 已经明确绑定某一个远程业务服务时，推荐通过 `NewRemoteServiceCaller(...)` 完成标准装配。
+
+若服务本身依赖多个远程业务服务，则更推荐先在启动装配层创建 `RemoteServiceManaged`，
+再在 `New*Repo(...)` 中通过 `services.Caller("service")` 获取对应 caller。
 
 ### RemoteServiceManaged
 
