@@ -65,9 +65,14 @@ auth.default.svc.cluster.local:9090
 
 它不会做：
 
-- service 校验
 - endpoint 拉取
 - 实例选择
+- 后端适配
+
+它会做的最小校验只有两类：
+
+- 远程业务服务名不能为空
+- 命名空间不能为空
 
 ### ConnectionManager
 
@@ -125,6 +130,18 @@ auth.default.svc.cluster.local:9090
 - `UnaryInvoker` 会在出站前注入 `ServiceAppId` / `ServiceInstanceId`
 - 远程调用 timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 未显式配置 timeout 时，默认使用 `5s`
+
+## 当前文件结构
+
+当前目录按职责拆分为：
+
+- `dns.go`：`DNSConfig`、`DNSManager` 和 DNS 规范化逻辑
+- `target.go`：`Target` 和最终 gRPC target 表达
+- `manager.go`：`ConnectionManager` 和连接缓存/拨号逻辑
+- `invoker.go`：`Dialer`、`Invoker`、`UnaryInvoker` 与出站上下文构造
+- `caller.go`：`RemoteServiceCaller`
+- `service.go`：`RemoteServiceManaged`
+- `error.go`：统一错误定义
 
 ## 一个业务服务多个 proto 子服务
 

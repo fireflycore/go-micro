@@ -15,6 +15,7 @@
 - `gm.NewServiceContextUnaryInterceptor(...)`
 - `service.FromContext(...)`
 - `invocation.NewRemoteServiceCaller(...)`
+- `invocation.NewRemoteServiceManaged(...)`
 - `invocation.NewUnaryInvoker(...)`
 
 ## 参考文档
