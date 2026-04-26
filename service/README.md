@@ -1,10 +1,11 @@
 # Service
 
-`service` 包定义服务内统一主上下文模型。
+`service` 包定义服务内统一主上下文模型，以及业务服务级别的标准 DNS 模型。
 
 它只负责：
 
 - 定义 `service.Context`
+- 定义 `service.DNS`
 - 提供 `WithContext(...)` / `FromContext(...)` / `MustFromContext(...)`
 - 提供 `BuildContext(...)` 把入站 metadata 与当前 OTel span 结构化为服务内主上下文
 
