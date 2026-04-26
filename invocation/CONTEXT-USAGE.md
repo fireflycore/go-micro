@@ -18,6 +18,12 @@
 - `invocation.NewRemoteServiceManaged(...)`
 - `invocation.NewUnaryInvoker(...)`
 
+## 推荐装配位置
+
+- 在服务启动装配层集中创建 `invocation.NewRemoteServiceManaged(...)`
+- 在各自 repo 的 `New*Repo(...)` 中通过 `services.Caller("service")` 绑定 `RemoteServiceCaller`
+- 若项目已有 `internal/dep`、provider 或 bootstrap 层，多业务服务注册表优先放在那里
+
 ## 参考文档
 
 - `invocation/README.md`

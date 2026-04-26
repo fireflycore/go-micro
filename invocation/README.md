@@ -120,6 +120,15 @@ auth.default.svc.cluster.local:9090
 - 按业务服务名返回 `RemoteServiceCaller`
 - 按业务服务名直接发起 `full method` 调用
 
+它只描述“多业务服务注册表”这层能力，不强制要求注册表必须放在某个固定目录。
+
+常见推荐做法是：
+
+- 在服务启动装配层集中创建 `RemoteServiceManaged`
+- 在业务 repo 初始化时按业务服务名获取 caller
+- 若项目已经有统一 provider / bootstrap 层，可把多业务服务注册表放在那里
+- `internal/data/rs_*.go` 更适合承载“某个 repo 绑定哪个远程业务服务 caller”
+
 ### Invoke Contract
 
 当前调用侧不再暴露 metadata / timeout 的单次调用覆盖能力。
@@ -168,13 +177,15 @@ auth.default.svc.cluster.local:9090
 
 ## 推荐接入方式
 
-业务服务应在自己的 `internal/data/rs_*.go` 中，按“远程业务服务”聚合配置。
+业务服务应在启动期集中登记远程业务服务 `service.DNS`，并在 repo 初始化时按业务服务名绑定 caller。
 
 推荐做法：
 
 - 在服务启动时集中声明多组远程业务服务 `service.DNS`
+- 若工程存在统一装配层，优先在那里创建 `RemoteServiceManaged`
 - 统一创建一份 `ConnectionManager / UnaryInvoker / RemoteServiceManaged`
 - 在 `New*Repo` 中按业务服务名获取 caller
+- `internal/data/rs_*.go` 只保留 repo 级别的远程服务绑定逻辑
 - 通过不同 full method 区分具体 proto 子服务
 
 不推荐做法：
