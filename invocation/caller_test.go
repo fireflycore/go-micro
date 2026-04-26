@@ -51,10 +51,12 @@ func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T
 	}
 }
 
-func TestRemoteServiceCaller_Invoke_ExplicitMetadataAddsNonProtectedMetadata(t *testing.T) {
+func TestRemoteServiceCaller_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 	caller := NewRemoteServiceCaller(
 		&UnaryInvoker{
-			Dialer: testDialer{conn: &grpc.ClientConn{}},
+			Dialer:            testDialer{conn: &grpc.ClientConn{}},
+			ServiceAppId:      "config",
+			ServiceInstanceId: "config-1",
 			InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 				md, ok := metadata.FromOutgoingContext(ctx)
 				if !ok {
@@ -63,8 +65,11 @@ func TestRemoteServiceCaller_Invoke_ExplicitMetadataAddsNonProtectedMetadata(t *
 				if got := md.Get("x-firefly-user-id"); len(got) == 0 || got[0] != "u-incoming" {
 					t.Fatalf("unexpected user id metadata: %v", got)
 				}
-				if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-explicit" {
-					t.Fatalf("unexpected explicit metadata: %v", got)
+				if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "config" {
+					t.Fatalf("unexpected service app id metadata: %v", got)
+				}
+				if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "config-1" {
+					t.Fatalf("unexpected service instance id metadata: %v", got)
 				}
 				return nil
 			},
@@ -84,7 +89,6 @@ func TestRemoteServiceCaller_Invoke_ExplicitMetadataAddsNonProtectedMetadata(t *
 		"/acme.auth.user.v1.AuthUserService/GetUser",
 		&struct{}{},
 		&struct{}{},
-		WithMetadata(metadata.Pairs("x-request-id", "req-explicit")),
 	)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)

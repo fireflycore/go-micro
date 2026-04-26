@@ -4,6 +4,7 @@ import (
 	"context"
 
 	svc "github.com/fireflycore/go-micro/service"
+	"google.golang.org/grpc"
 )
 
 // RemoteServiceCaller 表示一个远程业务服务的通用调用入口。
@@ -51,12 +52,12 @@ func NewRemoteServiceCaller(invoker *UnaryInvoker, dns *svc.DNS) *RemoteServiceC
 // - response
 //
 // 其余通用逻辑由 service.DNS 与 UnaryInvoker 统一处理。
-func (c *RemoteServiceCaller) Invoke(ctx context.Context, method string, req any, resp any, options ...InvokeOption) error {
+func (c *RemoteServiceCaller) Invoke(ctx context.Context, method string, req any, resp any, callOptions ...grpc.CallOption) error {
 	// 若没有绑定 Invoker，则无法发起调用。
 	if c == nil || c.Invoker == nil {
 		return ErrInvokerDialerIsNil
 	}
 
 	// 最终仍由 UnaryInvoker 统一完成真正的 gRPC 调用。
-	return c.Invoker.Invoke(ctx, c.Service, method, req, resp, options...)
+	return c.Invoker.Invoke(ctx, c.Service, method, req, resp, callOptions...)
 }
