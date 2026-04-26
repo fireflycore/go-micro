@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -24,7 +25,7 @@ func TestConnectionManager_Dial_CachesByResolvedTarget(t *testing.T) {
 	}
 	defer func() { _ = manager.Close() }()
 
-	service := &ServiceDNS{
+	service := &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}
@@ -61,7 +62,7 @@ func TestConnectionManager_Dial_AfterCloseReturnsError(t *testing.T) {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 
-	_, err = manager.Dial(context.Background(), &ServiceDNS{
+	_, err = manager.Dial(context.Background(), &svc.DNS{
 		Service:   "auth",
 		Namespace: "default",
 	})
