@@ -142,6 +142,7 @@ auth.default.svc.cluster.local:9090
 - `caller.go`：`RemoteServiceCaller`
 - `service.go`：`RemoteServiceManaged`
 - `error.go`：统一错误定义
+- `TEST_REPORT.md`：当前测试覆盖率、基准与性能对比报告
 
 ## 一个业务服务多个 proto 子服务
 
