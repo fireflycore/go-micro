@@ -3,8 +3,6 @@ package invocation
 import (
 	"fmt"
 	"strings"
-
-	svc "github.com/fireflycore/go-micro/service"
 )
 
 const (
@@ -20,8 +18,54 @@ const (
 	DefaultServicePort = 9090
 )
 
-// validateDNS 校验 service.DNS 是否具备构造最终目标的最小字段集。
-func validateDNS(dns *svc.DNS) error {
+// DNS 表示一个远程业务服务的标准 DNS 配置。
+//
+// 这里表达的是“这个业务服务在网络上的稳定入口”，
+// 而不是“这个服务当前有哪些实例”。
+type DNS struct {
+	// Service 表示业务服务名，例如 auth。
+	Service string `json:"service"`
+	// Namespace 表示命名空间，例如 default。
+	Namespace string `json:"namespace"`
+	// ServiceType 表示服务类型片段，默认值通常为 svc。
+	ServiceType string `json:"service_type"`
+	// ClusterDomain 表示集群域，默认值通常为 cluster.local。
+	ClusterDomain string `json:"cluster_domain"`
+	// Port 表示业务服务监听端口，默认值通常为 9090。
+	Port uint16 `json:"port"`
+}
+
+// Normalize 补齐 DNS 的默认值。
+func (d *DNS) Normalize() {
+	if d == nil {
+		return
+	}
+	if d.Namespace == "" {
+		d.Namespace = DefaultNamespace
+	}
+	if d.ServiceType == "" {
+		d.ServiceType = DefaultServiceType
+	}
+	if d.ClusterDomain == "" {
+		d.ClusterDomain = DefaultClusterDomain
+	}
+	if d.Port == 0 {
+		d.Port = DefaultServicePort
+	}
+}
+
+// Build 返回服务的 DNS 名称，例如 demo.default.svc.cluster.local。
+func (d *DNS) Build(service string) string {
+	return service + "." + d.Namespace + "." + d.ServiceType + "." + d.ClusterDomain
+}
+
+// BuildAddress 返回服务的 DNS 地址，例如 demo.default.svc.cluster.local:9090。
+func (d *DNS) BuildAddress(service string) string {
+	return fmt.Sprintf("%s:%d", d.Build(service), d.Port)
+}
+
+// validateDNS 校验 DNS 是否具备构造最终目标的最小字段集。
+func validateDNS(dns *DNS) error {
 	// DNS 结构本身不能为空。
 	if dns == nil || strings.TrimSpace(dns.Service) == "" {
 		// 服务名为空时直接返回错误，避免后续拼接出无效 host。
@@ -37,7 +81,7 @@ func validateDNS(dns *svc.DNS) error {
 }
 
 // effectivePort 解析最终用于拨号的端口。
-func effectivePort(dns *svc.DNS, defaultPort uint16) (uint16, error) {
+func effectivePort(dns *DNS, defaultPort uint16) (uint16, error) {
 	// 如果业务侧显式指定了端口，则优先使用显式端口。
 	if dns != nil && dns.Port != 0 {
 		// 显式端口优先级最高。
@@ -94,7 +138,7 @@ func (c DNSConfig) normalize() *DNSConfig {
 // defaultDNSConfig 保存一份进程级默认配置，避免 nil 配置场景重复归一化。
 var defaultDNSConfig = DNSConfig{}.normalize()
 
-// DNSManager 负责把结构化的 service.DNS 转成最终 Target。
+// DNSManager 负责把结构化的 DNS 转成最终 Target。
 //
 // 它只做一件事：组装标准 DNS。
 // 它不做实例发现、不做节点选择，也不做后端适配。
@@ -136,11 +180,11 @@ func (m *DNSManager) Config() *DNSConfig {
 }
 
 // Normalize 用默认配置补齐业务服务 DNS。
-func (m *DNSManager) Normalize(dns *svc.DNS) *svc.DNS {
+func (m *DNSManager) Normalize(dns *DNS) *DNS {
 	// 若上游传入 nil，则在本地构造一份空 DNS 再补默认值。
 	if dns == nil {
 		// 创建一份新的空结构，后续统一在原对象上补值。
-		dns = &svc.DNS{}
+		dns = &DNS{}
 	}
 	// 先拿到一份可用的默认配置。
 	config := m.configOrDefault()
@@ -164,8 +208,8 @@ func (m *DNSManager) Normalize(dns *svc.DNS) *svc.DNS {
 	return dns
 }
 
-// Build 根据 service.DNS 构造最终 Target。
-func (m *DNSManager) Build(dns *svc.DNS) (*Target, error) {
+// Build 根据 DNS 构造最终 Target。
+func (m *DNSManager) Build(dns *DNS) (*Target, error) {
 	// 先拿到可直接复用的配置指针，避免多次生成副本。
 	config := m.configOrDefault()
 	// 先补齐默认值。

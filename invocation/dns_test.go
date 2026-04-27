@@ -2,12 +2,48 @@ package invocation
 
 import (
 	"testing"
-
-	srv "github.com/fireflycore/go-micro/service"
 )
 
+func TestDNS_Normalize_FillsDefaults(t *testing.T) {
+	dns := &DNS{Service: "auth"}
+
+	dns.Normalize()
+
+	if dns.Namespace != DefaultNamespace {
+		t.Fatalf("unexpected namespace: %s", dns.Namespace)
+	}
+	if dns.ServiceType != DefaultServiceType {
+		t.Fatalf("unexpected service type: %s", dns.ServiceType)
+	}
+	if dns.ClusterDomain != DefaultClusterDomain {
+		t.Fatalf("unexpected cluster domain: %s", dns.ClusterDomain)
+	}
+	if dns.Port != DefaultServicePort {
+		t.Fatalf("unexpected port: %d", dns.Port)
+	}
+}
+
+func TestDNS_BuildMethods(t *testing.T) {
+	dns := &DNS{
+		Namespace:     "default",
+		ServiceType:   "svc",
+		ClusterDomain: "cluster.local",
+		Port:          9090,
+	}
+
+	host := dns.Build("auth")
+	if host != "auth.default.svc.cluster.local" {
+		t.Fatalf("unexpected host: %s", host)
+	}
+
+	address := dns.BuildAddress("auth")
+	if address != "auth.default.svc.cluster.local:9090" {
+		t.Fatalf("unexpected address: %s", address)
+	}
+}
+
 func TestDNSManager_Build_UsesDefaultPortAndClusterDomain(t *testing.T) {
-	service := &srv.DNS{
+	service := &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}
@@ -31,7 +67,7 @@ func TestDNSManager_Build_UsesDefaultPortAndClusterDomain(t *testing.T) {
 }
 
 func TestEffectivePort_PrefersExplicitPort(t *testing.T) {
-	port, err := effectivePort(&srv.DNS{Port: 7001}, 9090)
+	port, err := effectivePort(&DNS{Port: 7001}, 9090)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -41,7 +77,7 @@ func TestEffectivePort_PrefersExplicitPort(t *testing.T) {
 }
 
 func TestEffectivePort_UsesDefaultPortWhenServicePortMissing(t *testing.T) {
-	port, err := effectivePort(&srv.DNS{}, 9090)
+	port, err := effectivePort(&DNS{}, 9090)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -98,7 +134,7 @@ func TestDNSManager_Build_NilServiceReturnsValidationError(t *testing.T) {
 }
 
 func TestValidateDNS_RejectsMissingNamespace(t *testing.T) {
-	err := validateDNS(&srv.DNS{Service: "auth"})
+	err := validateDNS(&DNS{Service: "auth"})
 	if err != ErrNamespaceEmpty {
 		t.Fatalf("expected %v, got %v", ErrNamespaceEmpty, err)
 	}
