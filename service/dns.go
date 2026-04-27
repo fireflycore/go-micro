@@ -2,6 +2,17 @@ package service
 
 import "fmt"
 
+const (
+	// DefaultNamespace 是业务服务默认使用的命名空间。
+	DefaultNamespace = "default"
+	// DefaultServiceType 是 Kubernetes Service FQDN 中的固定服务类型片段。
+	DefaultServiceType = "svc"
+	// DefaultClusterDomain 是 Kubernetes 集群默认的 Cluster Domain。
+	DefaultClusterDomain = "cluster.local"
+	// DefaultServicePort 是业务服务默认使用的 gRPC 端口。
+	DefaultServicePort = 9090
+)
+
 // DNS 表示一个业务服务的标准 DNS 配置。
 //
 // 这里表达的是“这个业务服务在网络上的稳定入口”，
@@ -17,6 +28,22 @@ type DNS struct {
 	ClusterDomain string `json:"cluster_domain"`
 	// Port 表示业务服务监听端口，默认值通常为 9090。
 	Port uint16 `json:"port"`
+}
+
+// Normalize 补齐 DNS 的默认值。
+func (d *DNS) Normalize() {
+	if d.Namespace == "" {
+		d.Namespace = DefaultNamespace
+	}
+	if d.ServiceType == "" {
+		d.ServiceType = DefaultServiceType
+	}
+	if d.ClusterDomain == "" {
+		d.ClusterDomain = DefaultClusterDomain
+	}
+	if d.Port == 0 {
+		d.Port = DefaultServicePort
+	}
 }
 
 // Build 返回服务的 DNS 名称，例如 demo.default.svc.cluster.local。
