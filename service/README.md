@@ -1,21 +1,16 @@
 # Service
 
-`service` 包定义服务内统一主上下文模型，以及业务服务级别的标准 DNS 模型。
+`service` 包定义服务内统一主上下文模型。
 
 它只负责：
 
 - 定义 `service.Context`
-- 定义 `service.DNS`
 - 提供 `WithContext(...)` / `FromContext(...)` / `MustFromContext(...)`
 - 提供 `BuildContext(...)` 把入站 metadata 与当前 OTel span 结构化为服务内主上下文
 
-其中：
-
-- `service.DNS` 只表达远程业务服务的标准 DNS 结构
-- `service.DNS` 由 `invocation` 侧的 `DNSManager`、`RemoteServiceCaller`、`RemoteServiceManaged` 统一消费
-
 它不负责：
 
+- 远程业务服务 DNS 建模
 - gRPC interceptor 装配
 - 出站 metadata 拼装
 - 下游服务调用
@@ -24,4 +19,4 @@
 
 - `middleware/grpc`：在 gRPC 服务端入口创建并注入 `service.Context`
 - `service`：供 `service / biz / data / log` 统一读取服务内主上下文
-- `invocation`：负责纯出站调用语义
+- `invocation`：负责远程业务服务 DNS 与纯出站调用语义
