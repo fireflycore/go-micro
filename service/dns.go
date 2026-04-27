@@ -1,5 +1,7 @@
 package service
 
+import "fmt"
+
 // DNS 表示一个业务服务的标准 DNS 配置。
 //
 // 这里表达的是“这个业务服务在网络上的稳定入口”，
@@ -17,8 +19,12 @@ type DNS struct {
 	Port uint16 `json:"port"`
 }
 
-// WithPort 返回带显式端口的新 DNS。
-func (d DNS) WithPort(port uint16) DNS {
-	d.Port = port
-	return d
+// Build 返回服务的 DNS 名称，例如 demo.default.cluster.local。
+func (d *DNS) Build(service string) string {
+	return service + "." + d.Namespace + "." + d.ClusterDomain
+}
+
+// BuildAddress 返回服务的 DNS 地址，例如 demo.default.cluster.local:9090。
+func (d *DNS) BuildAddress(service string) string {
+	return fmt.Sprintf("%s:%d", d.Build(service), d.Port)
 }
