@@ -8,12 +8,14 @@ import (
 )
 
 const (
+	// DefaultResolverScheme 是 gRPC 默认推荐使用的 DNS resolver scheme。
+	DefaultResolverScheme = "dns"
+	// DefaultNamespace 是业务服务默认使用的命名空间。
+	DefaultNamespace = "default"
 	// DefaultServiceType 是 Kubernetes Service FQDN 中的固定服务类型片段。
 	DefaultServiceType = "svc"
 	// DefaultClusterDomain 是 Kubernetes 集群默认的 Cluster Domain。
 	DefaultClusterDomain = "cluster.local"
-	// DefaultResolverScheme 是 gRPC 默认推荐使用的 DNS resolver scheme。
-	DefaultResolverScheme = "dns"
 	// DefaultServicePort 是业务服务默认使用的 gRPC 端口。
 	DefaultServicePort = 9090
 )
@@ -68,7 +70,7 @@ type DNSConfig struct {
 func (c DNSConfig) normalize() *DNSConfig {
 	// 默认命名空间统一用 default。
 	if strings.TrimSpace(c.DefaultNamespace) == "" {
-		c.DefaultNamespace = "default"
+		c.DefaultNamespace = DefaultNamespace
 	}
 	// 默认服务类型统一用 svc。
 	if strings.TrimSpace(c.DefaultServiceType) == "" {
