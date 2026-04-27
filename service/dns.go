@@ -19,12 +19,12 @@ type DNS struct {
 	Port uint16 `json:"port"`
 }
 
-// Build 返回服务的 DNS 名称，例如 demo.default.cluster.local。
+// Build 返回服务的 DNS 名称，例如 demo.default.svc.cluster.local。
 func (d *DNS) Build(service string) string {
-	return service + "." + d.Namespace + "." + d.ClusterDomain
+	return service + "." + d.Namespace + "." + d.ServiceType + "." + d.ClusterDomain
 }
 
-// BuildAddress 返回服务的 DNS 地址，例如 demo.default.cluster.local:9090。
+// BuildAddress 返回服务的 DNS 地址，例如 demo.default.svc.cluster.local:9090。
 func (d *DNS) BuildAddress(service string) string {
 	return fmt.Sprintf("%s:%d", d.Build(service), d.Port)
 }
