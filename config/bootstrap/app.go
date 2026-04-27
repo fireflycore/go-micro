@@ -1,6 +1,6 @@
-package app
+package bootstrap
 
-type Config struct {
+type AppConfig struct {
 	// 应用id
 	Id string `json:"id"`
 	// 应用环境
