@@ -1,17 +1,18 @@
 # Invocation Testing
 
-本文档记录 `invocation` 包当前版本的测试范围、执行方式与覆盖率结果。
+本文档记录 `invocation` 迁移后的最新测试执行结果。
 
 ## 测试范围
 
-本次测试覆盖以下内容：
+本轮验证覆盖以下内容：
 
-- 单元测试
-- 语句覆盖率统计
+- 整仓编译与单元测试回归
+- `invocation` 包语句覆盖率统计
+- 新迁入 `invocation.DNS` 方法的补充单测
 
-涉及的核心能力包括：
+本轮重点关注的能力包括：
 
-- `DNSManager` 的默认值补齐、校验与目标构建
+- `DNS` / `DNSManager` 的默认值补齐、地址构建与目标构建
 - `Target` 的地址拼接与派生字符串缓存
 - `ConnectionManager` 的连接缓存、关闭与默认拨号逻辑
 - `UnaryInvoker` 的 metadata 透传、超时控制与默认调用路径
@@ -23,11 +24,18 @@
 - 架构：`arm64`
 - CPU：`Apple M2`
 - Go 版本：`go1.25.1`
-- 包路径：`github.com/fireflycore/go-micro/invocation`
+- 模块路径：`github.com/fireflycore/go-micro`
+- 目标包：`github.com/fireflycore/go-micro/invocation`
 
 ## 执行命令
 
-### 单元测试与覆盖率
+### 整仓回归
+
+```bash
+go test ./...
+```
+
+### 包覆盖率
 
 ```bash
 go test ./invocation -coverprofile=/tmp/invocation.cover.out
@@ -36,25 +44,46 @@ go tool cover -func=/tmp/invocation.cover.out
 
 ## 测试结果
 
-### 单元测试结果
-
-执行结果：
+### 整仓回归结果
 
 ```text
-ok  	github.com/fireflycore/go-micro/invocation	(cached)	coverage: 91.2% of statements
+?       github.com/fireflycore/go-micro/config                  [no test files]
+?       github.com/fireflycore/go-micro/config/bootstrap        [no test files]
+?       github.com/fireflycore/go-micro/constant                [no test files]
+ok      github.com/fireflycore/go-micro/invocation              0.610s
+?       github.com/fireflycore/go-micro/kernel                  [no test files]
+?       github.com/fireflycore/go-micro/logger                  [no test files]
+ok      github.com/fireflycore/go-micro/middleware/grpc         (cached)
+?       github.com/fireflycore/go-micro/middleware/http         [no test files]
+ok      github.com/fireflycore/go-micro/service                 (cached)
+?       github.com/fireflycore/go-micro/sys                     [no test files]
+?       github.com/fireflycore/go-micro/telemetry               [no test files]
 ```
 
 结论：
 
-- 当前 `invocation` 包单元测试全部通过
-- 当前未发现新增编译错误或诊断错误
-- 当前覆盖率已覆盖主要主流程、默认分支和关键错误分支
+- `go test ./...` 全部通过
+- 删除 `service/dns.go` 后，整仓未出现编译回归
+- `middleware/grpc` 与 `service` 包未受本次 DNS 模型迁移影响
 
 ### 覆盖率结果
+
+执行结果：
+
+```text
+ok      github.com/fireflycore/go-micro/invocation      0.514s  coverage: 91.2% of statements
+total:                                                  (statements)   91.2%
+```
 
 总覆盖率：
 
 - `91.2% of statements`
+
+新增补测结果：
+
+- `invocation.DNS.Normalize`：`90.0%`
+- `invocation.DNS.Build`：`100.0%`
+- `invocation.DNS.BuildAddress`：`100.0%`
 
 主要函数覆盖率如下：
 
@@ -62,14 +91,17 @@ ok  	github.com/fireflycore/go-micro/invocation	(cached)	coverage: 91.2% of stat
 | --- | --- | --- |
 | `caller.go` | `NewRemoteServiceCaller` | `100.0%` |
 | `caller.go` | `Invoke` | `100.0%` |
+| `dns.go` | `DNS.Normalize` | `90.0%` |
+| `dns.go` | `DNS.Build` | `100.0%` |
+| `dns.go` | `DNS.BuildAddress` | `100.0%` |
 | `dns.go` | `validateDNS` | `100.0%` |
 | `dns.go` | `effectivePort` | `100.0%` |
 | `dns.go` | `normalize` | `100.0%` |
 | `dns.go` | `NewDNSManager` | `100.0%` |
 | `dns.go` | `configOrDefault` | `100.0%` |
 | `dns.go` | `Config` | `100.0%` |
-| `dns.go` | `Normalize` | `100.0%` |
-| `dns.go` | `Build` | `84.6%` |
+| `dns.go` | `(*DNSManager).Normalize` | `100.0%` |
+| `dns.go` | `(*DNSManager).Build` | `84.6%` |
 | `invoker.go` | `defaultUnaryInvokeFunc` | `100.0%` |
 | `invoker.go` | `NewUnaryInvoker` | `100.0%` |
 | `invoker.go` | `Invoke` | `100.0%` |
@@ -94,13 +126,13 @@ ok  	github.com/fireflycore/go-micro/invocation	(cached)	coverage: 91.2% of stat
 
 覆盖率解读：
 
-- `DNS`、`Invoker`、`Target`、`ServiceManaged` 主流程已基本覆盖完整
-- 剩余主要未打满部分集中在 `ConnectionManager` 的部分并发/关闭竞争分支
-- 当前覆盖率水平已经足以支撑该包继续演进与回归验证
+- `invocation.DNS` 的迁入方法已经纳入单测保护
+- `Invoker`、`Target`、`ServiceManaged` 主流程覆盖完整
+- 剩余未打满部分仍主要集中在 `ConnectionManager` 的并发与关闭竞争分支
 
 ## 当前结论
 
-- 单元测试通过
-- 语句覆盖率达到 `91.2%`
-- 关键主流程与错误分支已有较完整保护
-- 当前测试结果可以作为后续回归验证基线
+- 迁移后的整仓回归通过
+- `invocation` 包覆盖率维持在 `91.2%`
+- 新增 `DNS` 模型方法已纳入测试基线
+- 当前结果可以作为发布前的回归与性能对照基线

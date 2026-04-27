@@ -4,7 +4,7 @@
 
 它只负责四类通用能力：
 
-- 用 `service.DNS` 表达远程业务服务
+- 用 `DNS` 表达远程业务服务
 - 把 DNS 转成稳定的 gRPC target
 - 复用 `grpc.ClientConn`
 - 统一构造出站 metadata 与 timeout
@@ -18,7 +18,7 @@
 
 ## 组件职责
 
-### `service.DNS`
+### `DNS`
 
 远程业务服务的标准 DNS 描述，只表达目标服务本身：
 
@@ -28,11 +28,11 @@
 - `cluster_domain`
 - `port`
 
-当前推荐直接使用 `service.DNS` 字面量，不再额外包一层 builder 或 option helper。
+当前推荐直接使用 `DNS` 字面量，不再额外包一层 builder 或 option helper。
 
 ### `DNSManager`
 
-负责把结构化 `service.DNS` 规范化成最终 `Target`。
+负责把结构化 `DNS` 规范化成最终 `Target`。
 
 它只做：
 
@@ -50,7 +50,7 @@
 
 负责连接生命周期与缓存：
 
-- 基于 `service.DNS` 构造 `Target`
+- 基于 `DNS` 构造 `Target`
 - 按最终 gRPC target 缓存连接
 - 统一挂载 gRPC client dial options
 
@@ -70,7 +70,7 @@
 
 面向单个远程业务服务的薄封装，解决 repo 层重复样板代码：
 
-- 绑定一个远程业务服务的 `service.DNS`
+- 绑定一个远程业务服务的 `DNS`
 - 复用同一个 `UnaryInvoker`
 - 让 repo 方法只保留 `full method + req + resp`
 
@@ -80,7 +80,7 @@
 
 多业务服务注册表，负责：
 
-- 统一登记多组远程业务服务 `service.DNS`
+- 统一登记多组远程业务服务 `DNS`
 - 统一复用同一个 `UnaryInvoker`
 - 按业务服务名返回 `RemoteServiceCaller`
 - 按业务服务名直接发起 `full method` 调用
@@ -104,7 +104,7 @@
 
 当前模型的聚合单位是“远程业务服务”：
 
-- 一个远程业务服务只维护一份 `service.DNS`
+- 一个远程业务服务只维护一份 `DNS`
 - 同一业务服务下多个 proto 子服务共用同一份 DNS 和连接
 - 具体 RPC 由 gRPC `full method` 决定
 
@@ -166,7 +166,7 @@ sequenceDiagram
     Boot->>DM: NewDNSManager(DNSConfig)
     Boot->>CM: NewConnectionManager(DNSManager, DialOptions)
     Boot->>UI: NewUnaryInvoker(manager, serviceAppId, serviceInstanceId, timeout)
-    Boot->>RSM: NewRemoteServiceManaged(invoker, service.DNS...)
+    Boot->>RSM: NewRemoteServiceManaged(invoker, DNS...)
     Boot->>Repo: 注入 repo 依赖
 
     Note over MG,Repo: 一次入站请求到达当前服务
@@ -175,7 +175,7 @@ sequenceDiagram
     MG->>Repo: 业务方法获得 ctx
 
     Repo->>RSM: Caller("auth") / Invoke("auth", fullMethod, req, resp)
-    RSM->>RSM: 按服务名查找 service.DNS
+    RSM->>RSM: 按服务名查找 DNS
     RSM->>RSC: NewRemoteServiceCaller(invoker, dns)
     Repo->>RSC: Invoke(ctx, fullMethod, req, resp)
 

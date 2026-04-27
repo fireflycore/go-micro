@@ -1,10 +1,10 @@
 # Invocation Performance Baseline
 
-本文档记录 `invocation` 包当前版本的基准测试设计、性能对比结果与优化结论。
+本文档记录 `invocation` 迁移后的最新基准测试结果。
 
 ## 基准范围
 
-本次基准覆盖以下内容：
+本轮基准覆盖以下内容：
 
 - `DNSManager.Build()` 的目标构建
 - `ConnectionManager` 的并发缓存命中路径
@@ -23,7 +23,7 @@
 ## 执行命令
 
 ```bash
-go test ./invocation -run '^$' -bench 'Benchmark(DNSManagerBuild|ConnectionManagerDialCachedParallel|UnaryInvokerInvoke|RemoteServiceManagedInvoke|TargetGRPCTarget)$' -benchmem -count=5
+go test -run '^$' -bench Benchmark -benchmem ./invocation
 ```
 
 ## 基准设计
@@ -32,40 +32,37 @@ go test ./invocation -run '^$' -bench 'Benchmark(DNSManagerBuild|ConnectionManag
 
 - `optimization_benchmark_test.go`
 
-当前基准不是只测“当前实现有多快”，还保留了两组路径：
+每个基准都保留两条路径：
 
-- `baseline_old`：使用测试辅助函数模拟优化前关键逻辑
-- `optimized`：使用当前优化后的正式实现
+- `baseline_old`：用测试辅助函数模拟优化前关键逻辑
+- `optimized`：使用当前正式实现
 
-这样可以在同一台机器、同一套输入与同一份代码上下文内，直接比较优化前后的变化。
+这样可以在同一套输入下直接比较迁移后与优化后主线的实际差异。
 
-## 基准项
+## 最新结果
 
-本次基准覆盖以下五项：
-
-- `BenchmarkDNSManagerBuild`
-- `BenchmarkConnectionManagerDialCachedParallel`
-- `BenchmarkUnaryInvokerInvoke`
-- `BenchmarkRemoteServiceManagedInvoke`
-- `BenchmarkTargetGRPCTarget`
-
-每项执行 `5` 轮，并统计：
-
-- `ns/op`
-- `B/op`
-- `allocs/op`
+```text
+BenchmarkDNSManagerBuild/baseline_old-8                           358.7 ns/op   312 B/op   12 allocs/op
+BenchmarkDNSManagerBuild/optimized-8                              349.7 ns/op   312 B/op   12 allocs/op
+BenchmarkConnectionManagerDialCachedParallel/baseline_old-8       549.5 ns/op   312 B/op   12 allocs/op
+BenchmarkConnectionManagerDialCachedParallel/optimized-8          218.3 ns/op   312 B/op   12 allocs/op
+BenchmarkUnaryInvokerInvoke/baseline_old-8                        955.6 ns/op  1712 B/op   22 allocs/op
+BenchmarkUnaryInvokerInvoke/optimized-8                           738.9 ns/op  1248 B/op   16 allocs/op
+BenchmarkRemoteServiceManagedInvoke/baseline_old-8                355.2 ns/op   480 B/op    8 allocs/op
+BenchmarkRemoteServiceManagedInvoke/optimized-8                   365.6 ns/op   400 B/op    7 allocs/op
+BenchmarkTargetGRPCTarget/baseline_old-8                          163.5 ns/op   136 B/op    6 allocs/op
+BenchmarkTargetGRPCTarget/optimized-8                               3.681 ns/op   0 B/op    0 allocs/op
+```
 
 ## 性能对比汇总
 
-以下对比基于 5 轮结果的平均值整理。
-
 | 基准项 | 优化前 | 优化后 | 变化 |
 | --- | --- | --- | --- |
-| `DNSManagerBuild` | `351.84 ns/op` | `349.34 ns/op` | `提升 0.7%` |
-| `ConnectionManagerDialCachedParallel` | `560.14 ns/op` | `197.42 ns/op` | `提升 64.8%` |
-| `UnaryInvokerInvoke` | `952.82 ns/op` | `756.16 ns/op` | `提升 20.6%` |
-| `RemoteServiceManagedInvoke` | `377.26 ns/op` | `353.58 ns/op` | `提升 6.3%` |
-| `TargetGRPCTarget` | `162.56 ns/op` | `3.419 ns/op` | `提升 97.9%` |
+| `DNSManagerBuild` | `358.7 ns/op` | `349.7 ns/op` | `提升约 2.5%` |
+| `ConnectionManagerDialCachedParallel` | `549.5 ns/op` | `218.3 ns/op` | `提升约 60.3%` |
+| `UnaryInvokerInvoke` | `955.6 ns/op` | `738.9 ns/op` | `提升约 22.7%` |
+| `RemoteServiceManagedInvoke` | `355.2 ns/op` | `365.6 ns/op` | `单次运行波动，耗时慢约 2.9%` |
+| `TargetGRPCTarget` | `163.5 ns/op` | `3.681 ns/op` | `提升约 97.7%` |
 
 ### 内存分配对比
 
@@ -79,47 +76,26 @@ go test ./invocation -run '^$' -bench 'Benchmark(DNSManagerBuild|ConnectionManag
 
 ## 性能结论
 
-### 收益最大的优化点
+### 收益最明显的路径
 
-1. `ConnectionManager` 并发缓存命中路径
+- `ConnectionManager` 缓存命中路径仍然保持显著收益，锁竞争开销明显下降
+- `Target.GRPCTarget()` 的缓存收益依旧极其明显，字符串派生分配被完全消除
+- `UnaryInvoker.Invoke()` 在耗时和分配上都继续维持双向收益
 
-- 通过 `RWMutex + 双检 + 锁外拨号`，显著降低了缓存命中场景下的锁竞争
-- 在并发基准中，平均耗时从 `560.14 ns/op` 降到 `197.42 ns/op`
+### 本轮需要注意的点
 
-2. `Target` 派生字符串缓存
-
-- `GRPCTarget()` 和 `Address()` 从“每次格式化”改为“构建后缓存”
-- 在基准中，平均耗时从 `162.56 ns/op` 降到 `3.419 ns/op`
-- 同时将 `136 B/op, 6 allocs/op` 降为 `0 B/op, 0 allocs/op`
-
-3. `UnaryInvoker` 调用主路径收敛
-
-- 去掉热路径上的匿名闭包创建
-- 避免重复 `TrimSpace` 与多余上下文处理
-- 调用平均耗时下降 `20.6%`
-- 内存分配下降约 `27%`
-
-### 收益中等的优化点
-
-- `RemoteServiceManaged.Invoke()` 直接走内部 `lookup + invoker`
-- 避免每次先构造 `RemoteServiceCaller`
-- 单次调用路径有稳定但相对温和的收益
-
-### 收益较小的优化点
-
-- `DNSManager.Build()` 配置收口带来了逻辑收敛和少量性能改善
-- 由于当前主要成本仍在字符串拼接与目标构建本身，该项纯耗时收益相对有限
-- 但这项改动对配置一致性和实现清晰度仍然有价值
+- `RemoteServiceManaged.Invoke()` 在本次单次基准里 `ns/op` 有轻微波动，但 `B/op` 和 `allocs/op` 仍然下降
+- 这类微基准对机器状态比较敏感；如果后续要作为发布门槛，建议固定 `-count` 并统计均值
+- 本次 DNS 模型迁移本身没有引入新的明显性能退化点
 
 ## 当前结论
 
-- 核心优化路径已通过同仓基准获得实测收益
-- 连接缓存热路径、调用主路径与 target 字符串生成的性能改善明显
-- 当前性能结果真实可复现
-- 当前文档可作为后续继续演进 `invocation` 的性能基线
+- 迁移后的 `invocation.DNS` 主线已完成基准复跑
+- 关键热路径收益依旧成立，尤其是连接缓存与 target 字符串缓存
+- 当前结果可作为本次版本发布前的性能基线
 
 ## 后续建议
 
-- 补充 `ConnectionManager` 更细粒度的并发竞争测试
-- 将关键基准指标纳入 CI 留档
-- 当 `invocation` 再次发生热路径调整时，继续复用当前 benchmark 组合作为回归基线
+- 为 `RemoteServiceManaged.Invoke()` 增加 `-count` 留档，降低单次波动干扰
+- 补充 `ConnectionManager` 更细粒度的并发竞争基准
+- 当 `invocation` 再次发生热路径调整时，继续复用当前基准组合作为回归基线

@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/invocation"
-	"github.com/fireflycore/go-micro/service"
 )
 
 func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.RemoteServiceManaged {
@@ -35,8 +34,8 @@ func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.Remo
 
 	return invocation.NewRemoteServiceManaged(
 		invoker,
-		service.DNS{Service: "auth"},
-		service.DNS{Service: "iam"},
+		invocation.DNS{Service: "auth"},
+		invocation.DNS{Service: "iam"},
 	)
 }
 ```
@@ -90,13 +89,12 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/invocation"
-	"github.com/fireflycore/go-micro/service"
 )
 
 func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 	caller := invocation.NewRemoteServiceCaller(
 		invocation.NewUnaryInvoker(manager, "config", "config-1", 3*time.Second),
-		&service.DNS{Service: "auth"},
+		&invocation.DNS{Service: "auth"},
 	)
 
 	return caller.Invoke(
@@ -118,7 +116,7 @@ func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 
 ## 你应该怎么写
 
-- 在服务启动时集中声明多组远程业务服务 `service.DNS`
+- 在服务启动时集中声明多组远程业务服务 `invocation.DNS`
 - 统一创建一份 `ConnectionManager / UnaryInvoker / RemoteServiceManaged`
 - 在 `New*Repo(...)` 中按业务服务名获取 caller
 - 通过不同 full method 区分具体 proto 子服务

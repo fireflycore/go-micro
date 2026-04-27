@@ -6,7 +6,7 @@
 
 它只负责四件事：
 
-- 用 `service.DNS` 表达远程业务服务
+- 用 `DNS` 表达远程业务服务
 - 把 DNS 组装成稳定的 gRPC target
 - 复用 `grpc.ClientConn`
 - 统一构造出站 metadata 与 timeout
@@ -42,7 +42,7 @@
 
 ## 核心对象
 
-### `service.DNS`
+### `DNS`
 
 远程业务服务的标准 DNS 描述。
 
@@ -77,7 +77,7 @@ repo 级远程业务服务调用入口。
 
 适合“当前服务依赖多个远程业务服务”的场景，用来：
 
-- 统一登记多组 `service.DNS`
+- 统一登记多组 `DNS`
 - 统一复用一个 `UnaryInvoker`
 - 按服务名派生 `RemoteServiceCaller`
 
@@ -98,7 +98,7 @@ repo 级远程业务服务调用入口。
 
 ## 关键约束
 
-- 一个远程业务服务只维护一份 `service.DNS`
+- 一个远程业务服务只维护一份 `DNS`
 - 同一业务服务下多个 proto 子服务共用同一份 DNS 和连接
 - 具体 RPC 由 gRPC `full method` 决定
 - `UnaryInvoker` 不再作为 repo 层首选装配入口
@@ -113,7 +113,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/invocation"
-	"github.com/fireflycore/go-micro/service"
 )
 
 func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.RemoteServiceManaged {
@@ -121,8 +120,8 @@ func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.Remo
 
 	return invocation.NewRemoteServiceManaged(
 		invoker,
-		service.DNS{Service: "auth"},
-		service.DNS{Service: "iam"},
+		invocation.DNS{Service: "auth"},
+		invocation.DNS{Service: "iam"},
 	)
 }
 ```
