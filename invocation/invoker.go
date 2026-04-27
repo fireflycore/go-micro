@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -24,7 +23,7 @@ const (
 // - gRPC 连接创建。
 type Dialer interface {
 	// Dial 根据业务服务 DNS 返回可复用的 gRPC 连接。
-	Dial(ctx context.Context, dns *svc.DNS) (*grpc.ClientConn, error)
+	Dial(ctx context.Context, dns *DNS) (*grpc.ClientConn, error)
 	// Close 释放 Dialer 持有的底层资源。
 	Close() error
 }
@@ -38,7 +37,7 @@ type Dialer interface {
 // - 底层连接复用。
 type Invoker interface {
 	// Invoke 对指定远程业务服务发起一次标准 unary 调用。
-	Invoke(ctx context.Context, dns *svc.DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error
+	Invoke(ctx context.Context, dns *DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error
 }
 
 // UnaryInvokeFunc 表示底层 unary 调用函数。
@@ -56,7 +55,7 @@ func defaultUnaryInvokeFunc(ctx context.Context, conn *grpc.ClientConn, method s
 // UnaryInvoker 是默认的 Invoker 实现。
 //
 // 它的执行流程非常明确：
-// 1. 基于 service.DNS 获取连接；
+// 1. 基于 DNS 获取连接；
 // 2. 基于当前链路 metadata 构造统一出站上下文，并注入服务自身身份；
 // 3. 使用 grpc.ClientConn.Invoke 发起 unary 调用。
 type UnaryInvoker struct {
@@ -83,7 +82,7 @@ func NewUnaryInvoker(dialer Dialer, serviceAppId string, serviceInstanceId strin
 }
 
 // Invoke 执行一次标准 unary 调用。
-func (u *UnaryInvoker) Invoke(ctx context.Context, dns *svc.DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error {
+func (u *UnaryInvoker) Invoke(ctx context.Context, dns *DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error {
 	if u == nil || u.Dialer == nil {
 		return ErrInvokerDialerIsNil
 	}

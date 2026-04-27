@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -18,7 +17,7 @@ type testDialer struct {
 	err  error
 }
 
-func (d testDialer) Dial(ctx context.Context, service *svc.DNS) (*grpc.ClientConn, error) {
+func (d testDialer) Dial(ctx context.Context, service *DNS) (*grpc.ClientConn, error) {
 	return d.conn, d.err
 }
 
@@ -63,7 +62,7 @@ func TestUnaryInvoker_Invoke_ReusesIncomingMetadataAndInvokeFunc(t *testing.T) {
 		constant.UserId, "u-1",
 	))
 
-	err := invoker.Invoke(ctx, &svc.DNS{
+	err := invoker.Invoke(ctx, &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -85,7 +84,7 @@ func TestUnaryInvoker_Invoke_WithoutExtraOptionsDoesNotPanic(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), &svc.DNS{
+	err := invoker.Invoke(context.Background(), &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -124,7 +123,7 @@ func TestUnaryInvoker_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 		constant.UserId, "u-incoming",
 	))
 
-	err := invoker.Invoke(ctx, &svc.DNS{
+	err := invoker.Invoke(ctx, &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -150,7 +149,7 @@ func TestUnaryInvoker_Invoke_UsesConfiguredTimeout(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), &svc.DNS{
+	err := invoker.Invoke(context.Background(), &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -175,7 +174,7 @@ func TestUnaryInvoker_Invoke_UsesDefaultTimeoutWhenUnset(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(context.Background(), &svc.DNS{
+	err := invoker.Invoke(context.Background(), &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -201,7 +200,7 @@ func TestUnaryInvoker_Invoke_PreservesParentCancellation(t *testing.T) {
 		},
 	}
 
-	err := invoker.Invoke(parent, &svc.DNS{
+	err := invoker.Invoke(parent, &DNS{
 		Service:   "auth",
 		Namespace: "default",
 	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
@@ -270,7 +269,7 @@ func TestResolveOutgoingMetadata_InjectsCallerServiceIdentity(t *testing.T) {
 func TestUnaryInvoker_Invoke_ReturnsErrorWhenDialerMissing(t *testing.T) {
 	var invoker *UnaryInvoker
 
-	err := invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
 	if err != ErrInvokerDialerIsNil {
 		t.Fatalf("expected %v, got %v", ErrInvokerDialerIsNil, err)
 	}
@@ -279,7 +278,7 @@ func TestUnaryInvoker_Invoke_ReturnsErrorWhenDialerMissing(t *testing.T) {
 func TestUnaryInvoker_Invoke_ReturnsErrorWhenMethodEmpty(t *testing.T) {
 	invoker := &UnaryInvoker{Dialer: testDialer{conn: &grpc.ClientConn{}}}
 
-	err := invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "", struct{}{}, &struct{}{})
+	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "", struct{}{}, &struct{}{})
 	if err != ErrInvokeMethodEmpty {
 		t.Fatalf("expected %v, got %v", ErrInvokeMethodEmpty, err)
 	}
@@ -291,7 +290,7 @@ func TestUnaryInvoker_Invoke_PropagatesDialError(t *testing.T) {
 		Dialer: testDialer{err: expectedErr},
 	}
 
-	err := invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected %v, got %v", expectedErr, err)
 	}
@@ -308,7 +307,7 @@ func TestUnaryInvoker_Invoke_UsesDefaultUnaryInvokeFuncWhenInvokeFuncMissing(t *
 		Dialer: testDialer{conn: conn},
 	}
 
-	err = invoker.Invoke(context.Background(), &svc.DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
+	err = invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
 	if err == nil {
 		t.Fatal("expected error from default grpc invoke path")
 	}

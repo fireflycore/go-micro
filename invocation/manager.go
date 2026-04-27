@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 
-	svc "github.com/fireflycore/go-micro/service"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -65,7 +64,7 @@ func (o ConnectionManagerOptions) normalize() *connectionManagerConfig {
 	return config
 }
 
-// ConnectionManager 负责缓存基于 service.DNS 创建出的 grpc.ClientConn。
+// ConnectionManager 负责缓存基于 DNS 创建出的 grpc.ClientConn。
 //
 // 它把“业务服务 DNS -> 目标解析 -> 连接缓存”统一收敛在一处，
 // 让业务层无需关心：
@@ -117,13 +116,13 @@ func DefaultDialFunc(_ context.Context, target Target, options []grpc.DialOption
 	return grpc.NewClient(target.GRPCTarget(), options...)
 }
 
-// Dial 根据 service.DNS 获取或创建对应的 grpc.ClientConn。
+// Dial 根据 DNS 获取或创建对应的 grpc.ClientConn。
 //
-// 连接缓存键采用最终 gRPC target，而不是 service.DNS 原始字段，
+// 连接缓存键采用最终 gRPC target，而不是 DNS 原始字段，
 // 这样可以保证：
 // - 逻辑上等价的服务身份只会生成一条连接；
 // - 端口覆盖、cluster domain、resolver scheme 的变化都能体现在缓存键上。
-func (m *ConnectionManager) Dial(ctx context.Context, dns *svc.DNS) (*grpc.ClientConn, error) {
+func (m *ConnectionManager) Dial(ctx context.Context, dns *DNS) (*grpc.ClientConn, error) {
 	// 先通过 DNS 管理器把业务服务描述转换成稳定目标。
 	// 通过 DNS 管理器把业务服务配置转成最终目标。
 	target, err := m.config.dnsManager.Build(dns)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 )
 
@@ -16,12 +15,12 @@ import (
 // - 按业务服务名派生 caller 或直接发起 full method 调用。
 type RemoteServiceManaged struct {
 	invoker  *UnaryInvoker
-	services map[string]*svc.DNS
+	services map[string]*DNS
 }
 
 // NewRemoteServiceManaged 创建一个轻量的多业务服务装配器。
-func NewRemoteServiceManaged(invoker *UnaryInvoker, services ...svc.DNS) *RemoteServiceManaged {
-	registered := make(map[string]*svc.DNS, len(services))
+func NewRemoteServiceManaged(invoker *UnaryInvoker, services ...DNS) *RemoteServiceManaged {
+	registered := make(map[string]*DNS, len(services))
 	for _, item := range services {
 		name := strings.TrimSpace(item.Service)
 		if name == "" {
@@ -37,7 +36,7 @@ func NewRemoteServiceManaged(invoker *UnaryInvoker, services ...svc.DNS) *Remote
 }
 
 // DNS 返回指定业务服务名对应的 DNS 副本。
-func (r *RemoteServiceManaged) DNS(serviceName string) (*svc.DNS, error) {
+func (r *RemoteServiceManaged) DNS(serviceName string) (*DNS, error) {
 	// 先定位内部登记的原始 DNS 指针。
 	dns, err := r.lookup(serviceName)
 	if err != nil {
@@ -49,7 +48,7 @@ func (r *RemoteServiceManaged) DNS(serviceName string) (*svc.DNS, error) {
 }
 
 // lookup 返回内部注册表中的原始 DNS 指针，仅供内部热路径复用。
-func (r *RemoteServiceManaged) lookup(serviceName string) (*svc.DNS, error) {
+func (r *RemoteServiceManaged) lookup(serviceName string) (*DNS, error) {
 	if r == nil {
 		return nil, ErrRemoteServiceNotFound
 	}

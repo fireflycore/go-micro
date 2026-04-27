@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/fireflycore/go-micro/constant"
-	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -13,8 +12,8 @@ import (
 func TestRemoteServiceManaged_Caller_ReturnsConfiguredService(t *testing.T) {
 	services := NewRemoteServiceManaged(
 		&UnaryInvoker{Dialer: testDialer{conn: &grpc.ClientConn{}}},
-		svc.DNS{Service: "auth", Namespace: "default"},
-		svc.DNS{Service: "app", Namespace: "default"},
+		DNS{Service: "auth", Namespace: "default"},
+		DNS{Service: "app", Namespace: "default"},
 	)
 
 	caller, err := services.Caller("auth")
@@ -48,8 +47,8 @@ func TestRemoteServiceManaged_Invoke_UsesSharedInvokerAndInjectsServiceIdentity(
 
 	services := NewRemoteServiceManaged(
 		invoker,
-		svc.DNS{Service: "auth", Namespace: "default"},
-		svc.DNS{Service: "app", Namespace: "default"},
+		DNS{Service: "auth", Namespace: "default"},
+		DNS{Service: "app", Namespace: "default"},
 	)
 
 	err := services.Invoke(
@@ -65,7 +64,7 @@ func TestRemoteServiceManaged_Invoke_UsesSharedInvokerAndInjectsServiceIdentity(
 }
 
 func TestRemoteServiceManaged_Caller_ReturnsNotFoundForUnknownService(t *testing.T) {
-	services := NewRemoteServiceManaged(nil, svc.DNS{Service: "auth", Namespace: "default"})
+	services := NewRemoteServiceManaged(nil, DNS{Service: "auth", Namespace: "default"})
 
 	_, err := services.Caller("billing")
 	if err != ErrRemoteServiceNotFound {
@@ -74,7 +73,7 @@ func TestRemoteServiceManaged_Caller_ReturnsNotFoundForUnknownService(t *testing
 }
 
 func TestRemoteServiceManaged_DNS_ReturnsClone(t *testing.T) {
-	services := NewRemoteServiceManaged(nil, svc.DNS{Service: "auth", Namespace: "default"})
+	services := NewRemoteServiceManaged(nil, DNS{Service: "auth", Namespace: "default"})
 
 	dns, err := services.DNS("auth")
 	if err != nil {
@@ -92,7 +91,7 @@ func TestRemoteServiceManaged_DNS_ReturnsClone(t *testing.T) {
 }
 
 func TestRemoteServiceManaged_Invoke_ReturnsErrorWhenInvokerMissing(t *testing.T) {
-	services := NewRemoteServiceManaged(nil, svc.DNS{Service: "auth", Namespace: "default"})
+	services := NewRemoteServiceManaged(nil, DNS{Service: "auth", Namespace: "default"})
 
 	err := services.Invoke(context.Background(), "auth", "/acme.auth.v1.AuthService/Check", &struct{}{}, &struct{}{})
 	if err != ErrInvokerDialerIsNil {
@@ -102,8 +101,8 @@ func TestRemoteServiceManaged_Invoke_ReturnsErrorWhenInvokerMissing(t *testing.T
 
 func TestRemoteServiceManaged_New_SkipsEmptyServiceName(t *testing.T) {
 	services := NewRemoteServiceManaged(nil,
-		svc.DNS{Service: "auth", Namespace: "default"},
-		svc.DNS{Service: " ", Namespace: "default"},
+		DNS{Service: "auth", Namespace: "default"},
+		DNS{Service: " ", Namespace: "default"},
 	)
 
 	if _, err := services.DNS("auth"); err != nil {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	svc "github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -37,7 +36,7 @@ func BenchmarkDNSManagerBuild(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			// 每轮构造一份相同输入，避免输入本身被污染。
-			dns := svc.DNS{Service: "auth"}
+			dns := DNS{Service: "auth"}
 			// 调用旧路径 helper，模拟优化前逻辑。
 			target, err := oldBuildDNSManagerTarget(manager, &dns)
 			benchmarkErrSink = err
@@ -52,7 +51,7 @@ func BenchmarkDNSManagerBuild(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			// 同样保持每轮输入一致。
-			dns := svc.DNS{Service: "auth"}
+			dns := DNS{Service: "auth"}
 			// 调用当前优化后的正式实现。
 			target, err := manager.Build(&dns)
 			benchmarkErrSink = err
@@ -65,7 +64,7 @@ func BenchmarkDNSManagerBuild(b *testing.B) {
 
 func BenchmarkConnectionManagerDialCachedParallel(b *testing.B) {
 	// 固定一个可命中缓存的服务标识。
-	dns := &svc.DNS{Service: "auth", Namespace: "default"}
+	dns := &DNS{Service: "auth", Namespace: "default"}
 	// 所有并发 worker 共享同一个上下文即可。
 	ctx := context.Background()
 
@@ -129,7 +128,7 @@ func BenchmarkUnaryInvokerInvoke(b *testing.B) {
 		"x-request-id", "req-1",
 	))
 	// 固定一个被调用服务。
-	dns := &svc.DNS{Service: "auth", Namespace: "default"}
+	dns := &DNS{Service: "auth", Namespace: "default"}
 	// 构造统一调用器，并用假的 Dialer/InvokeFunc 避免真实网络开销干扰。
 	invoker := &UnaryInvoker{
 		Dialer:            testDialer{conn: &grpc.ClientConn{}},
@@ -172,8 +171,8 @@ func BenchmarkRemoteServiceManagedInvoke(b *testing.B) {
 				return nil
 			},
 		},
-		svc.DNS{Service: "auth", Namespace: "default"},
-		svc.DNS{Service: "app", Namespace: "default"},
+		DNS{Service: "auth", Namespace: "default"},
+		DNS{Service: "app", Namespace: "default"},
 	)
 
 	b.Run("baseline_old", func(b *testing.B) {
@@ -194,10 +193,10 @@ func BenchmarkRemoteServiceManagedInvoke(b *testing.B) {
 }
 
 // oldBuildDNSManagerTarget 模拟优化前 DNSManager.Build 的关键执行路径。
-func oldBuildDNSManagerTarget(manager *DNSManager, dns *svc.DNS) (*Target, error) {
+func oldBuildDNSManagerTarget(manager *DNSManager, dns *DNS) (*Target, error) {
 	if dns == nil {
 		// 旧实现同样会在 nil 输入时构造一份空对象。
-		dns = &svc.DNS{}
+		dns = &DNS{}
 	}
 	// 旧路径第一次读取配置副本。
 	config := manager.Config()
@@ -261,7 +260,7 @@ func newOldConnectionManager() *oldConnectionManager {
 	}
 }
 
-func (m *oldConnectionManager) Dial(ctx context.Context, dns *svc.DNS) (*grpc.ClientConn, error) {
+func (m *oldConnectionManager) Dial(ctx context.Context, dns *DNS) (*grpc.ClientConn, error) {
 	// 旧实现从进入 Dial 到返回全程持有互斥锁。
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -290,7 +289,7 @@ func (m *oldConnectionManager) Dial(ctx context.Context, dns *svc.DNS) (*grpc.Cl
 }
 
 // oldUnaryInvoke 模拟优化前 UnaryInvoker.Invoke 的关键路径。
-func oldUnaryInvoke(u *UnaryInvoker, ctx context.Context, dns *svc.DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error {
+func oldUnaryInvoke(u *UnaryInvoker, ctx context.Context, dns *DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error {
 	if u == nil || u.Dialer == nil {
 		return ErrInvokerDialerIsNil
 	}
