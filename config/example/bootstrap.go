@@ -1,4 +1,4 @@
-package config
+package example
 
 import (
 	"github.com/fireflycore/go-micro/app"
