@@ -15,3 +15,16 @@ type Config struct {
 	// Metrics 开关，控制是否启用指标监控。
 	Metrics bool
 }
+
+type Resource struct {
+	// ServiceId 服务id
+	ServiceId string
+	// ServiceName 服务名称
+	ServiceName string
+	// ServiceVersion 服务版本
+	ServiceVersion string
+	// ServiceNamespace 服务命名空间
+	ServiceNamespace string
+	// ServiceInstanceId 服务实例id
+	ServiceInstanceId string
+}
