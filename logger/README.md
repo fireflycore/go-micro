@@ -32,8 +32,8 @@ func NewZapLogger(appName string, config *Config) *zap.Logger
 其中：
 
 - `appName` 用于标识当前服务，供 `otelzap` bridge 使用
-- `config.EnableConsole=true` 时启用 console 输出
-- `config.EnableRemote=true` 时启用 OpenTelemetry 输出
+- `config.Console=true` 时启用 console 输出
+- `config.Remote=true` 时启用 OpenTelemetry 输出
 
 ## 使用示例
 
@@ -49,8 +49,8 @@ import (
 
 func main() {
 	cfg := &logger.Config{
-		EnableConsole: true,
-		EnableRemote:  true,
+		Console: true,
+		Remote:  true,
 	}
 
 	zl := logger.NewZapLogger("order-service", cfg)

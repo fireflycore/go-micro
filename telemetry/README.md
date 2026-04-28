@@ -108,8 +108,8 @@ Prometheus 会通过 HTTP 拉取 `/metrics`，所以这里 exporter 不是“pus
 
 在 go-micro 中，zap 构造在 [logger.NewZapLogger](../logger/zap.go)：
 
-- `EnableConsole=true`：追加 console core，输出到 stdout
-- `EnableRemote=true`：追加 `otelzap.NewCore(...)`，输出到 OTel
+- `config.Console=true`：追加 console core，输出到 stdout
+- `config.Remote=true`：追加 `otelzap.NewCore(...)`，输出到 OTel
 
 ### 3.1 Trace/Span 关联是怎么做到的
 

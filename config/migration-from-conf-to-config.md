@@ -50,6 +50,15 @@ type BootstrapConfig struct {
 zl := logger.NewZapLogger(conf.App.Name, &conf.Logger)
 ```
 
+其中 `conf.Logger` 当前直接使用结构体字段，例如：
+
+```go
+type Config struct {
+	Console bool `json:"console"`
+	Remote  bool `json:"remote"`
+}
+```
+
 `telemetry`：
 
 ```go

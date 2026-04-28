@@ -73,6 +73,15 @@ type BootstrapConfig struct {
 - `logger` 只接收 `appName + logger.Config`
 - `telemetry` 只接收 `telemetry.Config + telemetry.Resource`
 
+例如，`logger.Config` 当前字段就是：
+
+```go
+type Config struct {
+	Console bool `json:"console"`
+	Remote  bool `json:"remote"`
+}
+```
+
 这种方式可以避免基础库之间互相依赖对方的配置模型。
 
 ## 目录说明
