@@ -1,144 +1,72 @@
-# go-micro 配置命名迁移说明
+# go-micro `conf` 迁移历史说明
 
-## 背景
+## 文档状态
 
-从下一次 `go-micro` 新版本开始，启动配置相关接口不再单独放在 `github.com/fireflycore/go-micro/conf` 中，而是统一收敛到 `github.com/fireflycore/go-micro/config` 根包。
+本文档只保留为历史迁移说明。
 
-这次调整的目标只有一个：统一命名。
+旧阶段曾计划把启动配置相关接口从 `github.com/fireflycore/go-micro/conf` 收敛到 `github.com/fireflycore/go-micro/config` 根包；但当前主线已经进一步收敛：
 
-- 包名统一为 `config`
-- 启动配置接口也统一放在 `config` 中
-- 不再保留 `conf` 包
+- `go-micro/config` 只保留统一配置契约、loader 语义和错误语义
+- 业务服务自己的启动配置模型由业务侧自行定义
+- `logger`、`telemetry` 等基础库只接收最小输入，不再通过公共启动配置接口耦合
 
-## 变更范围
+因此，本文不再作为当前设计主线，只用于帮助识别旧代码中的 `conf` 依赖。
 
-本次变更只涉及“启动配置接口”的包路径与类型命名，不影响 `Store`、`Watcher`、`LoaderParams`、`LoadConfig`、`LoadStoreConfig` 等已有配置契约。
+## 当前有效口径
 
-## 迁移摘要
+### 1. `go-micro/config` 保留什么
 
-### 包路径变化
+当前 `go-micro/config` 负责：
 
-| 旧路径 | 新路径 |
-| --- | --- |
-| `github.com/fireflycore/go-micro/conf` | `github.com/fireflycore/go-micro/config` |
+- `Key`
+- `Raw`
+- `WatchEvent`
+- `Store`
+- `Watcher`
+- `LoaderParams`
+- `StoreParams`
+- `LoadConfig(...)`
+- `LoadStoreConfig(...)`
+- 统一错误语义与解码语义
 
-### 类型命名变化
+### 2. 业务服务自己保留什么
 
-| 旧类型 | 新类型 |
-| --- | --- |
-| `conf.BootstrapConf` | `config.BootstrapConfig` |
-| `conf.LoggerConf` | `config.LoggerConfig` |
-| `conf.TelemetryConf` | `config.TelemetryConfig` |
-
-## 不变部分
-
-以下内容保持不变：
-
-- `github.com/fireflycore/go-micro/config` 仍然是统一配置契约主包
-- `Key` / `Item` / `Meta` / `Query` / `WatchEvent`
-- `Store` / `Watcher`
-- `Options` / `Codec` / `Encryptor`
-- `LoaderParams` / `StoreParams`
-- `LoadConfig(...)` / `LoadStoreConfig(...)`
-- `go-consul/config`、`go-k8s/config` 对 `go-micro/config` 的依赖方式
-
-也就是说，这次迁移主要是把原来 `conf` 中的接口并入了 `config` 根包，不是重做整套配置契约。
-
-## 代码改造对照
-
-### 1. import 路径替换
-
-迁移前：
+业务服务自己定义启动配置聚合模型，例如：
 
 ```go
-import "github.com/fireflycore/go-micro/conf"
-```
-
-迁移后：
-
-```go
-import "github.com/fireflycore/go-micro/config"
-```
-
-### 2. 接口类型替换
-
-迁移前：
-
-```go
-func NewZapLogger(bootstrapConf conf.BootstrapConf) *zap.Logger
-```
-
-迁移后：
-
-```go
-func NewZapLogger(bootstrapConf config.BootstrapConfig) *zap.Logger
-```
-
-### 3. 结构体实现接口时的变化
-
-如果你的结构体只是“实现这些方法”，而没有显式声明 `conf.BootstrapConf` 字段或返回值类型，那么大部分方法实现本身不需要改，只需要：
-
-- 改 import
-- 改接口引用类型名
-
-例如：
-
-迁移前：
-
-```go
-func NewBootstrapConfImpl(bootstrapConf *BootstrapConf) conf.BootstrapConf {
-	return bootstrapConf
+type BootstrapConfig struct {
+	App       app.Config       `json:"app"`
+	Logger    logger.Config    `json:"logger"`
+	Service   service.Config   `json:"service"`
+	Telemetry telemetry.Config `json:"telemetry"`
 }
 ```
 
-迁移后：
+### 3. 基础库当前推荐接入方式
+
+`logger`：
 
 ```go
-func NewBootstrapConfImpl(bootstrapConf *BootstrapConf) config.BootstrapConfig {
-	return bootstrapConf
-}
+zl := logger.NewZapLogger(conf.App.Name, &conf.Logger)
 ```
 
-## 推荐迁移步骤
+`telemetry`：
 
-建议所有依赖仓库在 `go-micro` 发布新版本后，按下面顺序迁移。
-
-### 第一步：升级 go-micro 版本
-
-先把依赖仓库中的 `github.com/fireflycore/go-micro` 升级到包含本次调整的新版本。
-
-### 第二步：全局替换 import
-
-优先替换旧包路径：
-
-- `github.com/fireflycore/go-micro/conf`
-- 替换为 `github.com/fireflycore/go-micro/config`
-
-### 第三步：全局替换类型名
-
-继续替换旧接口名：
-
-- `BootstrapConf` -> `BootstrapConfig`
-- `LoggerConf` -> `LoggerConfig`
-- `TelemetryConf` -> `TelemetryConfig`
-
-### 第四步：编译与测试
-
-迁移后至少执行：
-
-```bash
-go test ./...
+```go
+providers, err := telemetry.NewProviders(&conf.Telemetry, &telemetry.Resource{
+	ServiceId:         conf.App.Id,
+	ServiceName:       conf.Service.Service,
+	ServiceVersion:    conf.App.Version,
+	ServiceNamespace:  conf.Service.Namespace,
+	ServiceInstanceId: conf.App.InstanceId,
+})
 ```
 
-如果仓库没有完整测试，也至少执行一次：
+## 如果旧项目仍依赖 `go-micro/conf`
 
-```bash
-go build ./...
-```
+建议按下面顺序迁移：
 
-## 建议的检索关键字
-
-升级下游仓库时，可优先搜索以下关键字：
+1. 全局检索旧引用：
 
 ```text
 github.com/fireflycore/go-micro/conf
@@ -147,36 +75,27 @@ LoggerConf
 TelemetryConf
 ```
 
-## 当前仓库内已知受影响位置
+2. 删除对 `go-micro/conf` 的直接依赖。
+3. 把原先通过接口暴露的启动配置，改为业务服务自己的聚合结构。
+4. 在业务服务启动层完成字段映射，再调用 `logger`、`telemetry` 等基础库。
+5. 执行一次完整编译或测试验证。
 
-按当前工作区检索，`firefly` 下已知还需要在发布后同步迁移的旧引用包括：
+## 迁移判断原则
 
-- `go-layout/internal/conf/bootstrap.go`
+- 如果一个类型只是“携带配置数据”，优先保留为结构体
+- 如果一个抽象是“可替换行为”，再定义接口
+- 不要再把 `BootstrapConfig` 这类业务启动模型继续下沉为基础库公共接口
 
-如果还有其他业务仓库依赖了 `go-micro/conf`，也建议用上面的关键字再做一次全仓检索。
+## 当前与历史的区别
 
-## 兼容性说明
+历史方案：
 
-本次调整属于命名与包路径收敛，不是接口方法语义变更。
+- `conf` -> `config`
+- 启动配置接口集中到 `go-micro/config`
 
-也就是说：
+当前方案：
 
-- 如果你的业务类型已经实现了原先 `BootstrapConf` 所需的方法集合
-- 那么迁移后通常不需要重写方法逻辑
-- 大多数情况下只需要改 import 和类型名
-
-## 最终口径
-
-后续统一使用以下命名：
-
-- 包：`config`
-- 启动配置接口：`BootstrapConfig`
-- 日志配置接口：`LoggerConfig`
-- 遥测配置接口：`TelemetryConfig`
-
-不再继续使用：
-
-- `conf`
-- `BootstrapConf`
-- `LoggerConf`
-- `TelemetryConf`
+- `conf` 不再作为当前命名使用
+- `go-micro/config` 只做统一配置契约
+- 启动配置模型归业务服务所有
+- 基础库初始化签名收敛为最小输入模型

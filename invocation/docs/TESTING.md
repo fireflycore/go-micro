@@ -48,7 +48,6 @@ go tool cover -func=/tmp/invocation.cover.out
 
 ```text
 ?       github.com/fireflycore/go-micro/config                  [no test files]
-?       github.com/fireflycore/go-micro/config/bootstrap        [no test files]
 ?       github.com/fireflycore/go-micro/constant                [no test files]
 ok      github.com/fireflycore/go-micro/invocation              0.610s
 ?       github.com/fireflycore/go-micro/kernel                  [no test files]

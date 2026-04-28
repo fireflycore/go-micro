@@ -8,7 +8,7 @@
 - [trace.go](trace.go): 链路追踪 (`TracerProvider`) 配置
 - [metric.go](metric.go): 指标监控 (`MeterProvider`) 配置
 - [log.go](log.go): 日志 (`LoggerProvider`) 配置
-- [conf.go](conf.go): 配置结构定义
+- [config.go](config.go): `Config` 与 `Resource` 结构定义
 
 ## 1. OTel 在做什么
 
@@ -30,16 +30,30 @@ OTel 的通用工作模型是：
 
 ### 2.1 Resource：统一标识“这是谁发出来的数据”
 
+`telemetry.NewProviders` 现在不再直接依赖业务侧 `BootstrapConfig`、`app.Config` 或 `service.Config`，而是只接收本库所需的最小输入：
+
+```go
+type Resource struct {
+    ServiceId         string
+    ServiceName       string
+    ServiceVersion    string
+    ServiceNamespace  string
+    ServiceInstanceId string
+}
+```
+
+内部会基于这组字段构造 OTel Resource：
+
 ```go
 resource.Merge(
   resource.Default(),
   resource.NewWithAttributes(
     semconv.SchemaURL,
-    semconv.ServiceName(bootstrapConf.GetAppName()),
-    semconv.ServiceVersion(bootstrapConf.GetAppVersion()),
-    semconv.ServiceNamespace(bootstrapConf.GetServiceNamespace()),
-    semconv.ServiceInstanceID(bootstrapConf.GetServiceInstanceId()),
-    attribute.String("service.id", bootstrapConf.GetAppId()),
+    semconv.ServiceName(source.ServiceName),
+    semconv.ServiceVersion(source.ServiceVersion),
+    semconv.ServiceNamespace(source.ServiceNamespace),
+    semconv.ServiceInstanceID(source.ServiceInstanceId),
+    attribute.String("service.id", source.ServiceId),
   ),
 )
 ```
@@ -62,7 +76,7 @@ otel.SetTextMapPropagator(
 
 ### 2.3 Traces：OTLP/gRPC 导出到 Collector
 
-当 `bootstrapConf.GetOtelTraces()=true`：
+当 `config.Traces=true`：
 
 1. 创建 OTLP Trace exporter（gRPC）
 2. 创建 `sdktrace.TracerProvider`，使用 `WithBatcher` 批量异步导出
@@ -70,7 +84,7 @@ otel.SetTextMapPropagator(
 
 ### 2.4 Metrics：Prometheus pull 模式暴露 /metrics
 
-当 `bootstrapConf.GetOtelMetrics()=true`：
+当 `config.Metrics=true`：
 
 1. 创建 Prometheus registry（隔离 default registry）
 2. 创建 OTel Prometheus exporter，并注册到 registry
@@ -82,7 +96,7 @@ Prometheus 会通过 HTTP 拉取 `/metrics`，所以这里 exporter 不是“pus
 
 ### 2.5 Logs：OTLP/gRPC 导出到 Collector
 
-当 `bootstrapConf.GetOtelLogs()=true`：
+当 `config.Logs=true`：
 
 1. 创建 OTLP Log exporter（gRPC）
 2. 创建 `sdklog.LoggerProvider`，使用 batch processor 异步导出
@@ -94,8 +108,8 @@ Prometheus 会通过 HTTP 拉取 `/metrics`，所以这里 exporter 不是“pus
 
 在 go-micro 中，zap 构造在 [logger.NewZapLogger](../logger/zap.go)：
 
-- Console=true：追加 console core，输出到 stdout
-- Remote=true：追加 `otelzap.NewCore(...)`，输出到 OTel
+- `EnableConsole=true`：追加 console core，输出到 stdout
+- `EnableRemote=true`：追加 `otelzap.NewCore(...)`，输出到 OTel
 
 ### 3.1 Trace/Span 关联是怎么做到的
 
@@ -158,7 +172,13 @@ grpc.NewServer(
 ### 5.1 启动时初始化 telemetry
 
 ```go
-providers, err := telemetry.NewProviders(bootstrapConf)
+providers, err := telemetry.NewProviders(&conf.Telemetry, &telemetry.Resource{
+  ServiceId:         conf.App.Id,
+  ServiceName:       conf.Service.Service,
+  ServiceVersion:    conf.App.Version,
+  ServiceNamespace:  conf.Service.Namespace,
+  ServiceInstanceId: conf.App.InstanceId,
+})
 if err != nil { panic(err) }
 defer func() { _ = providers.Shutdown() }()
 ```
@@ -197,7 +217,7 @@ go func() {
 ### 5.3 构造 logger（Console + OTel Remote）
 
 ```go
-zl := logger.NewZapLogger(bootstrapConf)
+zl := logger.NewZapLogger(conf.App.Name, &conf.Logger)
 log := logger.NewAccessLogger(zl)
 ```
 
@@ -226,13 +246,55 @@ _ = s
 ## 6. 常见排查点
 
 - 在 Tempo 看不到 trace：
-  - 是否启用了 `bootstrapConf.GetOtelTraces()=true`
+  - 是否启用了 `config.Traces=true`
   - 是否挂了 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())` 或者其它 instrumentation
   - OTLP endpoint 是否可达
 - /metrics 没有 gRPC 指标：
-  - 是否启用了 `bootstrapConf.GetOtelMetrics()=true`
+  - 是否启用了 `config.Metrics=true`
   - 是否挂了 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())`
   - Prometheus 是否 scrape 到正确端口/路径
 - 日志无法和 trace 关联：
   - 打日志时是否把 `ctx` 传进 `WithContextInfo/WithContextError`
   - 是否确实存在当前 span（是否装了 `grpc.StatsHandler(gm.NewOtelServerStatsHandler())`）
+
+## 7. 推荐装配方式
+
+推荐把配置聚合和字段映射放在业务服务启动层完成，而不是让 `telemetry` 直接依赖业务侧配置模型：
+
+```go
+type BootstrapConfig struct {
+  App struct {
+    Id         string `json:"id"`
+    Name       string `json:"name"`
+    Version    string `json:"version"`
+    InstanceId string `json:"instance_id"`
+  } `json:"app"`
+
+  Service struct {
+    Service   string `json:"service"`
+    Namespace string `json:"namespace"`
+  } `json:"service"`
+
+  Telemetry telemetry.Config `json:"telemetry"`
+}
+```
+
+在组合根中做一次映射：
+
+```go
+source := &telemetry.Resource{
+  ServiceId:         conf.App.Id,
+  ServiceName:       conf.Service.Service,
+  ServiceVersion:    conf.App.Version,
+  ServiceNamespace:  conf.Service.Namespace,
+  ServiceInstanceId: conf.App.InstanceId,
+}
+
+providers, err := telemetry.NewProviders(&conf.Telemetry, source)
+```
+
+这样做的目的不是减少字段，而是稳定边界：
+
+- 业务服务继续拥有自己的启动配置模型
+- `telemetry` 只消费自己所需的运行时资源信息
+- `app`、`service` 等包的结构调整不会直接扩散到 `telemetry` 初始化签名
