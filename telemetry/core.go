@@ -3,10 +3,11 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"github.com/fireflycore/go-micro/app"
+	"github.com/fireflycore/go-micro/service"
 	"net/http"
 	"time"
 
-	"github.com/fireflycore/go-micro/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log/global"
@@ -37,18 +38,7 @@ const DefaultInitTimeout = 3 * time.Second
 
 // NewProviders 创建并初始化 Telemetry Providers。
 // 初始化过程使用 DefaultInitTimeout 作为默认超时控制。
-//
-// 参数:
-//   - bootstrapConf: 引导配置，包含 OTel 配置信息
-//
-// 返回:
-//   - *Providers: 包含 Tracer, Meter, Logger Provider
-//   - error: 初始化错误
-func NewProviders(bootstrapConf config.BootstrapConfig) (*Providers, error) {
-	if bootstrapConf == nil {
-		return nil, errors.New("bootstrap conf is nil")
-	}
-
+func NewProviders(appConfig *app.Config, serviceConfig *service.Config, telemetryConfig *Config) (*Providers, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeout)
 	defer cancel()
 
@@ -59,11 +49,11 @@ func NewProviders(bootstrapConf config.BootstrapConfig) (*Providers, error) {
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(bootstrapConf.GetAppName()),
-			semconv.ServiceVersion(bootstrapConf.GetAppVersion()),
-			semconv.ServiceNamespace(bootstrapConf.GetServiceNamespace()),
-			semconv.ServiceInstanceID(bootstrapConf.GetServiceInstanceId()),
-			attribute.String("service.id", bootstrapConf.GetAppId()),
+			semconv.ServiceName(serviceConfig.Service),
+			semconv.ServiceVersion(appConfig.Version),
+			semconv.ServiceNamespace(serviceConfig.Namespace),
+			semconv.ServiceInstanceID(appConfig.InstanceId),
+			attribute.String("service.id", appConfig.Id),
 		),
 	)
 	if err != nil {
@@ -77,11 +67,11 @@ func NewProviders(bootstrapConf config.BootstrapConfig) (*Providers, error) {
 		propagation.Baggage{},
 	))
 
-	otlpEndpoint := bootstrapConf.GetOtelEndpoint()
-	insecure := bootstrapConf.GetOtelInsecure()
+	otlpEndpoint := telemetryConfig.OTLPEndpoint
+	insecure := telemetryConfig.Insecure
 
 	// 3. 初始化 Traces
-	if bootstrapConf.GetOtelTraces() {
+	if telemetryConfig.Traces {
 		tp, err := NewTracerProvider(ctx, res, otlpEndpoint, insecure)
 		if err != nil {
 			return nil, err
@@ -92,7 +82,7 @@ func NewProviders(bootstrapConf config.BootstrapConfig) (*Providers, error) {
 	}
 
 	// 4. 初始化 Metrics
-	if bootstrapConf.GetOtelMetrics() {
+	if telemetryConfig.Metrics {
 		mp, mh, err := NewMeterProvider(res)
 		if err != nil {
 			return nil, err
@@ -104,7 +94,7 @@ func NewProviders(bootstrapConf config.BootstrapConfig) (*Providers, error) {
 	}
 
 	// 5. 初始化 Logs
-	if bootstrapConf.GetOtelLogs() {
+	if telemetryConfig.Logs {
 		lp, err := NewLoggerProvider(ctx, res, otlpEndpoint, insecure)
 		if err != nil {
 			return nil, err

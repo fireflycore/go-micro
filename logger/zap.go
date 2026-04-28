@@ -1,21 +1,21 @@
 package logger
 
 import (
-	"github.com/fireflycore/go-micro/config"
+	"github.com/fireflycore/go-micro/app"
 	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-func NewZapLogger(bootstrapConf config.BootstrapConfig) *zap.Logger {
+func NewZapLogger(appConfig *app.Config, loggerConfig *Config) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 
 	cores := make([]zapcore.Core, 0, 2)
-	if bootstrapConf.GetLoggerConsole() {
+	if loggerConfig.EnableConsole {
 		cores = append(cores, NewConsoleCore(atomicLevel))
 	}
-	if bootstrapConf.GetLoggerRemote() {
-		cores = append(cores, otelzap.NewCore(bootstrapConf.GetAppName()))
+	if loggerConfig.EnableConsole {
+		cores = append(cores, otelzap.NewCore(appConfig.Name))
 	}
 
 	if len(cores) == 0 {
