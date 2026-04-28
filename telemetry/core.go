@@ -3,8 +3,6 @@ package telemetry
 import (
 	"context"
 	"errors"
-	"github.com/fireflycore/go-micro/app"
-	"github.com/fireflycore/go-micro/service"
 	"net/http"
 	"time"
 
@@ -38,7 +36,7 @@ const DefaultInitTimeout = 3 * time.Second
 
 // NewProviders 创建并初始化 Telemetry Providers。
 // 初始化过程使用 DefaultInitTimeout 作为默认超时控制。
-func NewProviders(appConfig *app.Config, serviceConfig *service.Config, telemetryConfig *Config) (*Providers, error) {
+func NewProviders(config *Config, source *Resource) (*Providers, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultInitTimeout)
 	defer cancel()
 
@@ -49,11 +47,11 @@ func NewProviders(appConfig *app.Config, serviceConfig *service.Config, telemetr
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceName(serviceConfig.Service),
-			semconv.ServiceVersion(appConfig.Version),
-			semconv.ServiceNamespace(serviceConfig.Namespace),
-			semconv.ServiceInstanceID(appConfig.InstanceId),
-			attribute.String("service.id", appConfig.Id),
+			semconv.ServiceName(source.ServiceName),
+			semconv.ServiceVersion(source.ServiceVersion),
+			semconv.ServiceNamespace(source.ServiceNamespace),
+			semconv.ServiceInstanceID(source.ServiceInstanceId),
+			attribute.String("service.id", source.ServiceId),
 		),
 	)
 	if err != nil {
@@ -67,11 +65,11 @@ func NewProviders(appConfig *app.Config, serviceConfig *service.Config, telemetr
 		propagation.Baggage{},
 	))
 
-	otlpEndpoint := telemetryConfig.OTLPEndpoint
-	insecure := telemetryConfig.Insecure
+	otlpEndpoint := config.OTLPEndpoint
+	insecure := config.Insecure
 
 	// 3. 初始化 Traces
-	if telemetryConfig.Traces {
+	if config.Traces {
 		tp, err := NewTracerProvider(ctx, res, otlpEndpoint, insecure)
 		if err != nil {
 			return nil, err
@@ -82,7 +80,7 @@ func NewProviders(appConfig *app.Config, serviceConfig *service.Config, telemetr
 	}
 
 	// 4. 初始化 Metrics
-	if telemetryConfig.Metrics {
+	if config.Metrics {
 		mp, mh, err := NewMeterProvider(res)
 		if err != nil {
 			return nil, err
@@ -94,7 +92,7 @@ func NewProviders(appConfig *app.Config, serviceConfig *service.Config, telemetr
 	}
 
 	// 5. 初始化 Logs
-	if telemetryConfig.Logs {
+	if config.Logs {
 		lp, err := NewLoggerProvider(ctx, res, otlpEndpoint, insecure)
 		if err != nil {
 			return nil, err
