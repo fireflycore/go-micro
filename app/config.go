@@ -11,4 +11,6 @@ type Config struct {
 	Secret string `json:"secret"`
 	// 应用版本
 	Version string `json:"version"`
+	// 实例id
+	InstanceId string `json:"instance_id"`
 }
