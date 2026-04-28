@@ -10,10 +10,10 @@ func NewZapLogger(appName string, config *Config) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 
 	cores := make([]zapcore.Core, 0, 2)
-	if config.EnableConsole {
+	if config.Console {
 		cores = append(cores, NewConsoleCore(atomicLevel))
 	}
-	if config.EnableConsole {
+	if config.Console {
 		cores = append(cores, otelzap.NewCore(appName))
 	}
 

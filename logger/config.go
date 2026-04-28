@@ -1,6 +1,6 @@
 package logger
 
 type Config struct {
-	EnableConsole bool `json:"console"`
-	EnableRemote  bool `json:"remote"`
+	Console bool `json:"console"`
+	Remote  bool `json:"remote"`
 }
