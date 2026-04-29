@@ -11,4 +11,7 @@ type Config struct {
 	ClusterDomain string `json:"cluster_domain"`
 	// Port 表示业务服务监听端口，默认值通常为 9090。
 	Port uint16 `json:"port"`
+
+	// Weight 表示权重，默认值通常为 100。
+	Weight uint `json:"weight"`
 }
