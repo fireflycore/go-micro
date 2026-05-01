@@ -7,22 +7,12 @@ const (
 
 type Config struct {
 	// 内核开发语言
-	language string
+	Language string
 	// 内核版本
-	version string
+	Version string
 }
 
-func NewKernelConfig() *Config {
-	return &Config{
-		language: Language,
-		version:  Version,
-	}
-}
-
-func (c *Config) GetLanguage() string {
-	return c.language
-}
-
-func (c *Config) GetVersion() string {
-	return c.version
+func (c *Config) Normalize() {
+	c.Language = Language
+	c.Version = Version
 }
