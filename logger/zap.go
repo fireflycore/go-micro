@@ -6,15 +6,17 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func NewZapLogger(appName string, config *Config) *zap.Logger {
+const pkgName = "github.com/fireflycore/go-micro/logger"
+
+func NewZapLogger(config *Config) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevelAt(zap.InfoLevel)
 
 	cores := make([]zapcore.Core, 0, 2)
 	if config.Console {
 		cores = append(cores, NewConsoleCore(atomicLevel))
 	}
-	if config.Console {
-		cores = append(cores, otelzap.NewCore(appName))
+	if config.Remote {
+		cores = append(cores, otelzap.NewCore(pkgName))
 	}
 
 	if len(cores) == 0 {
