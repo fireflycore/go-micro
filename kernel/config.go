@@ -2,7 +2,7 @@ package kernel
 
 const (
 	Language = "Golang"
-	Version  = "v1.0.0"
+	Version  = "v1.4.8"
 )
 
 type Config struct {
@@ -12,7 +12,7 @@ type Config struct {
 	Version string
 }
 
-func (c *Config) Normalize() {
+func (c *Config) Bootstrap() {
 	c.Language = Language
 	c.Version = Version
 }

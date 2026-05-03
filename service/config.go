@@ -1,5 +1,7 @@
 package service
 
+import "errors"
+
 type Config struct {
 	// Name 表示业务服务名，例如 auth。
 	Name string `json:"name"`
@@ -13,4 +15,26 @@ type Config struct {
 	Port uint `json:"port"`
 	// Weight 表示权重，默认值通常为 100。
 	Weight uint `json:"weight"`
+}
+
+func (c *Config) Bootstrap() error {
+	if c.Name == "" {
+		return errors.New("service.name is empty")
+	}
+	if c.Type == "" {
+		c.Type = "svc"
+	}
+	if c.Namespace == "" {
+		c.Namespace = "default"
+	}
+	if c.ClusterDomain == "" {
+		c.ClusterDomain = "cluster.local"
+	}
+	if c.Port == 0 {
+		c.Port = 9090
+	}
+	if c.Weight == 0 {
+		c.Weight = 100
+	}
+	return nil
 }
