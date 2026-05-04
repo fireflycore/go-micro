@@ -13,7 +13,8 @@ type ServerLogger struct {
 // NewServerLogger 用底层 zap logger 构造服务日志实例。
 func NewServerLogger(logger *zap.Logger) *ServerLogger {
 	return &ServerLogger{
-		Logger: logger,
+		// 服务日志多包了一层方法调用，这里跳过一层 caller，让日志位置回到业务调用点。
+		Logger: logger.WithOptions(zap.AddCallerSkip(1)),
 	}
 }
 

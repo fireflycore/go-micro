@@ -14,7 +14,8 @@ type AccessLogger struct {
 // NewAccessLogger 用底层 zap logger 构造访问日志实例。
 func NewAccessLogger(logger *zap.Logger) *AccessLogger {
 	return &AccessLogger{
-		Logger: logger,
+		// 访问日志多包了一层方法调用，这里跳过一层 caller，让日志位置回到业务调用点。
+		Logger: logger.WithOptions(zap.AddCallerSkip(1)),
 	}
 }
 

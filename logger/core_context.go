@@ -1,12 +1,9 @@
 package logger
 
 import (
-	// context.Context 用来承载 trace、span 以及请求级附加信息。
 	"context"
 
-	// trace 包用于从 ctx 中提取当前 span 上下文。
 	"go.opentelemetry.io/otel/trace"
-	// zap 用于构造结构化日志字段。
 	"go.uber.org/zap"
 )
 
