@@ -11,9 +11,8 @@
 
 - `logger` 不再依赖业务服务的 `BootstrapConfig` 接口或 `app.Config` 结构。
 - `logger` 初始化只接收自己需要的最小输入：
-  - `appName string`
   - `logger.Config`
-- 业务服务负责在启动层把自己的引导配置映射为 `appName` 和 `logger.Config`，再调用本库。
+- 业务服务负责在启动层把自己的引导配置映射为 `logger.Config`，再调用本库。
 
 这意味着：
 
@@ -26,12 +25,11 @@
 当前入口为：
 
 ```go
-func NewZapLogger(appName string, config *Config) *zap.Logger
+func NewZapLogger(config *Config) *zap.Logger
 ```
 
 其中：
 
-- `appName` 用于标识当前服务，供 `otelzap` bridge 使用
 - `config.Console=true` 时启用 console 输出
 - `config.Remote=true` 时启用 OpenTelemetry 输出
 
@@ -53,7 +51,7 @@ func main() {
 		Remote:  true,
 	}
 
-	zl := logger.NewZapLogger("order-service", cfg)
+	zl := logger.NewZapLogger(cfg)
 	log := logger.NewAccessLogger(zl)
 
 	log.WithContextInfo(context.Background(), "hello", zap.String("k", "v"))
@@ -77,7 +75,7 @@ type BootstrapConfig struct {
 然后在组合根中做一次映射：
 
 ```go
-zl := logger.NewZapLogger(conf.App.Name, &conf.Logger)
+zl := logger.NewZapLogger(&conf.Logger)
 ```
 
 这种做法的核心是：
@@ -91,4 +89,5 @@ zl := logger.NewZapLogger(conf.App.Name, &conf.Logger)
 当启用 Remote 输出且服务已初始化 OpenTelemetry Logs Provider 后：
 
 - 如果日志 fields 中包含 `zap.Any("ctx", ctx)`，`otelzap` 会从 `ctx` 中提取 span context，并关联到 OTLP log record
-- `AccessLogger` 和 `ServerLogger` 的 `WithContextInfo` / `WithContextWarn` / `WithContextError` 已内置该字段注入
+- 为避免普通 zap console 输出把整个 `ctx` 结构直接序列化，本库只让 OTel bridge core 消费原始 `ctx`
+- `AccessLogger` 和 `ServerLogger` 的 `WithContextInfo` / `WithContextWarn` / `WithContextError` 已内置 `trace_id`、`span_id` 和 `ctx` 注入
