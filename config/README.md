@@ -25,32 +25,25 @@
 1. **加密粒度**：整份配置，不做字段级加密
 2. **标识方式**：通过 `Raw.Encrypted` 字段标识
 3. **读取规则**：
-   - `Raw.Encrypted=false`：直接 JSON 解析 `Content`
-   - `Raw.Encrypted=true`：必须先通过 `PayloadDecodeFunc` 解密整份 `Content`，再解析为目标结构
+   - 统一通过 `LoadStoreConfig` / `UnmarshalPayload` 还原配置内容
+   - 无论是否加密，处理顺序都固定为：`Base64 解码 -> 按需解密 -> 解压 -> 反序列化`
 4. **写入规则**：
-   - 普通配置：直接写入明文内容，设置 `Encrypted=false`
-   - 敏感配置：先加密整份内容，再写入，设置 `Encrypted=true`
+   - 统一通过 `MarshalPayload` / `EncodePayload` 编码配置内容
+   - 处理顺序固定为：`压缩 -> 按需加密 -> Base64 编码`
 
 **示例**：
 ```go
-// 读取加密配置
-raw, err := store.Get(ctx, key)
+// 读取配置后统一走 payload 还原流程
+value, err := config.LoadStoreConfig[DatabaseConfig](ctx, store, config.StoreParams{
+    Key:        key,
+    AppSecret:  appSecret,
+    Compressor: compressor,
+    Encryptor:  encryptor,
+})
 if err != nil {
     return err
 }
-
-if raw.Encrypted {
-    // 必须先解密整份内容
-    decrypted, err := decrypt(raw.Content, appSecret)
-    if err != nil {
-        return err
-    }
-    // 再解析为目标结构
-    err = json.Unmarshal(decrypted, &config)
-} else {
-    // 明文配置直接解析
-    err = json.Unmarshal(raw.Content, &config)
-}
+_ = value
 ```
 
 ## 与业务启动配置的关系
@@ -69,7 +62,7 @@ type BootstrapConfig struct {
 
 然后由业务服务在启动层完成装配：
 
-- `go-micro/config` 负责加载本地或远程配置
+- `go-micro/config` 负责从统一数据面存储读取、监听并解析配置
 - `logger` 只接收 `appName + logger.Config`
 - `telemetry` 只接收 `telemetry.Config + telemetry.Resource`
 
@@ -89,22 +82,20 @@ type Config struct {
 - `model.go`：配置主键、配置内容、版本元数据、监听事件模型
 - `store.go`：统一存储接口
 - `watch.go`：统一监听接口
-- `option.go`：函数式配置选项与可插拔能力（Codec/Encryptor）
-- `loader.go`：统一配置加载入口，负责按 local / remote 方式加载基础配置，并支持从 `Store` 读取配置对象
-- `loader_qa.md`：记录 loader 命名与参数设计上的关键取舍，避免后续语义漂移
+- `option.go`：函数式配置选项与可插拔能力（Codec/Encryptor/Compressor）
+- `loader.go`：从 `Store` 读取并解析配置对象
+- `payload.go`：统一 payload 编码与解码流程
 - `error.go`：统一错误定义
 - `example/bootstrap.go`：业务服务引导配置聚合示例
 
 ## 命名约定
 
 - `BootstrapConfig` 是业务服务自己的启动配置模型，表示程序启动时只初始化一次的基础引导配置，这类配置通常不参与热更新
-- `go-micro/config` 不定义具体业务侧的 `BootstrapConfig` 结构，而是提供通用加载能力，因此这里使用 `loader` 命名
-- `LoaderParams` + `LoadConfig` 用于描述"如何从 local / remote 加载一份基础配置"
+- `go-micro/config` 不定义具体业务侧的 `BootstrapConfig` 结构，只保留运行时配置读取、监听和 payload 编解码能力
 - `StoreParams` + `LoadStoreConfig` 用于描述"如何从统一配置存储中读取并解析一份配置"
+- `MarshalPayload` / `UnmarshalPayload` 用于描述"如何按统一规则编码和还原配置内容"
 - `Raw.Encrypted` 表示"当前整份配置内容是否为密文"，不支持字段级加密
-- 这样区分后，业务侧可以继续保留 `BootstrapConfig` 语义，基础库侧则专注于加载过程，避免把"配置模型"和"加载动作"混在一起
 - `logger`、`telemetry` 等库如果需要启动信息，应由业务服务在组合根做字段映射，而不是把业务启动配置接口下沉到 `go-micro/config`
-- 关于为什么当前不把 `LoadConfig` 的参数进一步收敛成统一接口，可参考 `loader_qa.md`
 
 ## 使用方式
 
@@ -129,10 +120,11 @@ type Config struct {
 
 这里的“启动层”是业务服务概念，不是 `go-micro/config` 根包里的公共接口集合。
 
-### 4) 加密读取规则
+### 4) payload 读取规则
 
-- `Raw.Encrypted=false`：直接解析配置内容
-- `Raw.Encrypted=true`：先解密整份配置内容，再解析目标结构
+- `LoadStoreConfig` 统一走 payload 管线，不再保留旧的直读 JSON 分支
+- `Raw.Encrypted=false`：执行 `Base64 解码 -> 解压 -> 反序列化`
+- `Raw.Encrypted=true`：执行 `Base64 解码 -> 解密 -> 解压 -> 反序列化`
 - 如果只有部分敏感信息需要保护，应拆成独立配置项，而不是在同一份 JSON 中做字段级加密
 
 ## 最小示例
