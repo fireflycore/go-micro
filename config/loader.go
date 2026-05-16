@@ -1,39 +1,6 @@
 package config
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-)
-
-// LocalLoaderFunc 定义本地配置加载函数签名。
-// 典型实现是按 fileName 读取配置文件并反序列化到 target。
-type LocalLoaderFunc func(fileName string, target any) error
-
-// RemoteLoaderFunc 定义远程配置读取函数签名。
-// 典型实现是从配置中心按 appId + group + key 获取配置文本。
-type RemoteLoaderFunc func(appId, group, key string) (string, error)
-
-// PayloadDecodeFunc 定义配置内容解码函数签名。
-// 用于处理整份配置为密文的场景：先解密完整内容，再反序列化到 target。
-type PayloadDecodeFunc func(content string, secret []byte, target any) error
-
-// LoaderParams 描述加载后端配置对象所需参数。
-// 该结构把 local / remote 两条加载链路的输入参数统一起来。
-type LoaderParams struct {
-	// Mode 指定加载模式：local / remote。
-	Mode string
-	// AppId 远程模式下用于定位配置所属应用。
-	AppId string
-	// AppSecret 远程模式下用于解密整份配置内容（如果是密文）。
-	AppSecret []byte
-	// Group 配置分组（如 database）。
-	Group string
-	// Key 配置名（如 consul / etcd / k8s）。
-	Key string
-	// FileName 本地模式下使用的文件名（如 consul.json）。
-	FileName string
-}
+import "context"
 
 // StoreParams 描述从 Store 读取一条配置并解析所需参数。
 // 当 Key 某些字段为空时，会用 AppId / Env / Group / Name 回填。
@@ -50,56 +17,17 @@ type StoreParams struct {
 	Name string
 	// AppSecret 当读取到密文配置项时用于解码。
 	AppSecret []byte
-}
-
-// LoadConfig 按 local / remote 规则加载并解析后端配置。
-func LoadConfig[T any](params LoaderParams, localLoad LocalLoaderFunc, remoteLoad RemoteLoaderFunc, payloadDecode PayloadDecodeFunc) (T, error) {
-	var target, zero T
-
-	switch params.Mode {
-	case "local":
-		if localLoad == nil {
-			return zero, ErrLocalLoaderIsNil
-		}
-
-		if err := localLoad(params.FileName, &target); err != nil {
-			return zero, err
-		}
-
-		return target, nil
-	case "remote":
-		if remoteLoad == nil {
-			return zero, ErrRemoteLoaderIsNil
-		}
-
-		row, err := remoteLoad(params.AppId, params.Group, params.Key)
-		if err != nil {
-			return zero, err
-		}
-
-		if payloadDecode != nil {
-			if err = payloadDecode(row, params.AppSecret, &target); err != nil {
-				return zero, err
-			}
-			return target, nil
-		}
-
-		if err = json.Unmarshal([]byte(row), &target); err != nil {
-			return zero, err
-		}
-
-		return target, nil
-	default:
-		return zero, fmt.Errorf("%w: %s", ErrUnsupportedLoadMode, params.Mode)
-	}
+	// Codec 用于配置内容的结构化编解码，未设置时默认使用 JSON。
+	Codec Codec
+	// Encryptor 用于密文配置的加解密。
+	Encryptor Encryptor
+	// Compressor 用于配置内容的压缩与解压。
+	Compressor Compressor
 }
 
 // LoadStoreConfig 从 Store 读取当前配置并解析为目标类型 T。
-// 加密处理规则：
-// - 当 Raw.Encrypted=false 时，直接 JSON 解析 Content
-// - 当 Raw.Encrypted=true 时，必须先通过 payloadDecode 解密整份 Content，再解析为目标结构
-// - 不支持字段级加密，一份配置要加密就整份加密
-func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams, payloadDecode PayloadDecodeFunc) (T, error) {
+// 配置内容统一走 payload 处理流程：Base64 解码 -> 按需解密 -> 解压 -> 反序列化。
+func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams) (T, error) {
 	var target, zero T
 
 	if store == nil {
@@ -127,22 +55,7 @@ func LoadStoreConfig[T any](ctx context.Context, store Store, params StoreParams
 		return zero, err
 	}
 
-	// 根据 Encrypted 标识决定解析方式
-	if raw.Encrypted {
-		// 加密配置：必须先解密整份内容
-		if payloadDecode == nil {
-			return zero, ErrPayloadDecoderIsNil
-		}
-
-		if err = payloadDecode(string(raw.Content), params.AppSecret, &target); err != nil {
-			return zero, err
-		}
-
-		return target, nil
-	}
-
-	// 明文配置：直接 JSON 解析
-	if err = json.Unmarshal(raw.Content, &target); err != nil {
+	if err = UnmarshalPayload(string(raw.Content), raw.Encrypted, params.AppSecret, &target, params.Compressor, params.Encryptor, params.Codec); err != nil {
 		return zero, err
 	}
 
