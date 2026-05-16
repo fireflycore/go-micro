@@ -73,11 +73,11 @@ func BuildContext(ctx context.Context, options BuildContextOptions) *Context {
 	}
 
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		value.UserId = parseMetaKey(md, constant.UserId)
-		value.AppId = parseMetaKey(md, constant.AppId)
-		value.TenantId = parseMetaKey(md, constant.TenantId)
-		value.RouteMethod = parseMetaKey(md, constant.RouteMethod)
-		value.AccessMethod = parseMetaKey(md, constant.AccessMethod)
+		value.UserId = ParseMetaKey(md, constant.UserId)
+		value.AppId = ParseMetaKey(md, constant.AppId)
+		value.TenantId = ParseMetaKey(md, constant.TenantId)
+		value.RouteMethod = ParseMetaKey(md, constant.RouteMethod)
+		value.AccessMethod = ParseMetaKey(md, constant.AccessMethod)
 		value.OrgIds = cloneStrings(md.Get(constant.OrgIds))
 		value.RoleIds = cloneStrings(md.Get(constant.RoleIds))
 	}
@@ -89,7 +89,7 @@ func BuildContext(ctx context.Context, options BuildContextOptions) *Context {
 	return value
 }
 
-func parseMetaKey(md metadata.MD, key string) string {
+func ParseMetaKey(md metadata.MD, key string) string {
 	if md == nil {
 		return ""
 	}
