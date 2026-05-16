@@ -6,7 +6,7 @@
 
 旧阶段曾计划把启动配置相关接口从 `github.com/fireflycore/go-micro/conf` 收敛到 `github.com/fireflycore/go-micro/config` 根包；但当前主线已经进一步收敛：
 
-- `go-micro/config` 只保留统一配置契约、loader 语义和错误语义
+- `go-micro/config` 只保留统一配置契约、payload 编解码语义和错误语义
 - 业务服务自己的启动配置模型由业务侧自行定义
 - `logger`、`telemetry` 等基础库只接收最小输入，不再通过公共启动配置接口耦合
 
@@ -23,10 +23,10 @@
 - `WatchEvent`
 - `Store`
 - `Watcher`
-- `LoaderParams`
 - `StoreParams`
-- `LoadConfig(...)`
 - `LoadStoreConfig(...)`
+- `MarshalPayload(...)`
+- `UnmarshalPayload(...)`
 - 统一错误语义与解码语义
 
 ### 2. 业务服务自己保留什么
