@@ -24,6 +24,4 @@ type BootstrapConfig struct {
 	ServerPort uint `json:"server_port"`
 	// ManagePort 管理端口
 	ManagedPort uint `json:"managed_port"`
-	// LoadConfigMode 加载配置方式
-	LoadConfigMode string `json:"load_config_mode"`
 }
