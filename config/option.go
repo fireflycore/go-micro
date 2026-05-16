@@ -18,20 +18,28 @@ type Encryptor interface {
 	Decrypt(data []byte, key []byte) ([]byte, error)
 }
 
+// Compressor 定义配置内容压缩与解压能力。
+type Compressor interface {
+	// Compress 对原始数据执行压缩。
+	Compress(data []byte) ([]byte, error)
+	// Decompress 对压缩后的数据执行解压。
+	Decompress(data []byte) ([]byte, error)
+}
+
 // Options 定义 config 组件的通用运行参数。
 type Options struct {
 	// Namespace 用于区分配置键空间。
 	Namespace string
 	// Timeout 用于单次请求超时控制。
 	Timeout time.Duration
-	// Retry 用于失败重试次数控制。
-	Retry uint32
 	// WatchBuffer 用于监听事件通道缓冲区大小。
 	WatchBuffer int
 	// Codec 为可选编解码器。
 	Codec Codec
 	// Encryptor 为可选加解密器。
 	Encryptor Encryptor
+	// Compressor 为可选压缩器。
+	Compressor Compressor
 }
 
 // Option 表示函数式配置项。
@@ -42,7 +50,6 @@ func NewOptions(opts ...Option) *Options {
 	// 初始化默认配置，保证零参数也可运行。
 	raw := &Options{
 		Timeout:     5 * time.Second,
-		Retry:       3,
 		WatchBuffer: 8,
 	}
 	// 逐个应用调用方传入的 Option。
@@ -76,17 +83,6 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithRetry 设置失败重试次数。
-func WithRetry(retry uint32) Option {
-	return func(raw *Options) {
-		// 0 表示不修改默认值。
-		if retry == 0 {
-			return
-		}
-		raw.Retry = retry
-	}
-}
-
 // WithWatchBuffer 设置监听事件缓冲区大小。
 func WithWatchBuffer(size int) Option {
 	return func(raw *Options) {
@@ -109,5 +105,12 @@ func WithCodec(codec Codec) Option {
 func WithEncryptor(encryptor Encryptor) Option {
 	return func(raw *Options) {
 		raw.Encryptor = encryptor
+	}
+}
+
+// WithCompressor 注入自定义压缩实现。
+func WithCompressor(compressor Compressor) Option {
+	return func(raw *Options) {
+		raw.Compressor = compressor
 	}
 }
