@@ -3,8 +3,6 @@ package config
 import "errors"
 
 var (
-	// ErrPayloadDecoderIsNil 表示配置内容解码函数为空。
-	ErrPayloadDecoderIsNil = errors.New("config payload decoder is nil")
 	// ErrStoreIsNil 表示存储实现为空。
 	ErrStoreIsNil = errors.New("config store is nil")
 	// ErrWatcherIsNil 表示监听实现为空。
