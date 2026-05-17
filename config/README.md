@@ -7,6 +7,8 @@
 - `go-micro/config` 只负责统一配置读取、监听、解码与错误语义
 - 业务服务自己的启动配置模型仍由业务侧定义
 - `logger`、`telemetry` 等基础库只接收最小输入，不再通过 `go-micro/config` 根包暴露启动配置接口
+- cache / watch / `manage/client` 的后续重构计划见 `manage-client-refactor-plan.md`
+- 当前阶段已先补齐 `Client` 与 `ClientOptions` 契约，后端实现待适配层在后续版本补齐
 
 > 当前主线口径：统一的是契约、读取语义与控制面边界，不是把多个后端实现同时打进一个运行时产物。当前交付主线中，IDC 使用 `go-consul/config`，`K8s + Istio` 使用 `go-k8s/config`。
 
@@ -82,6 +84,8 @@ type Config struct {
 - `model.go`：配置主键、配置内容、版本元数据、监听事件模型
 - `store.go`：统一存储接口
 - `watch.go`：统一监听接口
+- `client.go`：统一配置客户端读取接口
+- `client_option.go`：`Client` 的运行参数与 watch/cache 开关
 - `option.go`：函数式配置选项与可插拔能力（Codec/Encryptor/Compressor）
 - `loader.go`：从 `Store` 读取并解析配置对象
 - `payload.go`：统一 payload 编码与解码流程
@@ -111,6 +115,8 @@ type Config struct {
 ### 2) 业务侧依赖抽象
 
 业务代码依赖 `Store/Watcher` 接口，不直接依赖具体后端实现。
+
+当后续适配层补齐 `Client` 后，业务侧应优先依赖 `Client.Get`，由基础库统一收敛 cache 与 watch 行为。
 
 ### 3) 配置分层建议
 
