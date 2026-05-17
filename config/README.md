@@ -7,7 +7,7 @@
 - `go-micro/config` 只负责统一配置读取、监听、解码与错误语义
 - 业务服务自己的启动配置模型仍由业务侧定义
 - `logger`、`telemetry` 等基础库只接收最小输入，不再通过 `go-micro/config` 根包暴露启动配置接口
-- cache / watch / `manage/client` 的后续重构计划见 `manage-client-refactor-plan.md`
+- cache / watch / `manage/client` 的后续重构计划见设计库 `design/config/plan/go-micro-config-manage-client-refactor-plan.md`
 - 当前阶段已先补齐 `Client` 与 `ClientOptions` 契约，后端实现待适配层在后续版本补齐
 
 > 当前主线口径：统一的是契约、读取语义与控制面边界，不是把多个后端实现同时打进一个运行时产物。当前交付主线中，IDC 使用 `go-consul/config`，`K8s + Istio` 使用 `go-k8s/config`。
