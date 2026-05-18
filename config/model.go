@@ -4,17 +4,16 @@ import "time"
 
 // Key 描述一条配置在存储中的业务主键。
 type Key struct {
-	// TenantId 表示租户标识，用于多租户隔离。
-	TenantId string `json:"tenant_id"`
+	// Namespace 表示命名空间。
+	Namespace string `json:"namespace"`
 	// AppId 表示应用标识。
 	AppId string `json:"app_id"`
-	// Env 表示环境，如 dev/staging/prod。
-	Env string `json:"env"`
-
 	// Group 表示配置分组。
 	Group string `json:"group"`
-	// Name 表示具体配置名。
-	Name string `json:"name"`
+	// Env 表示环境，如 dev/staging/prod。
+	Env string `json:"env"`
+	// Key 表示具体配置名。
+	Key string `json:"key"`
 }
 
 // Raw 表示一条可发布、可读取的配置内容。
