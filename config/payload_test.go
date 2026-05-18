@@ -145,14 +145,17 @@ func TestLoadStoreConfigWithUnifiedPayloadPipeline(t *testing.T) {
 	}
 
 	target, err := LoadStoreConfig[payload](context.Background(), store, StoreParams{
-		AppId:      "app",
-		Env:        "prod",
-		Group:      "database",
-		Name:       "redis",
+		Key: Key{
+			Namespace: "default",
+			AppId:     "app",
+			Env:       "prod",
+			Group:     "database",
+			Key:       "redis",
+		},
 		AppSecret:  secret,
 		Compressor: compressor,
 		Encryptor:  encryptor,
-})
+	})
 	if err != nil {
 		t.Fatalf("LoadStoreConfig() error = %v", err)
 	}
