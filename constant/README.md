@@ -6,24 +6,54 @@
 
 这些常量主要用于 gRPC Metadata 或 HTTP Header 中传递上下文信息。
 
-### 身份与追踪
-- `Session`：会话标识（`x-firefly-session`）
-- `Authorization`：认证令牌（`authorization`）
-- `UserId`：用户 ID（`x-firefly-user-id`）
-- `AppId`：应用 ID（`x-firefly-app-id`）
-- `TenantId`：租户 ID（`x-firefly-tenant-id`）
-- `ClientIp`：客户端 IP（`x-firefly-client-ip`）
-- `XRealIp`：反向代理透传真实 IP（`x-real-ip`）
+### 标准头
 
-> 链路追踪统一使用 OpenTelemetry tracer 注入/提取的 W3C `traceparent`/`tracestate`。
-> 历史字段 `x-trace-id` 已从常量定义中移除，不应再作为服务间 header 或 metadata 使用。
+- `Authorization`：认证令牌（`authorization`），由 authz 在数据面统一消费。
+- `XRealIp`：入口代理透传真实 IP（`x-real-ip`）。
+- `XForwardedFor`：代理链路 IP 列表（`x-forwarded-for`）。
+- `TraceParent` / `TraceState` / `Baggage`：W3C Trace Context 与 Baggage 标准头。
+
+链路追踪统一使用 OpenTelemetry 自动注入/提取的 `traceparent` / `tracestate`，不再定义 `x-firefly-trace-id` 或 `x-request-id` 作为链路主键。
+
+### 身份上下文
+
+- `Session`：会话标识（`x-firefly-session`）。
+- `UserId`：用户 ID（`x-firefly-user-id`）。
+- `AppId`：调用方应用 ID（`x-firefly-app-id`），authz allow 后与 `InvokeAppId` 保持一致。
+- `TenantId`：租户 ID（`x-firefly-tenant-id`）。
+- `OrgIds` / `RoleIds`：组织与角色 ID 列表。
+
+### Authz 可信上下文
+
+- `SubjectType`：主体类型（`anonymous` / `user` / `service`）。
+- `InvokeAppId`：调用方应用 ID。
+- `TargetAppId`：被访问资源所属应用 ID。
+- `ResourceType`：权限动作，HTTP 为方法名，gRPC 为 `GRPC`。
+- `ResourcePath`：权限资源路径。
+- `DecisionId`：authz allow 决策 ID。
+- `AuthzContext`：authz 写入的短有效期签名 JWS，是服务侧信任根。
 
 ### 客户端信息
-- `SystemName` / `SystemVersion`：系统名称与版本
-- `ClientName` / `ClientVersion`：客户端名称与版本
-- `SystemType` / `ClientType`：系统/客户端类型
-- `DeviceFormFactor`：设备形态
-- `AppVersion` / `AppLanguage`：应用版本 / 语言
+
+- `SystemName` / `SystemVersion`：系统名称与版本。
+- `ClientName` / `ClientVersion`：客户端名称与版本。
+- `SystemType` / `ClientType`：系统/客户端类型。
+- `AppVersion` / `AppLanguage`：应用版本 / 语言。
+
+### 服务身份
+
+- `ServiceAppId` / `ServiceInstanceId`：当前服务发起下游 gRPC 调用时由 `go-micro/invocation` 注入的服务身份。
+
+### 已移除字段
+
+以下字段属于旧 Http-Gateway / Grpc-Gateway 链路，不再保留为 `go-micro` 公共协议：
+
+- `x-firefly-access-method`
+- `x-firefly-route-method`
+- `x-firefly-http-gateway-sign`
+- `x-firefly-grpc-gateway-sign`
+- `x-firefly-gateway-auth-sign`
+- `x-firefly-service-auth`
 
 ### 使用示例
 
