@@ -129,17 +129,29 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			if serviceContext.TenantId != "" {
 				fields = append(fields, zap.String("tenant_id", serviceContext.TenantId))
 			}
+			if serviceContext.SubjectType != "" {
+				fields = append(fields, zap.String("subject_type", serviceContext.SubjectType))
+			}
+			if serviceContext.InvokeAppId != "" {
+				fields = append(fields, zap.String("invoke_app_id", serviceContext.InvokeAppId))
+			}
+			if serviceContext.TargetAppId != "" {
+				fields = append(fields, zap.String("target_app_id", serviceContext.TargetAppId))
+			}
+			if serviceContext.ResourceType != "" {
+				fields = append(fields, zap.String("resource_type", serviceContext.ResourceType))
+			}
+			if serviceContext.ResourcePath != "" {
+				fields = append(fields, zap.String("resource_path", serviceContext.ResourcePath))
+			}
+			if serviceContext.DecisionId != "" {
+				fields = append(fields, zap.String("decision_id", serviceContext.DecisionId))
+			}
 			if serviceContext.ServiceAppId != "" {
 				fields = append(fields, zap.String("service_app_id", serviceContext.ServiceAppId))
 			}
 			if serviceContext.ServiceInstanceId != "" {
 				fields = append(fields, zap.String("service_instance_id", serviceContext.ServiceInstanceId))
-			}
-			if serviceContext.RouteMethod != "" {
-				fields = append(fields, zap.String("route_method", serviceContext.RouteMethod))
-			}
-			if serviceContext.AccessMethod != "" {
-				fields = append(fields, zap.String("access_method", serviceContext.AccessMethod))
 			}
 		} else {
 			// 没有 ServiceContext 时，再回退到原始 metadata 中兜底提取。
@@ -151,6 +163,24 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			}
 			if v := parseLogMetaKey(md, constant.TenantId); v != "" {
 				fields = append(fields, zap.String("tenant_id", v))
+			}
+			if v := parseLogMetaKey(md, constant.SubjectType); v != "" {
+				fields = append(fields, zap.String("subject_type", v))
+			}
+			if v := parseLogMetaKey(md, constant.InvokeAppId); v != "" {
+				fields = append(fields, zap.String("invoke_app_id", v))
+			}
+			if v := parseLogMetaKey(md, constant.TargetAppId); v != "" {
+				fields = append(fields, zap.String("target_app_id", v))
+			}
+			if v := parseLogMetaKey(md, constant.ResourceType); v != "" {
+				fields = append(fields, zap.String("resource_type", v))
+			}
+			if v := parseLogMetaKey(md, constant.ResourcePath); v != "" {
+				fields = append(fields, zap.String("resource_path", v))
+			}
+			if v := parseLogMetaKey(md, constant.DecisionId); v != "" {
+				fields = append(fields, zap.String("decision_id", v))
 			}
 		}
 

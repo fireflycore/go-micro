@@ -8,10 +8,11 @@
 
 在请求入口统一完成：
 
-- 解析入站 metadata 中的用户与路由字段
+- 解析入站 metadata 中的用户与 authz 上下文字段
 - 构造服务内唯一主上下文 `service.Context`
 - 从当前 OTel span 提取 trace 标识快照
 - 补齐当前服务自身身份（`ServiceAppId`、`ServiceInstanceId`）
+- 按需本地验签 `x-firefly-authz-context`
 
 **推荐用途**：
 - 在 gRPC 服务端入口统一注入 `service.Context`
@@ -64,6 +65,8 @@ s := grpc.NewServer(
         gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
             ServiceAppId:      "auth",
             ServiceInstanceId: "auth-1",
+            // 生产环境建议配置 AuthzVerification，让服务侧信任签名上下文而不是普通 header。
+            // AuthzVerification: &service.AuthzContextVerificationOptions{...},
         }),
         gm.ValidationErrorToInvalidArgument(),
         gm.NewAccessLogger(accessLog),
