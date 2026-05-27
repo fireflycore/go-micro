@@ -120,65 +120,85 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 		}
 		// 若上游已在入口构建 ServiceContext，则优先使用结构化后的字段。
 		if serviceContext != nil {
+			// 记录用户主体 ID，服务和匿名主体通常为空。
 			if serviceContext.UserId != "" {
 				fields = append(fields, zap.String("user_id", serviceContext.UserId))
 			}
+			// 记录兼容 app_id 字段，语义上等同 invoke_app_id。
 			if serviceContext.AppId != "" {
 				fields = append(fields, zap.String("app_id", serviceContext.AppId))
 			}
+			// 记录租户 ID，便于按租户聚合访问日志。
 			if serviceContext.TenantId != "" {
 				fields = append(fields, zap.String("tenant_id", serviceContext.TenantId))
 			}
+			// 记录主体类型，区分 anonymous/user/service 三种入口。
 			if serviceContext.SubjectType != "" {
 				fields = append(fields, zap.String("subject_type", serviceContext.SubjectType))
 			}
+			// 记录调用方应用 ID，权限和审计统一使用该字段表达 caller。
 			if serviceContext.InvokeAppId != "" {
 				fields = append(fields, zap.String("invoke_app_id", serviceContext.InvokeAppId))
 			}
+			// 记录被访问资源所属 app_id，便于排查跨应用调用。
 			if serviceContext.TargetAppId != "" {
 				fields = append(fields, zap.String("target_app_id", serviceContext.TargetAppId))
 			}
+			// 记录授权动作，HTTP 为方法名，gRPC 为 GRPC。
 			if serviceContext.ResourceType != "" {
 				fields = append(fields, zap.String("resource_type", serviceContext.ResourceType))
 			}
+			// 记录授权资源路径，gRPC 场景为 FullMethod。
 			if serviceContext.ResourcePath != "" {
 				fields = append(fields, zap.String("resource_path", serviceContext.ResourcePath))
 			}
+			// 记录 authz 决策 ID，用于从业务日志反查 authz 审计记录。
 			if serviceContext.DecisionId != "" {
 				fields = append(fields, zap.String("decision_id", serviceContext.DecisionId))
 			}
+			// 记录当前服务自身 app_id，和 invoke_app_id 一起用于区分调用方/被调方。
 			if serviceContext.ServiceAppId != "" {
 				fields = append(fields, zap.String("service_app_id", serviceContext.ServiceAppId))
 			}
+			// 记录当前服务实例 ID，便于定位具体进程实例。
 			if serviceContext.ServiceInstanceId != "" {
 				fields = append(fields, zap.String("service_instance_id", serviceContext.ServiceInstanceId))
 			}
 		} else {
 			// 没有 ServiceContext 时，再回退到原始 metadata 中兜底提取。
+			// 兜底记录用户主体 ID。
 			if v := parseLogMetaKey(md, constant.UserId); v != "" {
 				fields = append(fields, zap.String("user_id", v))
 			}
+			// 兜底记录兼容 app_id 字段。
 			if v := parseLogMetaKey(md, constant.AppId); v != "" {
 				fields = append(fields, zap.String("app_id", v))
 			}
+			// 兜底记录租户 ID。
 			if v := parseLogMetaKey(md, constant.TenantId); v != "" {
 				fields = append(fields, zap.String("tenant_id", v))
 			}
+			// 兜底记录主体类型。
 			if v := parseLogMetaKey(md, constant.SubjectType); v != "" {
 				fields = append(fields, zap.String("subject_type", v))
 			}
+			// 兜底记录调用方 app_id。
 			if v := parseLogMetaKey(md, constant.InvokeAppId); v != "" {
 				fields = append(fields, zap.String("invoke_app_id", v))
 			}
+			// 兜底记录被访问资源所属 app_id。
 			if v := parseLogMetaKey(md, constant.TargetAppId); v != "" {
 				fields = append(fields, zap.String("target_app_id", v))
 			}
+			// 兜底记录授权动作。
 			if v := parseLogMetaKey(md, constant.ResourceType); v != "" {
 				fields = append(fields, zap.String("resource_type", v))
 			}
+			// 兜底记录授权资源路径。
 			if v := parseLogMetaKey(md, constant.ResourcePath); v != "" {
 				fields = append(fields, zap.String("resource_path", v))
 			}
+			// 兜底记录 authz 决策 ID。
 			if v := parseLogMetaKey(md, constant.DecisionId); v != "" {
 				fields = append(fields, zap.String("decision_id", v))
 			}
