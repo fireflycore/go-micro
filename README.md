@@ -17,6 +17,12 @@
 - 指标、链路、日志相关能力围绕 OTel 生态组织
 - `invocation` 的后续实现也应默认对齐这一观测模型
 
+在权限链路上，`go-micro` 只负责服务侧上下文结构化和 authz 签名上下文本地验签：
+
+- token 解析和权限判定由 authz 数据面完成
+- `ServiceContext` 读取 `x-firefly-authz-context` 与普通上下文 header
+- 生产环境建议在 gRPC 入口配置 `AuthzVerification`
+
 ## 安装
 
 ```bash
@@ -29,6 +35,7 @@ go get github.com/fireflycore/go-micro
 
 ```go
 import (
+	"github.com/fireflycore/go-micro/service"
 	"github.com/fireflycore/go-micro/middleware/grpc" // 别名通常为 gm
 	"google.golang.org/grpc"
 )
@@ -39,6 +46,10 @@ s := grpc.NewServer(
 		gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
 			ServiceAppId:      "auth",
 			ServiceInstanceId: "auth-1",
+			AuthzVerification: &service.AuthzContextVerificationOptions{
+				Issuer: "firefly-authz",
+				// PublicKeys: map[string]ed25519.PublicKey{"default": authzPublicKey},
+			},
 		}),
 		gm.ValidationErrorToInvalidArgument(),
 		gm.NewAccessLogger(log),
