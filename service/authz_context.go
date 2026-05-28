@@ -30,7 +30,7 @@ var (
 
 // AuthzContext 表示 authz allow 后写入 x-firefly-authz-context 的可信载荷。
 type AuthzContext struct {
-	// KeyId 是 JWS header 中的 kid，用于审计和密钥轮换排查。
+	// KeyId 是 JWS header 中的 kid，用于密钥轮换排查。
 	KeyId string `json:"-"`
 	// Issuer 表示签发方，当前约定为 firefly-authz。
 	Issuer string `json:"iss"`
@@ -50,8 +50,6 @@ type AuthzContext struct {
 	ResourceType string `json:"resource_type"`
 	// ResourcePath 表示本次授权资源路径。
 	ResourcePath string `json:"path"`
-	// RouteId 表示网关侧 route 标识，仅用于审计和排障。
-	RouteId string `json:"route_id,omitempty"`
 	// Decision 表示 authz 判定结果，当前允许链路固定为 allow。
 	Decision string `json:"decision"`
 	// DecisionId 表示 authz 对本次判定生成的唯一 ID。
@@ -143,7 +141,7 @@ func VerifyAuthzContext(raw string, options AuthzContextVerificationOptions) (*A
 		return nil, ErrAuthzContextMalformed
 	}
 
-	// 先把 kid 写入上下文，便于后续审计知道使用的是哪把公钥。
+	// 先把 kid 写入上下文，便于日志或排障时知道使用的是哪把公钥。
 	claims := &AuthzContext{KeyId: header.Kid}
 	// 将 JSON claim 反序列化为稳定结构，避免业务侧直接操作 map。
 	if err := json.Unmarshal(payload, claims); err != nil {

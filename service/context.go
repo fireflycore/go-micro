@@ -39,7 +39,7 @@ type Context struct {
 	ResourcePath string
 	// DecisionId 表示 authz allow 决策 ID。
 	DecisionId string
-	// AuthzContextToken 保存 authz 注入的原始签名 JWS，便于审计或延迟验签。
+	// AuthzContextToken 保存 authz 注入的原始签名 JWS，便于入口统一验签和排障。
 	AuthzContextToken string
 	// AuthzContext 保存已本地验签通过的可信上下文；未启用验签时为空。
 	AuthzContext *AuthzContext
@@ -55,7 +55,7 @@ type Context struct {
 type BuildContextOptions struct {
 	// ServiceAppId 表示当前进程所属应用 ID，用于服务自身身份和 target_app_id 默认校验。
 	ServiceAppId string
-	// ServiceInstanceId 表示当前进程实例 ID，用于日志、审计和实例排障。
+	// ServiceInstanceId 表示当前进程实例 ID，用于日志和实例排障。
 	ServiceInstanceId string
 	// AuthzVerification 配置后，BuildVerifiedContext 会用它校验 x-firefly-authz-context。
 	AuthzVerification *AuthzContextVerificationOptions
@@ -144,7 +144,7 @@ func buildContextFromMetadata(ctx context.Context, options BuildContextOptions) 
 		value.AppId = value.InvokeAppId
 		// TenantId 表示主体租户，服务或公共接口可能为空或通配。
 		value.TenantId = ParseMetaKey(md, constant.TenantId)
-		// SubjectType 区分 anonymous/user/service，替代旧 route-method。
+		// SubjectType 区分 anonymous/user/service。
 		value.SubjectType = ParseMetaKey(md, constant.SubjectType)
 		// TargetAppId 表示当前被访问资源所属 app_id。
 		value.TargetAppId = ParseMetaKey(md, constant.TargetAppId)
@@ -172,7 +172,7 @@ func (c *Context) applyVerifiedAuthzContext(authzContext *AuthzContext) {
 	if c == nil || authzContext == nil {
 		return
 	}
-	// 保存完整可信 claim，业务或日志需要审计细节时可读取。
+	// 保存完整可信 claim，业务或日志需要追踪授权上下文时可读取。
 	c.AuthzContext = authzContext
 	// UserId 以签名 claim 为准，防止客户端伪造普通 x-firefly-user-id。
 	c.UserId = authzContext.UserId
