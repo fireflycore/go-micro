@@ -136,7 +136,7 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			if serviceContext.SubjectType != "" {
 				fields = append(fields, zap.String("subject_type", serviceContext.SubjectType))
 			}
-			// 记录调用方应用 ID，权限和审计统一使用该字段表达 caller。
+			// 记录调用方应用 ID，权限判断和访问日志统一使用该字段表达 caller。
 			if serviceContext.InvokeAppId != "" {
 				fields = append(fields, zap.String("invoke_app_id", serviceContext.InvokeAppId))
 			}
@@ -152,7 +152,7 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			if serviceContext.ResourcePath != "" {
 				fields = append(fields, zap.String("resource_path", serviceContext.ResourcePath))
 			}
-			// 记录 authz 决策 ID，用于从业务日志反查 authz 审计记录。
+			// 记录 authz 决策 ID，用于把业务日志和授权判定关联起来。
 			if serviceContext.DecisionId != "" {
 				fields = append(fields, zap.String("decision_id", serviceContext.DecisionId))
 			}

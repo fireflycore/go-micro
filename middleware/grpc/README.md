@@ -16,7 +16,7 @@
 
 **推荐用途**：
 - 在 gRPC 服务端入口统一注入 `service.Context`
-- access log 与审计日志统一读取字段
+- access log 与后续审计扩展统一读取字段
 - 在请求入口统一完成服务内主上下文注入
 
 `gm` 当前只负责服务端入站中间件语义，不再定义服务内主上下文模型；业务代码应从 `go-micro/service` 读取 `service.Context`，出站调用统一由 `go-micro/invocation` 直接基于当前 gRPC context 与 OTel trace 处理。
