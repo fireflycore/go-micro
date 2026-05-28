@@ -25,7 +25,7 @@ const (
 	// AppVersion 表示客户端应用版本。
 	AppVersion = HeaderPrefix + "app-version"
 
-	// Session 表示用户或服务会话标识，仅由可信入口写入。
+	// Session 表示用户或服务会话标识, 通常是jwt的session， 可通过此吊销jwt，仅由可信入口写入。
 	Session = HeaderPrefix + "session"
 	// UserId 表示当前用户主体 ID；服务或匿名主体为空。
 	UserId = HeaderPrefix + "user-id"
@@ -56,7 +56,7 @@ const (
 	ResourceType = HeaderPrefix + "resource-type"
 	// ResourcePath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 /package.Service/Method。
 	ResourcePath = HeaderPrefix + "resource-path"
-	// DecisionId 表示 authz 对本次 allow 判定生成的唯一决策 ID，用于审计串联。
+	// DecisionId 表示 authz 对本次 allow 判定生成的唯一决策 ID，用于日志关联。
 	DecisionId = HeaderPrefix + "decision-id"
 	// AuthzContext 表示 authz 写入的短有效期签名上下文 JWS，是服务侧信任根。
 	AuthzContext = HeaderPrefix + "authz-context"
