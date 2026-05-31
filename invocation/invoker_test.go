@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fireflycore/go-micro/authz"
 	"github.com/fireflycore/go-micro/constant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -106,7 +105,7 @@ func TestUnaryInvoker_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 		Dialer:                   testDialer{conn: &grpc.ClientConn{}},
 		ServiceAppId:             "config",
 		ServiceInstanceId:        "config-1",
-		ServiceAuthorityProvider: authz.NewStaticServiceAuthorityProvider("config-service-token"),
+		ServiceAuthorityProvider: fixedServiceAuthorityProvider("config-service-token"),
 		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 			md, ok := metadata.FromOutgoingContext(ctx)
 			if !ok {
@@ -272,7 +271,7 @@ func TestResolveOutgoingMetadata_InjectsCallerServiceIdentity(t *testing.T) {
 		context.Background(),
 		"auth",
 		"auth-1",
-		authz.NewStaticServiceAuthorityProvider("auth-service-token"),
+		fixedServiceAuthorityProvider("auth-service-token"),
 	)
 	if err != nil {
 		t.Fatalf("resolve metadata failed: %v", err)
@@ -298,7 +297,7 @@ func TestResolveOutgoingMetadata_PreservesUserAuthorityAndDropsStaleAuthzContext
 		constant.UserId, "user-1",
 	))
 
-	md, err := resolveOutgoingMetadata(ctx, "app", "app-1", authz.NewStaticServiceAuthorityProvider("new-service-token"))
+	md, err := resolveOutgoingMetadata(ctx, "app", "app-1", fixedServiceAuthorityProvider("new-service-token"))
 	if err != nil {
 		t.Fatalf("resolve metadata failed: %v", err)
 	}
@@ -401,4 +400,10 @@ type failingServiceAuthorityProvider struct {
 
 func (p failingServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
 	return "", p.err
+}
+
+type fixedServiceAuthorityProvider string
+
+func (p fixedServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
+	return string(p), nil
 }

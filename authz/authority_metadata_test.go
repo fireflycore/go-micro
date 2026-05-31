@@ -23,7 +23,7 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 		constant.Baggage, "tenant=demo",
 	)
 
-	prepared, err := PrepareOutgoingAuthorityMetadata(context.Background(), md, NewStaticServiceAuthorityProvider("new-service-token"))
+	prepared, err := PrepareOutgoingAuthorityMetadata(context.Background(), md, fixedServiceAuthorityProvider("new-service-token"))
 	if err != nil {
 		t.Fatalf("prepare metadata failed: %v", err)
 	}
@@ -97,4 +97,10 @@ type errorServiceAuthorityProvider struct {
 
 func (p errorServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
 	return "", p.err
+}
+
+type fixedServiceAuthorityProvider string
+
+func (p fixedServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
+	return string(p), nil
 }
