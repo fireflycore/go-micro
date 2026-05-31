@@ -6,7 +6,7 @@ const (
 	XRealIp = "x-real-ip"
 	// XForwardedFor 表示标准代理链路 IP 列表，入口服务只读取第一个有效地址。
 	XForwardedFor = "x-forwarded-for"
-	// Authorization 表示标准认证头，当前由 authz 在数据面统一消费。
+	// Authorization 表示外部系统可能携带的标准认证头，不作为 Firefly current 身份入口。
 	Authorization = "authorization"
 	// TraceParent 是 W3C Trace Context 中承载 trace_id/span_id/parent 关系的标准头。
 	TraceParent = "traceparent"
@@ -17,6 +17,13 @@ const (
 
 	// HeaderPrefix 是 Firefly 自定义 header 的统一前缀。
 	HeaderPrefix = "x-firefly-"
+)
+
+const (
+	// UserAuthority 表示 Firefly 用户身份凭证，用于 authz 还原 UserContext。
+	UserAuthority = HeaderPrefix + "user-authority"
+	// ServiceAuthority 表示 Firefly 服务身份凭证，每一跳由当前调用服务覆盖写入。
+	ServiceAuthority = HeaderPrefix + "service-authority"
 )
 
 const (

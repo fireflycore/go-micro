@@ -4,7 +4,8 @@
 
 ## 当前保留的核心常量
 
-- `Authorization`：认证令牌，由 authz 在数据面统一消费。
+- `Authorization`：外部系统可能携带的标准认证头，不作为 Firefly current 身份入口。
+- `UserAuthority` / `ServiceAuthority`：Firefly current 身份入口；用户 authority 透传用户身份，服务 authority 由当前服务每一跳覆盖。
 - `XRealIp` / `XForwardedFor`：入口代理透传的客户端 IP 事实。
 - `TraceParent` / `TraceState` / `Baggage`：OTEL / W3C Trace Context 传播头。
 - `AppVersion`、`UserId` / `AppId` / `TenantId` / `OrgIds` / `RoleIds`：服务内身份上下文。
@@ -21,7 +22,10 @@
 - `x-firefly-grpc-gateway-sign`
 - `x-firefly-gateway-auth-sign`
 - `x-firefly-service-auth`
+- `authorization` 作为 Firefly current 身份入口
 
 ## 说明
 
 `go-micro` 不再把 `x-request-id` 作为业务主 trace 头；链路追踪统一使用 `traceparent` / `tracestate` / `baggage`。
+
+`go-micro` 出站调用不透传上一跳 authz 注入的 `x-firefly-authz-context`、普通用户上下文字段和授权资源字段；这些字段必须由下一跳 Envoy ext_authz 重新计算并由 authz 重新签名注入。
