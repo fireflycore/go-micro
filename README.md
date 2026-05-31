@@ -22,6 +22,8 @@
 - token 解析和权限判定由 authz 数据面完成
 - `ServiceContext` 读取 `x-firefly-authz-context` 与普通上下文 header
 - 生产环境建议在 gRPC 入口配置 `AuthzVerification`
+- 出站调用通过 `authz.ServiceAuthorityProvider` 透传 `X-Firefly-User-Authority`，并由当前服务覆盖 `X-Firefly-Service-Authority`
+- 出站调用会清理上一跳 authz 注入的普通上下文和 `x-firefly-authz-context`，避免复用上一跳授权结果
 
 ## 安装
 
@@ -64,6 +66,7 @@ _ = s
 - 用 `DNSManager` 统一组装标准 gRPC target
 - 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
 - 用 `RemoteServiceManaged / RemoteServiceCaller / UnaryInvoker` 统一串起 metadata、连接复用与底层调用
+- 用 `authz.ServiceAuthorityProvider` 统一接入 auth 服务签发的 service token
 - 并默认把调用链路接入 OTel 观测体系
 
 适用场景：
