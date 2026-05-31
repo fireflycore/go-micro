@@ -21,8 +21,11 @@ func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T
 				if !ok {
 					t.Fatal("expected outgoing metadata")
 				}
-				if got := md.Get("x-firefly-user-id"); len(got) == 0 || got[0] != "u-100" {
-					t.Fatalf("unexpected user id metadata: %v", got)
+				if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
+					t.Fatalf("unexpected user authority metadata: %v", got)
+				}
+				if got := md.Get(constant.UserId); len(got) != 0 {
+					t.Fatalf("expected stale user id metadata to be removed: %v", got)
 				}
 				if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-1" {
 					t.Fatalf("unexpected request metadata: %v", got)
@@ -37,6 +40,7 @@ func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T
 	)
 
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.UserAuthority, "user-token",
 		constant.UserId, "u-100",
 		"x-request-id", "req-1",
 	))
@@ -61,8 +65,11 @@ func TestRemoteServiceCaller_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 				if !ok {
 					t.Fatal("expected outgoing metadata")
 				}
-				if got := md.Get("x-firefly-user-id"); len(got) == 0 || got[0] != "u-incoming" {
-					t.Fatalf("unexpected user id metadata: %v", got)
+				if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
+					t.Fatalf("unexpected user authority metadata: %v", got)
+				}
+				if got := md.Get(constant.UserId); len(got) != 0 {
+					t.Fatalf("expected stale user id metadata to be removed: %v", got)
 				}
 				if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "config" {
 					t.Fatalf("unexpected service app id metadata: %v", got)
@@ -80,6 +87,7 @@ func TestRemoteServiceCaller_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 	)
 
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.UserAuthority, "user-token",
 		constant.UserId, "u-incoming",
 	))
 

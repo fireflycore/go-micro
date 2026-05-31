@@ -297,7 +297,10 @@ func oldUnaryInvoke(u *UnaryInvoker, ctx context.Context, dns *DNS, method strin
 		return ErrInvokeMethodEmpty
 	}
 
-	resolvedMetadata := resolveOutgoingMetadata(ctx, u.ServiceAppId, u.ServiceInstanceId)
+	resolvedMetadata, err := resolveOutgoingMetadata(ctx, u.ServiceAppId, u.ServiceInstanceId, u.ServiceAuthorityProvider)
+	if err != nil {
+		return err
+	}
 	conn, err := u.Dialer.Dial(ctx, dns)
 	if err != nil {
 		return err
