@@ -126,6 +126,8 @@ auth.default.svc.cluster.local:9090
 
 - `UnaryInvoker` 直接复用当前链路 metadata
 - `UnaryInvoker` 在出站前注入 `ServiceAppId` / `ServiceInstanceId`
+- `UnaryInvoker` 会清理上一跳 authz 注入的普通上下文和 `x-firefly-authz-context`
+- 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 未显式配置 timeout 时，默认使用 `5s`
 - 不再暴露 metadata / timeout 的单次调用覆盖能力
@@ -181,7 +183,9 @@ sequenceDiagram
 
     RSC->>UI: Invoke(ctx, dns, fullMethod, req, resp)
     UI->>UI: 复用 incoming/outgoing metadata
+    UI->>UI: 清理上一跳 authz 普通上下文和 JWS
     UI->>UI: 注入 ServiceAppId / ServiceInstanceId
+    UI->>UI: 透传 UserAuthority 并覆盖 ServiceAuthority
     UI->>UI: 基于统一 timeout 构造 outgoing ctx
     UI->>CM: Dial(ctx, dns)
     CM->>DM: Build(dns)

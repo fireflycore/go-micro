@@ -62,6 +62,8 @@
 
 - 复用当前链路 metadata
 - 注入 `ServiceAppId` / `ServiceInstanceId`
+- 清理上一跳 authz 注入的普通上下文与签名上下文
+- 按需覆盖 `X-Firefly-Service-Authority`
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
 
