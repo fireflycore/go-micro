@@ -4,10 +4,8 @@ package constant
 const (
 	// XRealIp 表示入口代理透传的真实客户端 IP，通常由 Nginx / Ingress 写入。
 	XRealIp = "x-real-ip"
-	// XForwardedFor 表示标准代理链路 IP 列表，入口服务只读取第一个有效地址。
+	// XForwardedFor 表示标准代理链路 IP 列表，authz 可读取第一个地址作为原始客户端 IP。
 	XForwardedFor = "x-forwarded-for"
-	// Authorization 表示外部系统可能携带的标准认证头，不作为 Firefly current 身份入口。
-	Authorization = "authorization"
 	// TraceParent 是 W3C Trace Context 中承载 trace_id/span_id/parent 关系的标准头。
 	TraceParent = "traceparent"
 	// TraceState 是 W3C Trace Context 中承载厂商扩展 trace 状态的标准头。
@@ -20,53 +18,19 @@ const (
 )
 
 const (
-	// UserAuthority 表示 Firefly 用户身份凭证，用于 authz 还原 UserContext。
-	UserAuthority = HeaderPrefix + "user-authority"
-	// ServiceAuthority 表示 Firefly 服务身份凭证，每一跳由当前调用服务覆盖写入。
-	ServiceAuthority = HeaderPrefix + "service-authority"
-)
-
-const (
-	// AppLanguage 表示客户端应用语言偏好。
+	// AppLanguage 表示客户端应用语言偏好，可作为访问日志和业务展示上下文使用。
 	AppLanguage = HeaderPrefix + "app-language"
 	// AppVersion 表示客户端应用版本。
 	AppVersion = HeaderPrefix + "app-version"
-
-	// Session 表示用户或服务会话标识, 通常是jwt的session， 可通过此吊销jwt，仅由可信入口写入。
-	Session = HeaderPrefix + "session"
-	// UserId 表示当前用户主体 ID；服务或匿名主体为空。
-	UserId = HeaderPrefix + "user-id"
-	// AppId 表示调用方应用 ID；authz allow 后与 InvokeAppId 保持一致，保留给业务侧读取。
-	AppId = HeaderPrefix + "app-id"
-	// TenantId 表示当前主体所属租户 ID。
-	TenantId = HeaderPrefix + "tenant-id"
-	// OrgIds 表示当前主体关联的组织 ID 列表。
-	OrgIds = HeaderPrefix + "org-ids"
-	// RoleIds 表示当前主体关联的角色 ID 列表。
-	RoleIds = HeaderPrefix + "role-ids"
 )
 
 const (
-	// SubjectType 表示本次请求的主体类型，取值见 SubjectTypeAnonymous/User/Service。
+	// SubjectType 表示 authz 注入的普通主体类型，取值见 SubjectTypeAnonymous/User/Service。
 	SubjectType = HeaderPrefix + "subject-type"
-	// SubjectTypeAnonymous 表示无 token 但命中公共策略的匿名主体。
-	SubjectTypeAnonymous = "anonymous"
-	// SubjectTypeUser 表示通过用户 token 还原出的用户主体。
-	SubjectTypeUser = "user"
-	// SubjectTypeService 表示通过服务 session token 还原出的服务主体。
-	SubjectTypeService = "service"
-	// InvokeAppId 表示发起调用的应用 ID，由 authz 根据 token/session 可信解析。
-	InvokeAppId = HeaderPrefix + "invoke-app-id"
-	// TargetAppId 表示被访问资源所属应用 ID，由 route context 进入 authz 后签名注入。
-	TargetAppId = HeaderPrefix + "target-app-id"
-	// ResourceType 表示本次授权动作，HTTP 为 GET/POST/PUT/DELETE，gRPC 为 GRPC。
-	ResourceType = HeaderPrefix + "resource-type"
-	// ResourcePath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 /package.Service/Method。
-	ResourcePath = HeaderPrefix + "resource-path"
-	// DecisionId 表示 authz 对本次 allow 判定生成的唯一决策 ID，用于日志关联。
+	// DecisionId 表示 authz 对本次 allow 判定生成的普通决策 ID，用于日志关联。
 	DecisionId = HeaderPrefix + "decision-id"
-	// AuthzContext 表示 authz 写入的短有效期签名上下文 JWS，是服务侧信任根。
-	AuthzContext = HeaderPrefix + "authz-context"
+	// AuthzSign 表示 authz 写入的短有效期 compact JWS，是服务侧本地验签输入。
+	AuthzSign = HeaderPrefix + "authz-sign"
 )
 
 const (
@@ -85,8 +49,47 @@ const (
 )
 
 const (
-	// ServiceAppId 表示当前发起下游 gRPC 调用的服务应用标识，由 go-micro/invocation 注入。
-	ServiceAppId = HeaderPrefix + "service-app-id"
-	// ServiceInstanceId 表示当前发起下游 gRPC 调用的服务实例标识，由 go-micro/invocation 注入。
-	ServiceInstanceId = HeaderPrefix + "service-instance-id"
+	// UserAuthority 表示跨进程传输的用户 authority 原文，只由 authz 负责校验和解析。
+	UserAuthority = HeaderPrefix + "user-authority"
+	// ServiceAuthority 表示跨进程传输的服务 authority 原文，每一跳由当前调用服务覆盖写入。
+	ServiceAuthority = HeaderPrefix + "service-authority"
+)
+
+// 以下字段由 authz 从 X-Firefly-User-Authority 中解析后注入，业务侧按 UserContext 读取。
+const (
+	// UserId 表示用户主体 ID，服务主体或匿名主体为空。
+	UserId = HeaderPrefix + "user-id"
+	// Session 表示用户 token 关联的会话标识。
+	Session = HeaderPrefix + "session"
+	// OrgIds 表示用户关联的组织 ID 列表。
+	OrgIds = HeaderPrefix + "org-ids"
+	// PostIds 表示用户关联的岗位 ID 列表。
+	PostIds = HeaderPrefix + "post-ids"
+	// RoleIds 表示用户关联的角色 ID 列表。
+	RoleIds = HeaderPrefix + "role-ids"
+	// AppId 表示用户身份中的应用 ID，不表达服务调用方。
+	AppId = HeaderPrefix + "app-id"
+	// TenantId 表示用户所属租户 ID。
+	TenantId = HeaderPrefix + "tenant-id"
+)
+
+const (
+	// InvokeAppId 表示 authz 本次授权元组中的调用方 app_id。
+	//
+	// 用户入口请求没有服务身份时可来自 UserContext.app_id；
+	// 服务间调用时来自 InvokeServiceContext.app_id。
+	InvokeAppId = HeaderPrefix + "invoke-app-id"
+	// InvokeInstanceId 表示 authz 从当前跳服务 authority 中解析出的调用服务实例 ID，可为空。
+	InvokeInstanceId = HeaderPrefix + "invoke-instance-id"
+	// TargetAppId 表示 authz 从 route.app_id 映射出的被访问服务 app_id。
+	TargetAppId = HeaderPrefix + "target-app-id"
+	// TargetInstanceId 表示 authz 从 route.instance_id 映射出的被访问服务实例 ID。
+	TargetInstanceId = HeaderPrefix + "target-instance-id"
+)
+
+const (
+	// ApiMethod 表示当前授权检查使用的接口动作，例如 GET/POST/GRPC。
+	ApiMethod = HeaderPrefix + "api-method"
+	// ApiPath 表示当前授权检查使用的接口路径，HTTP 为 path，gRPC 为 FullMethod。
+	ApiPath = HeaderPrefix + "api-path"
 )
