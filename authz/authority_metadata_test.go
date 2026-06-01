@@ -14,13 +14,18 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 	md := metadata.Pairs(
 		constant.UserAuthority, "user-token",
 		constant.ServiceAuthority, "old-service-token",
-		constant.Authorization, "legacy-token",
-		constant.AuthzContext, "old-jws",
+		"authorization", "legacy-token",
+		constant.AuthzSign, "old-jws",
 		constant.UserId, "user-1",
 		constant.InvokeAppId, "old-invoke",
 		constant.TargetAppId, "old-target",
+		constant.AppLanguage, "zh-CN",
+		constant.XForwardedFor, "10.0.0.1, 10.0.0.2",
+		constant.Session, "session-1",
 		constant.TraceParent, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+		constant.TraceState, "vendor=value",
 		constant.Baggage, "tenant=demo",
+		"x-custom-metadata", "should-drop",
 	)
 
 	prepared, err := PrepareOutgoingAuthorityMetadata(context.Background(), md, fixedServiceAuthorityProvider("new-service-token"))
@@ -34,11 +39,11 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 	if got := prepared.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "new-service-token" {
 		t.Fatalf("expected service authority to be overridden, got %v", got)
 	}
-	if got := prepared.Get(constant.Authorization); len(got) != 0 {
+	if got := prepared.Get("authorization"); len(got) != 0 {
 		t.Fatalf("expected authorization to be removed, got %v", got)
 	}
-	if got := prepared.Get(constant.AuthzContext); len(got) != 0 {
-		t.Fatalf("expected stale authz context to be removed, got %v", got)
+	if got := prepared.Get(constant.AuthzSign); len(got) == 0 || got[0] != "old-jws" {
+		t.Fatalf("expected authz sign to be preserved for downstream authz reuse, got %v", got)
 	}
 	if got := prepared.Get(constant.UserId); len(got) != 0 {
 		t.Fatalf("expected stale user id to be removed, got %v", got)
@@ -49,11 +54,26 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 	if got := prepared.Get(constant.TargetAppId); len(got) != 0 {
 		t.Fatalf("expected stale target app id to be removed, got %v", got)
 	}
+	if got := prepared.Get(constant.AppLanguage); len(got) == 0 || got[0] != "zh-CN" {
+		t.Fatalf("expected app language to be preserved, got %v", got)
+	}
+	if got := prepared.Get(constant.XForwardedFor); len(got) == 0 || got[0] != "10.0.0.1, 10.0.0.2" {
+		t.Fatalf("expected x-forwarded-for to be preserved, got %v", got)
+	}
+	if got := prepared.Get(constant.Session); len(got) != 0 {
+		t.Fatalf("expected session to be removed, got %v", got)
+	}
 	if got := prepared.Get(constant.TraceParent); len(got) == 0 {
 		t.Fatalf("expected traceparent to be preserved")
 	}
+	if got := prepared.Get(constant.TraceState); len(got) == 0 {
+		t.Fatalf("expected tracestate to be preserved")
+	}
 	if got := prepared.Get(constant.Baggage); len(got) == 0 {
 		t.Fatalf("expected baggage to be preserved")
+	}
+	if got := prepared.Get("x-custom-metadata"); len(got) != 0 {
+		t.Fatalf("expected custom metadata to be removed, got %v", got)
 	}
 }
 

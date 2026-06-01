@@ -41,9 +41,9 @@ func TestNewVerificationOptionsLoadsEd25519PublicKey(t *testing.T) {
 	// 根据配置构造 middleware 验签选项。
 	options, err := NewVerificationOptions(&VerificationConfig{
 		Enabled:       true,
-		Kid:           "default",
+		Kid:           DefaultKid,
 		PublicKeyPath: path,
-		Issuer:        "firefly-authz",
+		Issuer:        DefaultIssuer,
 		ClockSkew:     "3s",
 		SkipMethods:   []string{"", "/grpc.health.v1.Health/Check"},
 	})
@@ -53,13 +53,13 @@ func TestNewVerificationOptionsLoadsEd25519PublicKey(t *testing.T) {
 	if options.AuthzVerification == nil {
 		t.Fatalf("expected authz verification options")
 	}
-	if options.AuthzVerification.Issuer != "firefly-authz" {
+	if options.AuthzVerification.Issuer != DefaultIssuer {
 		t.Fatalf("unexpected issuer: %s", options.AuthzVerification.Issuer)
 	}
 	if options.AuthzVerification.ClockSkew != 3*time.Second {
 		t.Fatalf("unexpected clock skew: %s", options.AuthzVerification.ClockSkew)
 	}
-	if len(options.AuthzVerification.PublicKeys["default"]) != ed25519.PublicKeySize {
+	if len(options.AuthzVerification.PublicKeys[DefaultKid]) != ed25519.PublicKeySize {
 		t.Fatalf("expected default ed25519 public key")
 	}
 	if len(options.AuthzSkipMethods) != 1 || options.AuthzSkipMethods[0] != "/grpc.health.v1.Health/Check" {

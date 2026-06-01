@@ -13,19 +13,19 @@ import (
 )
 
 const (
-	// DefaultKid 是当前平台固定使用的 authz JWS kid。
+	// DefaultKid 是当前 authz JWS 默认使用的固定 kid。
 	DefaultKid = "default"
-	// DefaultIssuer 是 authz 签名上下文的默认签发方。
+	// DefaultIssuer 是当前 authz JWS 默认签发方。
 	DefaultIssuer = "firefly-authz"
 	// DefaultClockSkew 是服务侧验签允许的默认时钟偏差。
 	DefaultClockSkew = 5 * time.Second
 )
 
-// VerificationConfig 描述业务服务如何本地验签 authz 注入的 x-firefly-authz-context。
+// VerificationConfig 描述业务服务如何本地验签 authz 注入的 x-firefly-authz-sign。
 type VerificationConfig struct {
 	// Enabled 控制是否启用服务侧 authz JWS 验签。
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	// Kid 是当前使用的公钥 ID；现阶段固定为 default。
+	// Kid 是当前使用的公钥 ID；为空时使用 DefaultKid。
 	Kid string `json:"kid" yaml:"kid"`
 	// PublicKeyPath 是 Ed25519 公钥 PEM 文件路径。
 	PublicKeyPath string `json:"public_key_path" yaml:"public_key_path"`
@@ -40,7 +40,7 @@ type VerificationConfig struct {
 // VerificationOptions 是业务服务接入 go-micro gRPC middleware 时需要的验签配置。
 type VerificationOptions struct {
 	// AuthzVerification 是传给 ServiceContextUnaryInterceptor 的验签规则。
-	AuthzVerification *service.AuthzContextVerificationOptions
+	AuthzVerification *service.AuthzSignVerificationOptions
 	// AuthzSkipMethods 是传给 ServiceContextUnaryInterceptor 的跳过验签方法列表。
 	AuthzSkipMethods []string
 }
@@ -80,7 +80,7 @@ func NewVerificationOptions(cfg *VerificationConfig) (*VerificationOptions, erro
 	}
 
 	// PublicKeys 使用 kid 索引，虽然当前只有 default，但保持与 service 验签模型一致。
-	verification := &service.AuthzContextVerificationOptions{
+	verification := &service.AuthzSignVerificationOptions{
 		PublicKeys: map[string]ed25519.PublicKey{
 			kid: publicKey,
 		},

@@ -2,26 +2,43 @@ package authz
 
 import (
 	"context"
+	"strings"
 
 	"github.com/fireflycore/go-micro/constant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
-// PrepareOutgoingAuthorityMetadata 清理旧身份上下文，并写入当前这一跳 service authority。
+var outgoingAuthorityMetadataAllowlist = map[string]struct{}{
+	// UserAuthority 是用户 authority 原文，需要贯穿完整调用链交给下一跳 authz 校验。
+	constant.UserAuthority: {},
+	// AuthzSign 是 authz 签名过的短 TTL payload，只能辅助下一跳 authz 复用身份解析结果，不能复用上一跳授权结论。
+	constant.AuthzSign: {},
+	// OTel/W3C 传播头由当前链路继续传递，保证 trace 不被出站清理截断。
+	constant.TraceParent: {},
+	constant.TraceState:  {},
+	constant.Baggage:     {},
+	// 客户端和入口代理事实用于下游访问日志，不参与权限判定。
+	constant.XRealIp:       {},
+	constant.XForwardedFor: {},
+	constant.AppLanguage:   {},
+	constant.AppVersion:    {},
+	constant.SystemType:    {},
+	constant.SystemName:    {},
+	constant.SystemVersion: {},
+	constant.ClientType:    {},
+	constant.ClientName:    {},
+	constant.ClientVersion: {},
+}
+
+// PrepareOutgoingAuthorityMetadata 清理出站 metadata，并写入当前这一跳 service authority。
+//
+// 这里处理的是传输层 metadata，不处理 service.Context / AuthzSign 这类进程内结构。
 func PrepareOutgoingAuthorityMetadata(ctx context.Context, md metadata.MD, provider ServiceAuthorityProvider) (metadata.MD, error) {
-	// metadata 为空时创建一份新的容器，保证后续 Set/Delete 都安全。
-	if md == nil {
-		md = metadata.New(nil)
-	} else {
-		// 调用方传入的 metadata 可能还会被复用，这里复制后再修改。
-		md = md.Copy()
-	}
+	// 先按业务服务出站白名单重建 metadata，清理上一跳普通上下文字段和未知 header。
+	md = filterOutgoingAuthorityMetadata(md)
 
-	// 出站调用不能继续携带上一跳 authz 注入的普通上下文或签名上下文。
-	removeStaleAuthzMetadata(md)
-
-	// 未配置 provider 时只做清理，不强制失败，便于本地或迁移期逐步接入。
+	// 未配置 provider 时只做清理，调用方可用于公共链路或测试链路。
 	if provider == nil {
 		return md, nil
 	}
@@ -85,24 +102,23 @@ func ContextAuthorityMetadata(ctx context.Context) metadata.MD {
 	return metadata.New(nil)
 }
 
-func removeStaleAuthzMetadata(md metadata.MD) {
-	// Authorization 是外部兼容头，不作为 Firefly current 身份入口。
-	md.Delete(constant.Authorization)
-	// 上一跳 authz 签名上下文只对上一跳 route 有效，不能透传到下一跳。
-	md.Delete(constant.AuthzContext)
-	// 普通 UserContext 字段应由下一跳 authz 重新注入，不能沿用上一跳的可伪造 header。
-	md.Delete(constant.UserId)
-	md.Delete(constant.AppId)
-	md.Delete(constant.TenantId)
-	md.Delete(constant.OrgIds)
-	md.Delete(constant.RoleIds)
-	// 普通授权事实字段与上一跳 route 绑定，必须由下一跳 ext_authz 重新计算。
-	md.Delete(constant.SubjectType)
-	md.Delete(constant.InvokeAppId)
-	md.Delete(constant.TargetAppId)
-	md.Delete(constant.ResourceType)
-	md.Delete(constant.ResourcePath)
-	md.Delete(constant.DecisionId)
-	// 上游服务身份不能透传，后续会由当前服务重新覆盖。
-	md.Delete(constant.ServiceAuthority)
+func filterOutgoingAuthorityMetadata(md metadata.MD) metadata.MD {
+	// nil metadata 直接返回空容器，保证调用方后续 Set 安全。
+	if md == nil {
+		return metadata.New(nil)
+	}
+	// 使用新 map 承载白名单字段，避免在原 map 上做增删造成调用方可见副作用。
+	filtered := metadata.New(nil)
+	for key, values := range md {
+		// gRPC metadata key 语义上大小写不敏感，统一小写后再匹配白名单。
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		// 不在白名单中的字段一律丢弃，包括普通身份 metadata、上一跳 service authority 和未知业务 header。
+		if _, ok := outgoingAuthorityMetadataAllowlist[normalizedKey]; !ok {
+			continue
+		}
+		// 复制 value 切片，避免调用方后续修改原 metadata 影响本次出站调用。
+		filtered[normalizedKey] = append(filtered[normalizedKey], values...)
+	}
+	// 返回只包含允许透传字段的新 metadata。
+	return filtered
 }
