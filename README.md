@@ -20,8 +20,8 @@
 在权限链路上，`go-micro` 只负责服务侧上下文结构化和 authz 签名上下文本地验签：
 
 - token 解析和权限判定由 authz 数据面完成
-- `ServiceContext` 读取 `x-firefly-authz-context` 与普通上下文 header
-- 生产环境建议在 gRPC 入口配置 `AuthzVerification`
+- `ServiceContext` 读取 authz 注入的普通身份上下文 header，并把 `x-firefly-authz-context` 作为本地验签信任根
+- 生产环境建议在 gRPC 入口配置 `AuthzVerification`，验签通过后 `Method/Path` 只从 JWS claim 写入
 - 出站调用通过 `authz.ServiceAuthorityProvider` 透传 `X-Firefly-User-Authority`，并由当前服务覆盖 `X-Firefly-Service-Authority`
 - 出站调用会清理上一跳 authz 注入的普通上下文和 `x-firefly-authz-context`，避免复用上一跳授权结果
 
