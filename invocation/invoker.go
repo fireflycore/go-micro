@@ -2,11 +2,9 @@ package invocation
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/fireflycore/go-micro/authz"
-	"github.com/fireflycore/go-micro/constant"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -57,15 +55,11 @@ func defaultUnaryInvokeFunc(ctx context.Context, conn *grpc.ClientConn, method s
 //
 // 它的执行流程非常明确：
 // 1. 基于 DNS 获取连接；
-// 2. 基于当前链路 metadata 构造统一出站上下文，并注入服务自身身份；
+// 2. 基于当前链路 metadata 构造统一出站上下文，并覆盖当前服务 authority；
 // 3. 使用 grpc.ClientConn.Invoke 发起 unary 调用。
 type UnaryInvoker struct {
 	// Dialer 负责连接获取与复用。
 	Dialer Dialer
-	// ServiceAppId 表示当前发起调用的服务应用标识。
-	ServiceAppId string
-	// ServiceInstanceId 表示当前发起调用的服务实例标识。
-	ServiceInstanceId string
 	// ServiceAuthorityProvider 负责为当前这一跳获取 X-Firefly-Service-Authority。
 	ServiceAuthorityProvider authz.ServiceAuthorityProvider
 	// Timeout 表示统一的远程调用超时时间；未设置时默认 5s。
@@ -74,13 +68,11 @@ type UnaryInvoker struct {
 	InvokeFunc UnaryInvokeFunc
 }
 
-// NewUnaryInvoker 创建一个带服务自身身份配置的统一调用器。
-func NewUnaryInvoker(dialer Dialer, serviceAppId string, serviceInstanceId string, timeout time.Duration) *UnaryInvoker {
+// NewUnaryInvoker 创建统一调用器。
+func NewUnaryInvoker(dialer Dialer, timeout time.Duration) *UnaryInvoker {
 	return &UnaryInvoker{
-		Dialer:            dialer,
-		ServiceAppId:      serviceAppId,
-		ServiceInstanceId: serviceInstanceId,
-		Timeout:           normalizeInvokeTimeout(timeout),
+		Dialer:  dialer,
+		Timeout: normalizeInvokeTimeout(timeout),
 	}
 }
 
@@ -112,12 +104,9 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *DNS, method string, req 
 	}
 	// 统一计算一次 timeout，避免重复归一化。
 	timeout := normalizeInvokeTimeout(u.Timeout)
-	// 服务身份字段提前裁剪空白，避免 metadata 注入时重复处理。
-	serviceAppID := strings.TrimSpace(u.ServiceAppId)
-	serviceInstanceID := strings.TrimSpace(u.ServiceInstanceId)
 
-	// 直接复用当前链路 metadata，清理旧授权上下文，并注入当前服务自身身份。
-	resolvedMetadata, err := resolveOutgoingMetadata(ctx, serviceAppID, serviceInstanceID, u.ServiceAuthorityProvider)
+	// 直接复用当前链路 metadata，清理旧授权上下文，并覆盖当前服务 authority。
+	resolvedMetadata, err := resolveOutgoingMetadata(ctx, u.ServiceAuthorityProvider)
 	if err != nil {
 		return err
 	}
@@ -136,11 +125,11 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *DNS, method string, req 
 	return invokeFunc(outCtx, conn, method, req, resp, callOptions...)
 }
 
-// resolveOutgoingMetadata 从当前链路解析最终出站 metadata，并注入当前服务身份字段。
+// resolveOutgoingMetadata 从当前链路解析最终出站 metadata，并覆盖当前服务 authority。
 //
 // 优先读取 incoming metadata，是因为最常见场景是服务端处理请求后继续发起下游调用；
 // 若当前已经位于客户端调用链，则退化为复用现有 outgoing metadata。
-func resolveOutgoingMetadata(ctx context.Context, serviceAppId string, serviceInstanceId string, serviceAuthorityProvider authz.ServiceAuthorityProvider) (metadata.MD, error) {
+func resolveOutgoingMetadata(ctx context.Context, serviceAuthorityProvider authz.ServiceAuthorityProvider) (metadata.MD, error) {
 	// 优先尝试继承服务端入站 metadata。
 	var md metadata.MD
 	if incoming, ok := metadata.FromIncomingContext(ctx); ok {
@@ -153,15 +142,7 @@ func resolveOutgoingMetadata(ctx context.Context, serviceAppId string, serviceIn
 		// 两者都不存在时创建空 metadata。
 		md = metadata.New(nil)
 	}
-	if serviceAppId != "" {
-		// 写入当前服务 app id，标记调用来源。
-		md.Set(constant.ServiceAppId, serviceAppId)
-	}
-	if serviceInstanceId != "" {
-		// 写入当前服务实例 id，标记具体实例来源。
-		md.Set(constant.ServiceInstanceId, serviceInstanceId)
-	}
-	// 清理上一跳 authz 上下文，并按需写入当前服务 authority。
+	// 保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，并按需写入当前服务 authority。
 	md, err := authz.PrepareOutgoingAuthorityMetadata(ctx, md, serviceAuthorityProvider)
 	if err != nil {
 		return nil, err

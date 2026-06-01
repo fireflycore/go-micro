@@ -131,10 +131,8 @@ func BenchmarkUnaryInvokerInvoke(b *testing.B) {
 	dns := &DNS{Service: "auth", Namespace: "default"}
 	// 构造统一调用器，并用假的 Dialer/InvokeFunc 避免真实网络开销干扰。
 	invoker := &UnaryInvoker{
-		Dialer:            testDialer{conn: &grpc.ClientConn{}},
-		ServiceAppId:      "config",
-		ServiceInstanceId: "config-1",
-		Timeout:           3 * time.Second,
+		Dialer:  testDialer{conn: &grpc.ClientConn{}},
+		Timeout: 3 * time.Second,
 		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 			// 消费连接对象，防止调用被优化掉。
 			benchmarkConnSink = conn
@@ -297,7 +295,7 @@ func oldUnaryInvoke(u *UnaryInvoker, ctx context.Context, dns *DNS, method strin
 		return ErrInvokeMethodEmpty
 	}
 
-	resolvedMetadata, err := resolveOutgoingMetadata(ctx, u.ServiceAppId, u.ServiceInstanceId, u.ServiceAuthorityProvider)
+	resolvedMetadata, err := resolveOutgoingMetadata(ctx, u.ServiceAuthorityProvider)
 	if err != nil {
 		return err
 	}

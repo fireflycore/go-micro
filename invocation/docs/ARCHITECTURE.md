@@ -60,7 +60,8 @@
 
 - 获取连接
 - 复用当前链路 metadata
-- 注入当前服务自身的 `ServiceAppId` / `ServiceInstanceId`
+- 清理上一跳 authz 普通身份 metadata 与 compact JWS
+- 按需覆盖 `X-Firefly-Service-Authority`
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
 
@@ -125,8 +126,7 @@ auth.default.svc.cluster.local:9090
 当前调用侧统一约束如下：
 
 - `UnaryInvoker` 直接复用当前链路 metadata
-- `UnaryInvoker` 在出站前注入 `ServiceAppId` / `ServiceInstanceId`
-- `UnaryInvoker` 会清理上一跳 authz 注入的普通上下文和 `x-firefly-authz-context`
+- `UnaryInvoker` 会保留用户 authority 和短 TTL `x-firefly-authz-sign`，清理上一跳 authz 注入的普通身份 metadata
 - 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 未显式配置 timeout 时，默认使用 `5s`
@@ -167,13 +167,13 @@ sequenceDiagram
 
     Boot->>DM: NewDNSManager(DNSConfig)
     Boot->>CM: NewConnectionManager(DNSManager, DialOptions)
-    Boot->>UI: NewUnaryInvoker(manager, serviceAppId, serviceInstanceId, timeout)
+    Boot->>UI: NewUnaryInvoker(manager, timeout)
     Boot->>RSM: NewRemoteServiceManaged(invoker, DNS...)
     Boot->>Repo: 注入 repo 依赖
 
     Note over MG,Repo: 一次入站请求到达当前服务
     MG->>MG: 解析 incoming metadata
-    MG->>MG: Build ServiceContext
+    MG->>MG: Build service.Context
     MG->>Repo: 业务方法获得 ctx
 
     Repo->>RSM: Caller("auth") / Invoke("auth", fullMethod, req, resp)
@@ -183,8 +183,7 @@ sequenceDiagram
 
     RSC->>UI: Invoke(ctx, dns, fullMethod, req, resp)
     UI->>UI: 复用 incoming/outgoing metadata
-    UI->>UI: 清理上一跳 authz 普通上下文和 JWS
-    UI->>UI: 注入 ServiceAppId / ServiceInstanceId
+    UI->>UI: 保留用户 authority/AuthzSign，清理普通身份 metadata
     UI->>UI: 透传 UserAuthority 并覆盖 ServiceAuthority
     UI->>UI: 基于统一 timeout 构造 outgoing ctx
     UI->>CM: Dial(ctx, dns)

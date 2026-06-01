@@ -30,7 +30,7 @@ import (
 )
 
 func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.RemoteServiceManaged {
-	invoker := invocation.NewUnaryInvoker(manager, "config", "config-1", 3*time.Second)
+	invoker := invocation.NewUnaryInvoker(manager, 3*time.Second)
 
 	return invocation.NewRemoteServiceManaged(
 		invoker,
@@ -93,7 +93,7 @@ import (
 
 func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 	caller := invocation.NewRemoteServiceCaller(
-		invocation.NewUnaryInvoker(manager, "config", "config-1", 3*time.Second),
+		invocation.NewUnaryInvoker(manager, 3*time.Second),
 		&invocation.DNS{Service: "auth"},
 	)
 
@@ -134,8 +134,7 @@ func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 当前调用模型下：
 
 - `UnaryInvoker` 直接复用当前链路 metadata
-- `UnaryInvoker` 在出站前注入 `ServiceAppId` / `ServiceInstanceId`
-- `UnaryInvoker` 会清理上一跳 authz 普通上下文和 `x-firefly-authz-context`
+- `UnaryInvoker` 会保留用户 authority 和短 TTL `x-firefly-authz-sign`，清理上一跳 authz 普通身份 metadata
 - 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 不再暴露 metadata / timeout 的单次调用覆盖能力

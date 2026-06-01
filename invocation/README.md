@@ -61,8 +61,7 @@
 负责底层真实调用：
 
 - 复用当前链路 metadata
-- 注入 `ServiceAppId` / `ServiceInstanceId`
-- 清理上一跳 authz 注入的普通上下文与签名上下文
+- 保留用户 authority 与短 TTL authz sign，清理上一跳 authz 注入的普通身份 metadata
 - 按需覆盖 `X-Firefly-Service-Authority`
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
@@ -118,7 +117,7 @@ import (
 )
 
 func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.RemoteServiceManaged {
-	invoker := invocation.NewUnaryInvoker(manager, "config", "config-1", 3*time.Second)
+	invoker := invocation.NewUnaryInvoker(manager, 3*time.Second)
 
 	return invocation.NewRemoteServiceManaged(
 		invoker,

@@ -25,13 +25,10 @@ func (d testDialer) Close() error {
 	return nil
 }
 
-func TestNewUnaryInvoker_SetsCallerServiceIdentity(t *testing.T) {
-	invoker := NewUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, "config", "config-1", 0)
+func TestNewUnaryInvoker_SetsDefaultTimeout(t *testing.T) {
+	invoker := NewUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, 0)
 	if invoker == nil {
 		t.Fatal("expected invoker")
-	}
-	if invoker.ServiceAppId != "config" || invoker.ServiceInstanceId != "config-1" {
-		t.Fatalf("unexpected invoker identity: %+v", invoker)
 	}
 	if invoker.Timeout != DefaultInvokeTimeout {
 		t.Fatalf("unexpected invoker timeout: %s", invoker.Timeout)
@@ -100,11 +97,9 @@ func TestUnaryInvoker_Invoke_WithoutExtraOptionsDoesNotPanic(t *testing.T) {
 	}
 }
 
-func TestUnaryInvoker_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
+func TestUnaryInvoker_Invoke_OverridesServiceAuthority(t *testing.T) {
 	invoker := &UnaryInvoker{
 		Dialer:                   testDialer{conn: &grpc.ClientConn{}},
-		ServiceAppId:             "config",
-		ServiceInstanceId:        "config-1",
 		ServiceAuthorityProvider: fixedServiceAuthorityProvider("config-service-token"),
 		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 			md, ok := metadata.FromOutgoingContext(ctx)
@@ -116,12 +111,6 @@ func TestUnaryInvoker_Invoke_InjectsCallerServiceIdentity(t *testing.T) {
 			}
 			if got := md.Get(constant.UserId); len(got) != 0 {
 				t.Fatalf("expected stale user id metadata to be removed: %v", got)
-			}
-			if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "config" {
-				t.Fatalf("unexpected service app id metadata: %v", got)
-			}
-			if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "config-1" {
-				t.Fatalf("unexpected service instance id metadata: %v", got)
 			}
 			if got := md.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "config-service-token" {
 				t.Fatalf("unexpected service authority metadata: %v", got)
@@ -254,50 +243,45 @@ func TestNewOutgoingCallContext_PreservesParentCancellationAndTimeout(t *testing
 	}
 }
 
-func TestResolveOutgoingMetadata_ReusesOutgoingContextMetadata(t *testing.T) {
-	parent := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("x-request-id", "req-inherited"))
-	md, err := resolveOutgoingMetadata(parent, "", "", nil)
+func TestResolveOutgoingMetadata_UsesOutgoingContextMetadataAllowlist(t *testing.T) {
+	parent := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		constant.UserAuthority, "user-token",
+		"x-request-id", "req-inherited",
+	))
+	md, err := resolveOutgoingMetadata(parent, nil)
 	if err != nil {
 		t.Fatalf("resolve metadata failed: %v", err)
 	}
 
-	if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-inherited" {
-		t.Fatalf("unexpected inherited outgoing metadata: %v", got)
+	if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
+		t.Fatalf("expected user authority to be preserved, got %v", got)
+	}
+	if got := md.Get("x-request-id"); len(got) != 0 {
+		t.Fatalf("expected non-allowlisted request id to be dropped, got %v", got)
 	}
 }
 
-func TestResolveOutgoingMetadata_InjectsCallerServiceIdentity(t *testing.T) {
-	md, err := resolveOutgoingMetadata(
-		context.Background(),
-		"auth",
-		"auth-1",
-		fixedServiceAuthorityProvider("auth-service-token"),
-	)
+func TestResolveOutgoingMetadata_InjectsServiceAuthority(t *testing.T) {
+	md, err := resolveOutgoingMetadata(context.Background(), fixedServiceAuthorityProvider("auth-service-token"))
 	if err != nil {
 		t.Fatalf("resolve metadata failed: %v", err)
 	}
 
-	if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "auth" {
-		t.Fatalf("unexpected service app id metadata: %v", got)
-	}
-	if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "auth-1" {
-		t.Fatalf("unexpected service instance id metadata: %v", got)
-	}
 	if got := md.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "auth-service-token" {
 		t.Fatalf("unexpected service authority metadata: %v", got)
 	}
 }
 
-func TestResolveOutgoingMetadata_PreservesUserAuthorityAndDropsStaleAuthzContext(t *testing.T) {
+func TestResolveOutgoingMetadata_PreservesUserAuthorityAndAuthzSign(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
 		constant.UserAuthority, "user-token",
 		constant.ServiceAuthority, "old-service-token",
-		constant.Authorization, "legacy-token",
-		constant.AuthzContext, "old-jws",
+		"authorization", "legacy-token",
+		constant.AuthzSign, "old-jws",
 		constant.UserId, "user-1",
 	))
 
-	md, err := resolveOutgoingMetadata(ctx, "app", "app-1", fixedServiceAuthorityProvider("new-service-token"))
+	md, err := resolveOutgoingMetadata(ctx, fixedServiceAuthorityProvider("new-service-token"))
 	if err != nil {
 		t.Fatalf("resolve metadata failed: %v", err)
 	}
@@ -307,11 +291,11 @@ func TestResolveOutgoingMetadata_PreservesUserAuthorityAndDropsStaleAuthzContext
 	if got := md.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "new-service-token" {
 		t.Fatalf("expected service authority to be overridden, got %v", got)
 	}
-	if got := md.Get(constant.Authorization); len(got) != 0 {
+	if got := md.Get("authorization"); len(got) != 0 {
 		t.Fatalf("expected authorization to be dropped, got %v", got)
 	}
-	if got := md.Get(constant.AuthzContext); len(got) != 0 {
-		t.Fatalf("expected stale authz context to be dropped, got %v", got)
+	if got := md.Get(constant.AuthzSign); len(got) == 0 || got[0] != "old-jws" {
+		t.Fatalf("expected authz sign to be preserved for downstream authz reuse, got %v", got)
 	}
 	if got := md.Get(constant.UserId); len(got) != 0 {
 		t.Fatalf("expected stale user context header to be dropped, got %v", got)
