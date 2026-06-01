@@ -11,6 +11,8 @@
 - 定义 `ServiceAuthorityProvider`，供出站调用每一跳覆盖 `X-Firefly-Service-Authority`
 - 提供 gRPC client interceptor 和 metadata helper，统一清理上一跳 authz 上下文
 
+`x-firefly-authz-context` 是服务侧验签信任根。业务服务开启 `AuthzVerification` 后，`service.Context.Method` / `service.Context.Path` 只从 JWS claim 写入，不从普通 metadata 读取。
+
 业务服务只需要在启动配置中声明：
 
 ```json
@@ -78,4 +80,4 @@ invoker := invocation.NewUnaryInvoker(manager, appID, instanceID, timeout).
     WithServiceAuthorityProvider(provider)
 ```
 
-`ServiceAuthorityProvider` 会在进程内缓存 service token，并在过期前按 `RefreshBefore` 主动刷新。出站 metadata 会保留用户 authority 和 OTel trace 头，但会移除上一跳的 `Authorization`、`x-firefly-authz-context`、普通用户上下文字段和授权资源字段，避免把上一跳的授权结果错误复用到下一跳。
+`ServiceAuthorityProvider` 会在进程内缓存 service token，并在过期前按 `RefreshBefore` 主动刷新。出站 metadata 会保留用户 authority 和 OTel trace 头，但会移除上一跳的 `Authorization`、`x-firefly-authz-context` 和普通用户上下文字段，避免把上一跳的授权结果错误复用到下一跳。
