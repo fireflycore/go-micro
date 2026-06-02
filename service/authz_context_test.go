@@ -29,18 +29,23 @@ func TestVerifyAuthzSign(t *testing.T) {
 		"iss":           testAuthzIssuer,
 		"sub":           "user-1",
 		"subject_type":  constant.SubjectTypeUser,
-		"user_id":       "user-1",
-		"app_id":        "user-app",
-		"session":       "session-1",
-		"tenant_id":     "tenant-1",
-		"invoke_app_id": "app-caller",
+		"invoke_app_id": "user-app",
 		"target_app_id": "app-target",
 		"api_method":    constant.RequestMethodGrpcString,
 		"api_path":      "/acme.order.v1.OrderService/List",
 		"decision":      testAuthzDecisionAllow,
 		"decision_id":   "decision-1",
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
+		"user_context": map[string]any{
+			"user_id":   "user-1",
+			"app_id":    "user-app",
+			"session":   "session-1",
+			"tenant_id": "tenant-1",
+		},
+		"target_service_context": map[string]any{
+			"app_id": "app-target",
+		},
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
 	})
 
 	claims, err := VerifyAuthzSign(raw, AuthzSignVerificationOptions{
@@ -65,7 +70,7 @@ func TestVerifyAuthzSign(t *testing.T) {
 	}
 }
 
-func TestVerifyAuthzSign_NormalizesStructuredClaims(t *testing.T) {
+func TestVerifyAuthzSign_DerivesRuntimeFieldsFromStructuredClaims(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key failed: %v", err)
@@ -73,9 +78,11 @@ func TestVerifyAuthzSign_NormalizesStructuredClaims(t *testing.T) {
 
 	now := time.Unix(1710000000, 0).UTC()
 	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
-		"iss":          testAuthzIssuer,
-		"sub":          "service-a",
-		"subject_type": constant.SubjectTypeService,
+		"iss":           testAuthzIssuer,
+		"sub":           "service-a",
+		"subject_type":  constant.SubjectTypeService,
+		"invoke_app_id": "service-a",
+		"target_app_id": "svc-app",
 		"user_context": map[string]any{
 			"user_id":   "user-1",
 			"app_id":    "user-app",
@@ -129,6 +136,71 @@ func TestVerifyAuthzSign_NormalizesStructuredClaims(t *testing.T) {
 	}
 }
 
+func TestVerifyAuthzSign_RejectsFlatIdentityClaims(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key failed: %v", err)
+	}
+
+	now := time.Unix(1710000000, 0).UTC()
+	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
+		"iss":           testAuthzIssuer,
+		"sub":           "user-1",
+		"subject_type":  constant.SubjectTypeUser,
+		"user_id":       "user-1",
+		"app_id":        "user-app",
+		"invoke_app_id": "user-app",
+		"target_app_id": "app-target",
+		"api_method":    constant.RequestMethodGrpcString,
+		"api_path":      "/acme.order.v1.OrderService/List",
+		"decision":      testAuthzDecisionAllow,
+		"decision_id":   "decision-1",
+		"iat":           now.Unix(),
+		"exp":           now.Add(time.Minute).Unix(),
+	})
+
+	_, err = VerifyAuthzSign(raw, AuthzSignVerificationOptions{
+		PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
+		Now:        func() time.Time { return now },
+	})
+	if !errors.Is(err, ErrAuthzSignInvalidClaims) {
+		t.Fatalf("expected invalid claims for flat identity payload, got %v", err)
+	}
+}
+
+func TestVerifyAuthzSign_RejectsServiceSubjectWithoutInvokeServiceContext(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key failed: %v", err)
+	}
+
+	now := time.Unix(1710000000, 0).UTC()
+	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
+		"iss":           testAuthzIssuer,
+		"sub":           "service-a",
+		"subject_type":  constant.SubjectTypeService,
+		"invoke_app_id": "service-a",
+		"target_app_id": "service-b",
+		"target_service_context": map[string]any{
+			"app_id": "service-b",
+		},
+		"api_method":  constant.RequestMethodGrpcString,
+		"api_path":    "/acme.serviceb.v1.ServiceB/Get",
+		"decision":    testAuthzDecisionAllow,
+		"decision_id": "decision-1",
+		"iat":         now.Unix(),
+		"exp":         now.Add(time.Minute).Unix(),
+	})
+
+	_, err = VerifyAuthzSign(raw, AuthzSignVerificationOptions{
+		PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
+		Now:        func() time.Time { return now },
+	})
+	if !errors.Is(err, ErrAuthzSignInvalidClaims) {
+		t.Fatalf("expected invalid claims without invoke service context, got %v", err)
+	}
+}
+
 func TestVerifyAuthzSign_RejectsInvalidSignature(t *testing.T) {
 	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -144,14 +216,21 @@ func TestVerifyAuthzSign_RejectsInvalidSignature(t *testing.T) {
 		"iss":           testAuthzIssuer,
 		"sub":           "user-1",
 		"subject_type":  constant.SubjectTypeUser,
-		"invoke_app_id": "app-caller",
+		"invoke_app_id": "user-app",
 		"target_app_id": "app-target",
 		"api_method":    constant.RequestMethodGrpcString,
 		"api_path":      "/acme.order.v1.OrderService/List",
 		"decision":      testAuthzDecisionAllow,
 		"decision_id":   "decision-1",
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
+		"user_context": map[string]any{
+			"user_id": "user-1",
+			"app_id":  "user-app",
+		},
+		"target_service_context": map[string]any{
+			"app_id": "app-target",
+		},
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
 	})
 
 	_, err = VerifyAuthzSign(raw, AuthzSignVerificationOptions{
@@ -174,14 +253,21 @@ func TestVerifyAuthzSign_RejectsExpiredContext(t *testing.T) {
 		"iss":           testAuthzIssuer,
 		"sub":           "user-1",
 		"subject_type":  constant.SubjectTypeUser,
-		"invoke_app_id": "app-caller",
+		"invoke_app_id": "user-app",
 		"target_app_id": "app-target",
 		"api_method":    constant.RequestMethodGrpcString,
 		"api_path":      "/acme.order.v1.OrderService/List",
 		"decision":      testAuthzDecisionAllow,
 		"decision_id":   "decision-1",
-		"iat":           now.Add(-2 * time.Minute).Unix(),
-		"exp":           now.Add(-time.Minute).Unix(),
+		"user_context": map[string]any{
+			"user_id": "user-1",
+			"app_id":  "user-app",
+		},
+		"target_service_context": map[string]any{
+			"app_id": "app-target",
+		},
+		"iat": now.Add(-2 * time.Minute).Unix(),
+		"exp": now.Add(-time.Minute).Unix(),
 	})
 
 	_, err = VerifyAuthzSign(raw, AuthzSignVerificationOptions{
@@ -204,14 +290,21 @@ func TestVerifyAuthzSign_RejectsMissingMethod(t *testing.T) {
 		"iss":           testAuthzIssuer,
 		"sub":           "user-1",
 		"subject_type":  constant.SubjectTypeUser,
-		"invoke_app_id": "app-caller",
+		"invoke_app_id": "user-app",
 		"target_app_id": "app-target",
 		"resource_type": constant.RequestMethodGrpcString,
 		"api_path":      "/acme.order.v1.OrderService/List",
 		"decision":      testAuthzDecisionAllow,
 		"decision_id":   "decision-1",
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
+		"user_context": map[string]any{
+			"user_id": "user-1",
+			"app_id":  "user-app",
+		},
+		"target_service_context": map[string]any{
+			"app_id": "app-target",
+		},
+		"iat": now.Unix(),
+		"exp": now.Add(time.Minute).Unix(),
 	})
 
 	_, err = VerifyAuthzSign(raw, AuthzSignVerificationOptions{

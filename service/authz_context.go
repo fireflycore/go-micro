@@ -44,28 +44,28 @@ type AuthzSign struct {
 	SubjectId string `json:"sub"`
 	// SubjectType 表示主体类型，取值见 constant.SubjectTypeAnonymous/User/Service。
 	SubjectType string `json:"subject_type"`
-	// UserId 表示用户主体 ID，服务或匿名主体为空，来自 user_context.user_id。
-	UserId string `json:"user_id,omitempty"`
-	// AppId 表示用户身份中的应用 ID，来自 user_context.app_id。
-	AppId string `json:"app_id,omitempty"`
-	// Session 表示 authz 从 token 中解析出的会话标识。
-	Session string `json:"session,omitempty"`
+	// UserId 表示用户主体 ID，来自 user_context.user_id；该字段由验签后派生，不从 JSON 平铺字段读取。
+	UserId string `json:"-"`
+	// AppId 表示用户身份中的应用 ID，来自 user_context.app_id；该字段由验签后派生。
+	AppId string `json:"-"`
+	// Session 表示 authz 从 token 中解析出的会话标识，来自 user_context.session。
+	Session string `json:"-"`
 	// TenantId 表示用户所属租户 ID，来自 user_context.tenant_id。
-	TenantId string `json:"tenant_id,omitempty"`
-	// OrgIds 表示用户关联的组织 ID 列表。
-	OrgIds []string `json:"org_ids,omitempty"`
-	// PostIds 表示用户关联的岗位 ID 列表。
-	PostIds []string `json:"post_ids,omitempty"`
-	// RoleIds 表示用户关联的角色 ID 列表。
-	RoleIds []string `json:"role_ids,omitempty"`
-	// InvokeAppId 表示本跳权限判定中的调用方应用 ID。
+	TenantId string `json:"-"`
+	// OrgIds 表示用户关联的组织 ID 列表，来自 user_context.org_ids。
+	OrgIds []string `json:"-"`
+	// PostIds 表示用户关联的岗位 ID 列表，来自 user_context.post_ids。
+	PostIds []string `json:"-"`
+	// RoleIds 表示用户关联的角色 ID 列表，来自 user_context.role_ids。
+	RoleIds []string `json:"-"`
+	// InvokeAppId 表示本跳权限判定中的调用方应用 ID，来自 invoke_app_id。
 	InvokeAppId string `json:"invoke_app_id"`
-	// InvokeInstanceId 表示本跳调用服务实例 ID，可为空。
-	InvokeInstanceId string `json:"invoke_instance_id,omitempty"`
-	// TargetAppId 表示 authz 对 route.app_id 的判定语义。
+	// InvokeInstanceId 表示服务主体本跳调用服务实例 ID，来自 invoke_service_context.instance_id。
+	InvokeInstanceId string `json:"-"`
+	// TargetAppId 表示 authz 对 route.app_id 的判定语义，来自 target_app_id。
 	TargetAppId string `json:"target_app_id"`
-	// TargetInstanceId 表示 route.instance_id 映射出的目标服务实例 ID，可为空。
-	TargetInstanceId string `json:"target_instance_id,omitempty"`
+	// TargetInstanceId 表示 route.instance_id 映射出的目标服务实例 ID，来自 target_service_context.instance_id。
+	TargetInstanceId string `json:"-"`
 	// ApiMethod 表示本次授权动作，取值见 constant.RequestMethod*String。
 	ApiMethod string `json:"api_method"`
 	// ApiPath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 FullMethod。
@@ -207,7 +207,7 @@ func VerifyAuthzSign(raw string, options AuthzSignVerificationOptions) (*AuthzSi
 	if err := json.Unmarshal(payload, claims); err != nil {
 		return nil, ErrAuthzSignMalformed
 	}
-	// 先补齐结构化 claim 派生出的平铺字段，再做必要字段和本地期望校验。
+	// 只从目标结构化 claim 派生进程内读取便利字段，平铺身份 claim 不进入 current 语义。
 	normalizeVerifiedAuthzSign(claims)
 	// 最后校验 issuer、时间窗口和当前入口期望的资源事实。
 	if err := validateAuthzSignClaims(claims, options); err != nil {
@@ -265,6 +265,30 @@ func validateAuthzSignClaims(claims *AuthzSign, options AuthzSignVerificationOpt
 	if claims.SubjectType != constant.SubjectTypeAnonymous && claims.InvokeAppId == "" {
 		return ErrAuthzSignInvalidClaims
 	}
+	// 用户主体必须携带结构化 UserContext，避免旧平铺 claim 被继续接受。
+	if claims.SubjectType == constant.SubjectTypeUser && (claims.UserContext == nil || claims.UserContext.UserId == "" || claims.UserContext.AppId == "") {
+		return ErrAuthzSignInvalidClaims
+	}
+	// 服务主体必须携带结构化 InvokeServiceContext，不能只靠 invoke_app_id 反推服务上下文。
+	if claims.SubjectType == constant.SubjectTypeService && (claims.InvokeServiceContext == nil || claims.InvokeServiceContext.AppId == "") {
+		return ErrAuthzSignInvalidClaims
+	}
+	// 所有允许进入业务服务的请求都必须携带结构化 TargetServiceContext。
+	if claims.TargetServiceContext == nil || claims.TargetServiceContext.AppId == "" {
+		return ErrAuthzSignInvalidClaims
+	}
+	// 平铺 target_app_id 必须与结构化 route.app_id 映射结果一致。
+	if claims.TargetAppId != claims.TargetServiceContext.AppId {
+		return ErrAuthzSignInvalidClaims
+	}
+	// 服务主体的平铺 invoke_app_id 必须与结构化服务身份一致。
+	if claims.SubjectType == constant.SubjectTypeService && claims.InvokeAppId != claims.InvokeServiceContext.AppId {
+		return ErrAuthzSignInvalidClaims
+	}
+	// 用户主体的权限主体必须来自 UserContext.app_id，即使入口同时携带 service authority 也不能覆盖。
+	if claims.SubjectType == constant.SubjectTypeUser && claims.InvokeAppId != claims.UserContext.AppId {
+		return ErrAuthzSignInvalidClaims
+	}
 	// 当前只有 allow 结果会被注入业务服务，其他 decision 一律拒绝。
 	if claims.Decision != "" && claims.Decision != authzDecisionAllow {
 		return ErrAuthzSignInvalidClaims
@@ -308,50 +332,24 @@ func normalizeVerifiedAuthzSign(claims *AuthzSign) {
 	if claims == nil {
 		return
 	}
-	// user_context 是目标结构；平铺 user_id/app_id/tenant_id 是业务读取便利字段。
+	// user_context 是目标结构；UserId/AppId 等扁平字段只作为验签后的进程内读取便利。
 	if claims.UserContext != nil {
-		if claims.UserId == "" {
-			claims.UserId = claims.UserContext.UserId
-		}
-		if claims.AppId == "" {
-			claims.AppId = claims.UserContext.AppId
-		}
-		if claims.TenantId == "" {
-			claims.TenantId = claims.UserContext.TenantId
-		}
-		if claims.Session == "" {
-			claims.Session = claims.UserContext.Session
-		}
-		if len(claims.OrgIds) == 0 {
-			claims.OrgIds = cloneStrings(claims.UserContext.OrgIds)
-		}
-		if len(claims.PostIds) == 0 {
-			claims.PostIds = cloneStrings(claims.UserContext.PostIds)
-		}
-		if len(claims.RoleIds) == 0 {
-			claims.RoleIds = cloneStrings(claims.UserContext.RoleIds)
-		}
+		claims.UserId = claims.UserContext.UserId
+		claims.AppId = claims.UserContext.AppId
+		claims.TenantId = claims.UserContext.TenantId
+		claims.Session = claims.UserContext.Session
+		claims.OrgIds = cloneStrings(claims.UserContext.OrgIds)
+		claims.PostIds = cloneStrings(claims.UserContext.PostIds)
+		claims.RoleIds = cloneStrings(claims.UserContext.RoleIds)
 	}
-	// invoke_service_context 保持服务 authority 原始语义，平铺 invoke_* 是验签快捷字段。
-	if claims.InvokeServiceContext != nil {
-		if claims.InvokeAppId == "" {
-			claims.InvokeAppId = claims.InvokeServiceContext.AppId
-		}
-		if claims.InvokeInstanceId == "" {
-			claims.InvokeInstanceId = claims.InvokeServiceContext.InstanceId
-		}
+	// invoke_service_context 只在服务主体场景派生扁平 instance_id；invoke_app_id 始终是授权元组主体字段。
+	if claims.SubjectType == constant.SubjectTypeService && claims.InvokeServiceContext != nil {
+		claims.InvokeInstanceId = claims.InvokeServiceContext.InstanceId
+	} else {
+		claims.InvokeInstanceId = ""
 	}
-	// 用户首跳没有 service authority 时，authz 可以用 UserContext.app_id 作为 invoke_app_id。
-	if claims.InvokeAppId == "" && claims.UserContext != nil {
-		claims.InvokeAppId = claims.UserContext.AppId
-	}
-	// target_service_context 来自 route.app_id/instance_id，平铺 target_* 是验签快捷字段。
+	// target_service_context 来自 route.app_id/instance_id，TargetInstanceId 是验签快捷字段。
 	if claims.TargetServiceContext != nil {
-		if claims.TargetAppId == "" {
-			claims.TargetAppId = claims.TargetServiceContext.AppId
-		}
-		if claims.TargetInstanceId == "" {
-			claims.TargetInstanceId = claims.TargetServiceContext.InstanceId
-		}
+		claims.TargetInstanceId = claims.TargetServiceContext.InstanceId
 	}
 }
