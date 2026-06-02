@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	"github.com/fireflycore/go-micro/constant"
 	"go.opentelemetry.io/otel/trace"
@@ -15,50 +14,117 @@ const (
 	serviceContextValueKey contextKey = "service.context"
 )
 
-// Context 表示当前请求在服务内部流转时的统一主上下文。
+// Context 表示当前请求在服务进程内流转时的统一主上下文。
+//
+// 它不是跨进程传输对象；跨进程只传 HTTP header / gRPC metadata。
+// Context 由入口 metadata、当前服务配置和可选的 x-firefly-authz-sign 验签结果组装而来。
 type Context struct {
+	// AppLanguage 表示客户端应用语言偏好。
+	AppLanguage string
+	// Session 表示 authz 从用户 token 中解析出的会话标识。
+	Session string
 	// UserId 表示用户主体 ID；服务或匿名主体为空。
 	UserId string
-	// AppId 是调用方应用 ID 的兼容字段，当前与 InvokeAppId 保持一致。
+	// AppId 表示用户身份中的应用 ID；没有用户身份时为空。
 	AppId string
 	// TenantId 表示当前主体所属租户 ID。
 	TenantId string
 	// OrgIds 表示当前主体关联的组织 ID 列表。
 	OrgIds []string
+	// PostIds 表示当前主体关联的岗位 ID 列表。
+	PostIds []string
 	// RoleIds 表示当前主体关联的角色 ID 列表。
 	RoleIds []string
 	// SubjectType 表示本次请求主体类型：anonymous/user/service。
 	SubjectType string
-	// InvokeAppId 表示发起调用的应用 ID。
+	// InvokeAppId 表示本跳权限判定中的调用方应用 ID。
 	InvokeAppId string
-	// TargetAppId 表示被访问资源所属应用 ID。
+	// InvokeInstanceId 表示本跳调用方服务实例 ID，可为空。
+	InvokeInstanceId string
+	// TargetAppId 表示 authz 对 route.app_id 的判定语义。
 	TargetAppId string
-	// ResourceType 表示本次授权动作，HTTP 为方法名，gRPC 为 GRPC。
-	ResourceType string
-	// ResourcePath 表示本次授权资源路径。
-	ResourcePath string
+	// TargetInstanceId 表示被访问服务实例 ID，可为空。
+	TargetInstanceId string
+	// ApiMethod 表示本次授权动作，HTTP 为方法名，gRPC 为 GRPC。
+	ApiMethod string
+	// ApiPath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 FullMethod。
+	ApiPath string
 	// DecisionId 表示 authz allow 决策 ID。
 	DecisionId string
-	// AuthzContextToken 保存 authz 注入的原始签名 JWS，便于入口统一验签和排障。
-	AuthzContextToken string
-	// AuthzContext 保存已本地验签通过的可信上下文；未启用验签时为空。
-	AuthzContext *AuthzContext
+	// AuthzSignJWS 保存 authz 注入的原始 compact JWS，来自 x-firefly-authz-sign metadata。
+	AuthzSignJWS string
+	// VerifiedAuthzSign 保存已本地验签通过的 JWS payload；未启用验签时为空。
+	VerifiedAuthzSign *AuthzSign
 	// TraceId 表示从当前 OTel span 提取的 trace 标识快照，不对应自定义 header。
 	TraceId string
-	// ServiceAppId 表示当前服务自身的应用 ID。
-	ServiceAppId string
-	// ServiceInstanceId 表示当前服务自身的实例 ID。
-	ServiceInstanceId string
+	// UserContext 保存用户身份上下文；启用验签时以 JWS payload 为准。
+	UserContext *UserContext
+	// InvokeServiceContext 保存本跳调用方服务身份上下文；启用验签时以 JWS payload 为准。
+	InvokeServiceContext *InvokeServiceContext
+	// TargetServiceContext 保存本跳被访问服务身份上下文；启用验签时以 JWS payload 为准。
+	TargetServiceContext *TargetServiceContext
+	// DecisionContext 保存 authz 决策事实；启用验签时以 JWS payload 为准。
+	DecisionContext *DecisionContext
 }
 
-// BuildContextOptions 定义构建服务主上下文时需要补齐的服务自身身份。
+// UserContext 表示服务进程内可读取的用户身份上下文。
+type UserContext struct {
+	// UserId 是用户主体 ID。
+	UserId string
+	// AppId 是用户身份中的应用 ID。
+	AppId string
+	// TenantId 是用户所属租户 ID。
+	TenantId string
+	// Session 是 authz 从用户 access token 中解析出的会话标识。
+	Session string
+	// OrgIds 是用户关联组织 ID 列表。
+	OrgIds []string
+	// PostIds 是用户关联岗位 ID 列表。
+	PostIds []string
+	// RoleIds 是用户关联角色 ID 列表。
+	RoleIds []string
+}
+
+// InvokeServiceContext 表示服务进程内可读取的当前跳调用方服务身份。
+type InvokeServiceContext struct {
+	// AppId 是当前这一跳调用方服务的应用 ID。
+	AppId string
+	// InstanceId 是当前这一跳调用方服务实例 ID，可为空。
+	InstanceId string
+}
+
+// TargetServiceContext 表示服务进程内可读取的当前跳被访问服务身份。
+type TargetServiceContext struct {
+	// AppId 是 route 所属服务 app_id；authz 判定时解释为 target_app_id。
+	AppId string
+	// InstanceId 是 route 所属服务实例 ID，可为空。
+	InstanceId string
+}
+
+// DecisionContext 表示服务进程内可读取的 authz 判定结果。
+type DecisionContext struct {
+	// SubjectType 表示本次请求主体类型：anonymous/user/service。
+	SubjectType string
+	// InvokeAppId 表示本跳权限判定中的调用方 app_id。
+	InvokeAppId string
+	// InvokeInstanceId 表示本跳调用方服务实例 ID，可为空。
+	InvokeInstanceId string
+	// TargetAppId 表示 authz 对 route.app_id 的判定语义。
+	TargetAppId string
+	// TargetInstanceId 表示本跳被访问服务实例 ID，可为空。
+	TargetInstanceId string
+	// ApiMethod 表示本次授权动作，HTTP 为方法名，gRPC 为 GRPC。
+	ApiMethod string
+	// ApiPath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 FullMethod。
+	ApiPath string
+	// DecisionId 表示 authz allow 决策 ID。
+	DecisionId string
+}
+
+// BuildContextOptions 定义构建服务主上下文时的可选验签规则。
 type BuildContextOptions struct {
-	// ServiceAppId 表示当前进程所属应用 ID，用于服务自身身份和 target_app_id 默认校验。
-	ServiceAppId string
-	// ServiceInstanceId 表示当前进程实例 ID，用于日志和实例排障。
-	ServiceInstanceId string
-	// AuthzVerification 配置后，BuildVerifiedContext 会用它校验 x-firefly-authz-context。
-	AuthzVerification *AuthzContextVerificationOptions
+	// AuthzVerification 配置后，BuildVerifiedContext 会用它校验 x-firefly-authz-sign JWS。
+	AuthzVerification *AuthzSignVerificationOptions
 }
 
 // WithContext 将服务主上下文注入到 ctx。
@@ -101,97 +167,175 @@ func BuildContext(ctx context.Context, options BuildContextOptions) *Context {
 		value.TraceId = span.SpanContext().TraceID().String()
 	}
 
-	// 返回未验签版本；调用方若需要信任根，应改用 BuildVerifiedContext。
+	// 返回未验签版本；调用方若需要可信 payload，应改用 BuildVerifiedContext。
 	return value
 }
 
-// BuildVerifiedContext 从入站 metadata 构造服务主上下文，并校验 authz 签名上下文。
+// BuildVerifiedContext 从入站 metadata 构造服务主上下文，并校验 authz compact JWS。
 func BuildVerifiedContext(ctx context.Context, options BuildContextOptions) (*Context, error) {
-	// 先按普通 header 构造上下文，保留未验签时的读取便利。
+	// 先按普通 metadata 构造上下文，保留未验签时的读取便利。
 	value := BuildContext(ctx, options)
 	// 未配置验签时保持历史行为，只做结构化，不阻断请求。
 	if options.AuthzVerification == nil {
 		return value, nil
 	}
 
-	// 使用 authz 注入的 JWS 作为服务侧信任根。
-	authzContext, err := VerifyAuthzContext(value.AuthzContextToken, *options.AuthzVerification)
+	// 使用 authz 注入的 JWS 作为服务侧验签输入。
+	authzSign, err := VerifyAuthzSign(value.AuthzSignJWS, *options.AuthzVerification)
 	if err != nil {
 		// 验签失败直接返回错误，由入口中间件转换成 gRPC 未认证错误。
 		return nil, err
 	}
-	// 验签通过后，用签名 claim 覆盖普通 header，避免信任客户端伪造字段。
-	value.applyVerifiedAuthzContext(authzContext)
-	// 返回已经绑定可信 authz 上下文的 ServiceContext。
+	// 验签通过后，用可信 payload 覆盖普通 metadata，避免信任客户端伪造字段。
+	value.applyVerifiedAuthzSign(authzSign)
+	// 返回已经绑定可信 JWS payload 的进程内上下文。
 	return value, nil
 }
 
 // buildContextFromMetadata 只处理 Firefly 标准 metadata 到服务主上下文的字段映射。
 func buildContextFromMetadata(ctx context.Context, options BuildContextOptions) *Context {
-	// 先注入当前服务自身身份，这两个字段不来自调用方 metadata。
-	value := &Context{
-		ServiceAppId:      strings.TrimSpace(options.ServiceAppId),
-		ServiceInstanceId: strings.TrimSpace(options.ServiceInstanceId),
-	}
+	// 进程内上下文只从入站 metadata 和可选签名载荷构造。
+	value := &Context{}
 
 	// 只有 gRPC 入站 metadata 存在时才解析调用方上下文。
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		// UserId 来自 authz allow 后注入的普通 header；服务主体通常为空。
+		// AppLanguage 是客户端偏好字段，不参与权限判断。
+		value.AppLanguage = ParseMetaKey(md, constant.AppLanguage)
+		// Session 来自 authz 对 token/session 的可信解析，不作为出站透传字段。
+		value.Session = ParseMetaKey(md, constant.Session)
+		// UserId 来自 authz allow 后注入的普通 metadata；服务主体通常为空。
 		value.UserId = ParseMetaKey(md, constant.UserId)
-		// InvokeAppId 是新语义，AppId 是存量业务兼容字段，因此优先读 InvokeAppId。
-		value.InvokeAppId = firstNonEmpty(ParseMetaKey(md, constant.InvokeAppId), ParseMetaKey(md, constant.AppId))
-		// AppId 保持为调用方应用 ID，避免存量业务读取 AppId 时语义漂移。
-		value.AppId = value.InvokeAppId
+		// AppId 只表达用户身份中的应用 ID，不再混用本跳 invoke_app_id。
+		value.AppId = ParseMetaKey(md, constant.AppId)
+		// InvokeAppId 表示本跳权限判定中的调用方应用 ID。
+		value.InvokeAppId = ParseMetaKey(md, constant.InvokeAppId)
+		// InvokeInstanceId 表示本跳调用方服务实例 ID，可能为空。
+		value.InvokeInstanceId = ParseMetaKey(md, constant.InvokeInstanceId)
 		// TenantId 表示主体租户，服务或公共接口可能为空或通配。
 		value.TenantId = ParseMetaKey(md, constant.TenantId)
 		// SubjectType 区分 anonymous/user/service。
 		value.SubjectType = ParseMetaKey(md, constant.SubjectType)
-		// TargetAppId 表示当前被访问资源所属 app_id。
+		// TargetAppId 是 authz 对 route.app_id 的判定语义，不是 route 层字段名。
 		value.TargetAppId = ParseMetaKey(md, constant.TargetAppId)
-		// ResourceType 是 Casbin action，HTTP 为方法名，gRPC 为 GRPC。
-		value.ResourceType = ParseMetaKey(md, constant.ResourceType)
-		// ResourcePath 是 Casbin object，HTTP 为 path，gRPC 为 FullMethod。
-		value.ResourcePath = ParseMetaKey(md, constant.ResourcePath)
+		// TargetInstanceId 表示被访问服务实例 ID，通常为空。
+		value.TargetInstanceId = ParseMetaKey(md, constant.TargetInstanceId)
+		// ApiMethod 是 authz 注入的授权动作读取便利，可信版本仍以 AuthzSign 为准。
+		value.ApiMethod = ParseMetaKey(md, constant.ApiMethod)
+		// ApiPath 是 authz 注入的授权路径读取便利，可信版本仍以 AuthzSign 为准。
+		value.ApiPath = ParseMetaKey(md, constant.ApiPath)
 		// DecisionId 用于把业务日志和 authz allow 决策关联起来。
 		value.DecisionId = ParseMetaKey(md, constant.DecisionId)
-		// AuthzContextToken 保存原始 JWS，后续 BuildVerifiedContext 会用它验签。
-		value.AuthzContextToken = ParseMetaKey(md, constant.AuthzContext)
+		// AuthzSignJWS 保存原始 JWS，后续 BuildVerifiedContext 会用它验签。
+		value.AuthzSignJWS = ParseMetaKey(md, constant.AuthzSign)
 		// OrgIds 可能有多个 metadata value，必须复制为服务上下文独占切片。
 		value.OrgIds = cloneStrings(md.Get(constant.OrgIds))
+		// PostIds 同样复制，避免调用方后续修改 metadata 影响上下文。
+		value.PostIds = cloneStrings(md.Get(constant.PostIds))
 		// RoleIds 同样复制，避免调用方后续修改 metadata 影响上下文。
 		value.RoleIds = cloneStrings(md.Get(constant.RoleIds))
 	}
+
+	// 普通 metadata 只提供读取便利，仍然按目标语义组装进程内分组，可信性由 JWS 验签决定。
+	value.rebuildDerivedContexts()
 
 	// 返回只完成结构化的上下文，是否可信由调用方选择是否验签决定。
 	return value
 }
 
-// applyVerifiedAuthzContext 使用签名上下文覆盖普通 header，避免业务代码信任可伪造字段。
-func (c *Context) applyVerifiedAuthzContext(authzContext *AuthzContext) {
+// applyVerifiedAuthzSign 使用已验签 payload 覆盖普通 metadata，避免业务代码信任可伪造字段。
+func (c *Context) applyVerifiedAuthzSign(authzSign *AuthzSign) {
 	// 空 receiver 或空 claim 都直接返回，保持方法幂等和空安全。
-	if c == nil || authzContext == nil {
+	if c == nil || authzSign == nil {
 		return
 	}
 	// 保存完整可信 claim，业务或日志需要追踪授权上下文时可读取。
-	c.AuthzContext = authzContext
+	c.VerifiedAuthzSign = authzSign
 	// UserId 以签名 claim 为准，防止客户端伪造普通 x-firefly-user-id。
-	c.UserId = authzContext.UserId
+	c.UserId = authzSign.UserId
+	// AppId 以用户身份中的 app_id 为准，不能被 invoke_app_id 覆盖。
+	c.AppId = authzSign.AppId
+	// Session 以签名 claim 为准，便于业务侧按会话做只读关联。
+	c.Session = authzSign.Session
 	// TenantId 以签名 claim 为准。
-	c.TenantId = authzContext.TenantId
+	c.TenantId = authzSign.TenantId
 	// SubjectType 以签名 claim 为准。
-	c.SubjectType = authzContext.SubjectType
+	c.SubjectType = authzSign.SubjectType
 	// InvokeAppId 以签名 claim 为准。
-	c.InvokeAppId = authzContext.InvokeAppId
-	// AppId 是兼容字段，也同步为可信调用方 app_id。
-	c.AppId = authzContext.InvokeAppId
+	c.InvokeAppId = authzSign.InvokeAppId
+	// InvokeInstanceId 以签名 claim 为准。
+	c.InvokeInstanceId = authzSign.InvokeInstanceId
 	// TargetAppId 以签名 claim 为准。
-	c.TargetAppId = authzContext.TargetAppId
-	// ResourceType 以签名 claim 为准。
-	c.ResourceType = authzContext.ResourceType
-	// ResourcePath 以签名 claim 为准。
-	c.ResourcePath = authzContext.ResourcePath
+	c.TargetAppId = authzSign.TargetAppId
+	// TargetInstanceId 以签名 claim 为准。
+	c.TargetInstanceId = authzSign.TargetInstanceId
+	// ApiMethod 以签名 claim 为准。
+	c.ApiMethod = authzSign.ApiMethod
+	// ApiPath 以签名 claim 为准。
+	c.ApiPath = authzSign.ApiPath
 	// DecisionId 以签名 claim 为准。
-	c.DecisionId = authzContext.DecisionId
+	c.DecisionId = authzSign.DecisionId
+	// OrgIds 以签名 claim 为准。
+	c.OrgIds = cloneStrings(authzSign.OrgIds)
+	// PostIds 以签名 claim 为准。
+	c.PostIds = cloneStrings(authzSign.PostIds)
+	// RoleIds 以签名 claim 为准。
+	c.RoleIds = cloneStrings(authzSign.RoleIds)
+	// 最后重建分组上下文，让扁平字段和结构化字段保持一致。
+	c.rebuildDerivedContexts()
+}
+
+func (c *Context) rebuildDerivedContexts() {
+	// 空 receiver 直接返回，便于调用方在 defer 或测试中安全使用。
+	if c == nil {
+		return
+	}
+	// 有用户身份字段时才构造 UserContext，避免服务/匿名请求误判为用户请求。
+	if c.UserId != "" || c.AppId != "" || c.TenantId != "" || c.Session != "" || len(c.OrgIds) > 0 || len(c.PostIds) > 0 || len(c.RoleIds) > 0 {
+		c.UserContext = &UserContext{
+			UserId:   c.UserId,
+			AppId:    c.AppId,
+			TenantId: c.TenantId,
+			Session:  c.Session,
+			OrgIds:   cloneStrings(c.OrgIds),
+			PostIds:  cloneStrings(c.PostIds),
+			RoleIds:  cloneStrings(c.RoleIds),
+		}
+	} else {
+		c.UserContext = nil
+	}
+	// InvokeServiceContext 只表达服务 token 解析出的当前跳调用服务身份。
+	if c.InvokeAppId != "" || c.InvokeInstanceId != "" {
+		c.InvokeServiceContext = &InvokeServiceContext{
+			AppId:      c.InvokeAppId,
+			InstanceId: c.InvokeInstanceId,
+		}
+	} else {
+		c.InvokeServiceContext = nil
+	}
+	// TargetServiceContext 只表达 route 映射出的被访问服务身份。
+	if c.TargetAppId != "" || c.TargetInstanceId != "" {
+		c.TargetServiceContext = &TargetServiceContext{
+			AppId:      c.TargetAppId,
+			InstanceId: c.TargetInstanceId,
+		}
+	} else {
+		c.TargetServiceContext = nil
+	}
+	// 决策上下文只表达 authz 判定结果和本跳调用关系。
+	if c.SubjectType != "" || c.InvokeAppId != "" || c.TargetAppId != "" || c.ApiMethod != "" || c.ApiPath != "" || c.DecisionId != "" {
+		c.DecisionContext = &DecisionContext{
+			SubjectType:      c.SubjectType,
+			InvokeAppId:      c.InvokeAppId,
+			InvokeInstanceId: c.InvokeInstanceId,
+			TargetAppId:      c.TargetAppId,
+			TargetInstanceId: c.TargetInstanceId,
+			ApiMethod:        c.ApiMethod,
+			ApiPath:          c.ApiPath,
+			DecisionId:       c.DecisionId,
+		}
+	} else {
+		c.DecisionContext = nil
+	}
 }
 
 func ParseMetaKey(md metadata.MD, key string) string {
@@ -214,18 +358,6 @@ func cloneStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
 	}
-	// 复制切片，避免 ServiceContext 共享 metadata 内部底层数组。
+	// 复制切片，避免进程内 Context 共享 metadata 内部底层数组。
 	return append([]string(nil), values...)
-}
-
-func firstNonEmpty(values ...string) string {
-	// 按优先级逐个检查候选值，常用于新字段到兼容字段的 fallback。
-	for _, value := range values {
-		// 先裁剪空白，再判断是否可用，避免把空格当成有效 app_id。
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	// 所有候选都为空时返回空字符串。
-	return ""
 }

@@ -11,56 +11,76 @@ import (
 
 func TestBuildContext(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.AppLanguage, "zh-CN",
+		constant.Session, "session-1",
 		constant.UserId, "user-1",
 		constant.AppId, "app-1",
 		constant.TenantId, "tenant-1",
 		constant.SubjectType, constant.SubjectTypeUser,
 		constant.InvokeAppId, "app-1",
+		constant.InvokeInstanceId, "app-1-inst",
 		constant.TargetAppId, "order-app",
-		constant.ResourceType, constant.RequestMethodGrpcString,
-		constant.ResourcePath, "/acme.order.v1.OrderService/List",
+		constant.TargetInstanceId, "order-app-inst",
+		constant.ApiMethod, constant.RequestMethodGrpcString,
+		constant.ApiPath, "/acme.order.v1.OrderService/List",
 		constant.DecisionId, "decision-1",
-		constant.AuthzContext, "signed-context",
+		constant.AuthzSign, "signed-context",
 		constant.OrgIds, "org-1",
 		constant.OrgIds, "org-2",
+		constant.PostIds, "post-1",
 		constant.RoleIds, "role-1",
 	))
 
-	value := BuildContext(ctx, BuildContextOptions{
-		ServiceAppId:      "svc-app",
-		ServiceInstanceId: "svc-1",
-	})
+	value := BuildContext(ctx, BuildContextOptions{})
 	if value == nil {
 		t.Fatal("expected service context, got nil")
 	}
 	if value.UserId != "user-1" || value.AppId != "app-1" || value.TenantId != "tenant-1" {
 		t.Fatalf("unexpected identity fields: %+v", value)
 	}
+	if value.AppLanguage != "zh-CN" || value.Session != "session-1" {
+		t.Fatalf("unexpected app context fields: %+v", value)
+	}
 	if value.SubjectType != constant.SubjectTypeUser || value.InvokeAppId != "app-1" || value.TargetAppId != "order-app" {
 		t.Fatalf("unexpected authz identity fields: %+v", value)
 	}
-	if value.ResourceType != constant.RequestMethodGrpcString || value.ResourcePath != "/acme.order.v1.OrderService/List" || value.DecisionId != "decision-1" {
-		t.Fatalf("unexpected authz resource fields: %+v", value)
+	if value.InvokeInstanceId != "app-1-inst" || value.TargetInstanceId != "order-app-inst" {
+		t.Fatalf("unexpected service instance fields: %+v", value)
 	}
-	if value.AuthzContextToken != "signed-context" {
-		t.Fatalf("unexpected authz context token: %+v", value)
+	if value.ApiMethod != constant.RequestMethodGrpcString || value.ApiPath != "/acme.order.v1.OrderService/List" {
+		t.Fatalf("unexpected api fields: %+v", value)
 	}
-	if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-1" {
-		t.Fatalf("unexpected service identity fields: %+v", value)
+	if value.DecisionId != "decision-1" {
+		t.Fatalf("unexpected decision id: %+v", value)
 	}
-	if len(value.OrgIds) != 2 || len(value.RoleIds) != 1 {
+	if value.AuthzSignJWS != "signed-context" {
+		t.Fatalf("unexpected authz sign token: %+v", value)
+	}
+	if value.UserContext == nil || value.UserContext.AppId != "app-1" || value.UserContext.Session != "session-1" {
+		t.Fatalf("unexpected grouped user context: %+v", value)
+	}
+	if value.DecisionContext == nil || value.DecisionContext.TargetAppId != "order-app" {
+		t.Fatalf("unexpected grouped decision context: %+v", value)
+	}
+	if value.InvokeServiceContext == nil || value.InvokeServiceContext.InstanceId != "app-1-inst" {
+		t.Fatalf("unexpected invoke service context: %+v", value)
+	}
+	if value.TargetServiceContext == nil || value.TargetServiceContext.InstanceId != "order-app-inst" {
+		t.Fatalf("unexpected target service context: %+v", value)
+	}
+	if len(value.OrgIds) != 2 || len(value.PostIds) != 1 || len(value.RoleIds) != 1 {
 		t.Fatalf("unexpected scope fields: %+v", value)
 	}
 }
 
-func TestBuildContext_UsesAppIdAsInvokeFallback(t *testing.T) {
+func TestBuildContext_DoesNotUseAppIdAsInvokeFallback(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AppId, "legacy-app",
+		constant.AppId, "user-app",
 	))
 
 	value := BuildContext(ctx, BuildContextOptions{})
-	if value.AppId != "legacy-app" || value.InvokeAppId != "legacy-app" {
-		t.Fatalf("expected app id fallback to populate invoke app id: %+v", value)
+	if value.AppId != "user-app" || value.InvokeAppId != "" {
+		t.Fatalf("expected user app id to stay separate from invoke app id: %+v", value)
 	}
 }
 
