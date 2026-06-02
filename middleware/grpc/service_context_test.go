@@ -84,26 +84,26 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 
 	now := time.Unix(1710000000, 0).UTC()
 	token := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
-		"iss":          testAuthzIssuer,
-		"sub":          "user-1",
-		"subject_type": constant.SubjectTypeUser,
-		"user_id":      "user-1",
-		"app_id":       "user-app",
-		"tenant_id":    "tenant-1",
+		"iss":           testAuthzIssuer,
+		"sub":           "user-1",
+		"subject_type":  constant.SubjectTypeUser,
+		"invoke_app_id": "user-app",
+		"target_app_id": "svc-app",
 		"user_context": map[string]any{
 			"user_id":   "user-1",
 			"app_id":    "user-app",
 			"tenant_id": "tenant-1",
 			"post_ids":  []string{"post-1"},
 		},
-		"invoke_app_id": "app-caller",
-		"target_app_id": "svc-app",
-		"api_method":    constant.RequestMethodGrpcString,
-		"api_path":      "/acme.test.v1.TestService/Get",
-		"decision":      testAuthzDecisionAllow,
-		"decision_id":   "decision-1",
-		"iat":           now.Unix(),
-		"exp":           now.Add(time.Minute).Unix(),
+		"target_service_context": map[string]any{
+			"app_id": "svc-app",
+		},
+		"api_method":  constant.RequestMethodGrpcString,
+		"api_path":    "/acme.test.v1.TestService/Get",
+		"decision":    testAuthzDecisionAllow,
+		"decision_id": "decision-1",
+		"iat":         now.Unix(),
+		"exp":         now.Add(time.Minute).Unix(),
 	})
 
 	baseCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
@@ -123,7 +123,7 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 		if !ok {
 			t.Fatal("expected service context in handler context")
 		}
-		if value.VerifiedAuthzSign == nil || value.UserId != "user-1" || value.AppId != "user-app" || value.InvokeAppId != "app-caller" {
+		if value.VerifiedAuthzSign == nil || value.UserId != "user-1" || value.AppId != "user-app" || value.InvokeAppId != "user-app" {
 			t.Fatalf("expected verified authz sign to populate service context: %+v", value)
 		}
 		if value.ApiMethod != constant.RequestMethodGrpcString || value.ApiPath != "/acme.test.v1.TestService/Get" {
@@ -137,6 +137,9 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 		}
 		if value.TargetServiceContext == nil || value.TargetServiceContext.AppId != "svc-app" {
 			t.Fatalf("expected grouped route context: %+v", value)
+		}
+		if value.InvokeServiceContext != nil {
+			t.Fatalf("expected user entrance without service context to keep invoke service context empty: %+v", value.InvokeServiceContext)
 		}
 		return "ok", nil
 	})
