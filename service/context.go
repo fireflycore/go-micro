@@ -175,7 +175,7 @@ func BuildContext(ctx context.Context, options BuildContextOptions) *Context {
 func BuildVerifiedContext(ctx context.Context, options BuildContextOptions) (*Context, error) {
 	// 先按普通 metadata 构造上下文，保留未验签时的读取便利。
 	value := BuildContext(ctx, options)
-	// 未配置验签时保持历史行为，只做结构化，不阻断请求。
+	// 未配置验签时只做普通 metadata 结构化，调用方应明确知道该上下文不是信任根。
 	if options.AuthzVerification == nil {
 		return value, nil
 	}
@@ -280,8 +280,40 @@ func (c *Context) applyVerifiedAuthzSign(authzSign *AuthzSign) {
 	c.PostIds = cloneStrings(authzSign.PostIds)
 	// RoleIds 以签名 claim 为准。
 	c.RoleIds = cloneStrings(authzSign.RoleIds)
-	// 最后重建分组上下文，让扁平字段和结构化字段保持一致。
-	c.rebuildDerivedContexts()
+	// UserContext 直接使用签名里的结构化 claim，避免从平铺字段反推用户身份。
+	if authzSign.UserContext != nil {
+		c.UserContext = &UserContext{
+			UserId:   authzSign.UserContext.UserId,
+			AppId:    authzSign.UserContext.AppId,
+			TenantId: authzSign.UserContext.TenantId,
+			Session:  authzSign.UserContext.Session,
+			OrgIds:   cloneStrings(authzSign.UserContext.OrgIds),
+			PostIds:  cloneStrings(authzSign.UserContext.PostIds),
+			RoleIds:  cloneStrings(authzSign.UserContext.RoleIds),
+		}
+	} else {
+		c.UserContext = nil
+	}
+	// InvokeServiceContext 只来自结构化服务身份，不从 invoke_app_id 反推。
+	if authzSign.InvokeServiceContext != nil {
+		c.InvokeServiceContext = &InvokeServiceContext{
+			AppId:      authzSign.InvokeServiceContext.AppId,
+			InstanceId: authzSign.InvokeServiceContext.InstanceId,
+		}
+	} else {
+		c.InvokeServiceContext = nil
+	}
+	// TargetServiceContext 只来自结构化 route 所属服务身份。
+	if authzSign.TargetServiceContext != nil {
+		c.TargetServiceContext = &TargetServiceContext{
+			AppId:      authzSign.TargetServiceContext.AppId,
+			InstanceId: authzSign.TargetServiceContext.InstanceId,
+		}
+	} else {
+		c.TargetServiceContext = nil
+	}
+	// 决策上下文仍聚合本跳授权结果，便于日志读取。
+	c.rebuildDecisionContext()
 }
 
 func (c *Context) rebuildDerivedContexts() {
@@ -304,7 +336,7 @@ func (c *Context) rebuildDerivedContexts() {
 		c.UserContext = nil
 	}
 	// InvokeServiceContext 只表达服务 token 解析出的当前跳调用服务身份。
-	if c.InvokeAppId != "" || c.InvokeInstanceId != "" {
+	if c.SubjectType == constant.SubjectTypeService && (c.InvokeAppId != "" || c.InvokeInstanceId != "") {
 		c.InvokeServiceContext = &InvokeServiceContext{
 			AppId:      c.InvokeAppId,
 			InstanceId: c.InvokeInstanceId,
@@ -320,6 +352,15 @@ func (c *Context) rebuildDerivedContexts() {
 		}
 	} else {
 		c.TargetServiceContext = nil
+	}
+	// 决策上下文只表达 authz 判定结果和本跳调用关系。
+	c.rebuildDecisionContext()
+}
+
+func (c *Context) rebuildDecisionContext() {
+	// 空 receiver 直接返回，便于调用方在 defer 或测试中安全使用。
+	if c == nil {
+		return
 	}
 	// 决策上下文只表达 authz 判定结果和本跳调用关系。
 	if c.SubjectType != "" || c.InvokeAppId != "" || c.TargetAppId != "" || c.ApiMethod != "" || c.ApiPath != "" || c.DecisionId != "" {
@@ -349,7 +390,7 @@ func ParseMetaKey(md metadata.MD, key string) string {
 	if len(values) == 0 {
 		return ""
 	}
-	// 返回第一个 metadata value，调用方负责决定是否 trim 或 fallback。
+	// 返回第一个 metadata value，调用方负责决定是否 trim。
 	return values[0]
 }
 

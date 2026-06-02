@@ -62,8 +62,11 @@ func TestBuildContext(t *testing.T) {
 	if value.DecisionContext == nil || value.DecisionContext.TargetAppId != "order-app" {
 		t.Fatalf("unexpected grouped decision context: %+v", value)
 	}
-	if value.InvokeServiceContext == nil || value.InvokeServiceContext.InstanceId != "app-1-inst" {
-		t.Fatalf("unexpected invoke service context: %+v", value)
+	if value.DecisionContext.InvokeAppId != "app-1" || value.DecisionContext.InvokeInstanceId != "app-1-inst" {
+		t.Fatalf("unexpected grouped decision invoke fields: %+v", value.DecisionContext)
+	}
+	if value.InvokeServiceContext != nil {
+		t.Fatalf("expected user subject not to derive invoke service context: %+v", value.InvokeServiceContext)
 	}
 	if value.TargetServiceContext == nil || value.TargetServiceContext.InstanceId != "order-app-inst" {
 		t.Fatalf("unexpected target service context: %+v", value)
@@ -81,6 +84,23 @@ func TestBuildContext_DoesNotUseAppIdAsInvokeFallback(t *testing.T) {
 	value := BuildContext(ctx, BuildContextOptions{})
 	if value.AppId != "user-app" || value.InvokeAppId != "" {
 		t.Fatalf("expected user app id to stay separate from invoke app id: %+v", value)
+	}
+}
+
+func TestBuildContext_BuildsInvokeServiceContextForServiceSubject(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.SubjectType, constant.SubjectTypeService,
+		constant.InvokeAppId, "service-a",
+		constant.InvokeInstanceId, "service-a-1",
+		constant.TargetAppId, "service-b",
+	))
+
+	value := BuildContext(ctx, BuildContextOptions{})
+	if value.InvokeServiceContext == nil || value.InvokeServiceContext.AppId != "service-a" || value.InvokeServiceContext.InstanceId != "service-a-1" {
+		t.Fatalf("expected service subject to build invoke service context: %+v", value)
+	}
+	if value.UserContext != nil {
+		t.Fatalf("expected service subject without user fields to keep user context empty: %+v", value.UserContext)
 	}
 }
 
