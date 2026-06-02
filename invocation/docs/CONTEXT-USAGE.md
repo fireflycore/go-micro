@@ -1,6 +1,6 @@
 # Invocation Context Usage
 
-本文件保留为兼容入口，旧上下文模型已经废弃。
+本文件记录旧上下文模型废弃后的当前入口，保留文件只作为历史说明，不代表运行时兼容旧模型。
 
 旧版 `UserContextMeta`、`WithUserContext(...)`、`UserContextFromContext(...)`、`MustUserContextFromContext(...)` 等做法已经从当前 `go-micro` 主路径移除，不应继续作为服务内上下文模型使用。
 

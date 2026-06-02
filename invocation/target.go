@@ -25,6 +25,10 @@ type Target struct {
 
 // Validate 检查 Target 是否可以用于真实拨号。
 func (t Target) Validate() error {
+	// resolver scheme 是 current 调用模型的固定组成部分，通常为 dns。
+	if strings.TrimSpace(t.ResolverScheme) == "" {
+		return ErrTargetResolverSchemeEmpty
+	}
 	// 主机名不能为空。
 	if strings.TrimSpace(t.Host) == "" {
 		return ErrTargetHostEmpty
@@ -54,12 +58,7 @@ func (t Target) GRPCTarget() string {
 	}
 	// 先得到标准 address。
 	address := t.Address()
-	// 如果没有 resolver scheme，则退化为普通 host:port。
-	if strings.TrimSpace(t.ResolverScheme) == "" {
-		// 未配置 resolver scheme 时退化为普通 address。
-		return address
-	}
-	// 否则返回 gRPC 推荐的 dns:/// 前缀形式。
+	// 返回 gRPC 推荐的 dns:/// 前缀形式。
 	return fmt.Sprintf("%s:///%s", t.ResolverScheme, address)
 }
 
@@ -71,11 +70,6 @@ func (t *Target) cacheDerivedStrings() {
 	}
 	// 先缓存标准 host:port。
 	t.address = net.JoinHostPort(strings.TrimSpace(t.Host), fmt.Sprint(t.Port))
-	if strings.TrimSpace(t.ResolverScheme) == "" {
-		// 无 resolver scheme 时最终 target 就是 address 本身。
-		t.grpcTarget = t.address
-		return
-	}
 	// 有 resolver scheme 时缓存带 scheme 的 gRPC target。
 	t.grpcTarget = fmt.Sprintf("%s:///%s", t.ResolverScheme, t.address)
 }

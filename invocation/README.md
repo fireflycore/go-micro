@@ -25,7 +25,7 @@
 - `docs/CONTEXT-USAGE.md`：查看旧上下文模型废弃说明
 - `docs/TESTING.md`：查看测试范围、覆盖率和测试结论
 - `docs/PERFORMANCE.md`：查看基准测试、性能对比和基线
-- `docs/TEST_REPORT.md`：兼容历史链接入口
+- `docs/TEST_REPORT.md`：历史测试说明归档
 
 ## 一句话主线
 

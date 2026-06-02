@@ -113,6 +113,9 @@ func NewConnectionManager(options ConnectionManagerOptions) (*ConnectionManager,
 // 后续若需要在具体实现中启用 mTLS、自定义 resolver 或更多 dial option，
 // 可以通过 ConnectionManagerOptions 覆盖该行为。
 func DefaultDialFunc(_ context.Context, target Target, options []grpc.DialOption) (*grpc.ClientConn, error) {
+	if err := target.Validate(); err != nil {
+		return nil, err
+	}
 	return grpc.NewClient(target.GRPCTarget(), options...)
 }
 

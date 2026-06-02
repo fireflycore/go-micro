@@ -276,7 +276,7 @@ func TestResolveOutgoingMetadata_PreservesUserAuthorityAndAuthzSign(t *testing.T
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
 		constant.UserAuthority, "user-token",
 		constant.ServiceAuthority, "old-service-token",
-		"authorization", "legacy-token",
+		"authorization", "foreign-authorization",
 		constant.AuthzSign, "old-jws",
 		constant.UserId, "user-1",
 	))

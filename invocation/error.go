@@ -12,6 +12,8 @@ var (
 	ErrTargetHostEmpty = errors.New("target host is empty")
 	// ErrTargetPortInvalid 表示端口既未显式提供，也无法从默认值中补齐。
 	ErrTargetPortInvalid = errors.New("target port is invalid")
+	// ErrTargetResolverSchemeEmpty 表示目标缺少 gRPC resolver scheme。
+	ErrTargetResolverSchemeEmpty = errors.New("target resolver scheme is empty")
 	// ErrDNSManagerIsNil 表示 DNS 管理器为空。
 	ErrDNSManagerIsNil = errors.New("dns manager is nil")
 	// ErrDialFnIsNil 表示底层拨号函数为空。
