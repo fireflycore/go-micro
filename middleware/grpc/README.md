@@ -4,15 +4,14 @@
 
 ## 功能列表
 
-### 1. ServiceContext (`NewServiceContextUnaryInterceptor`)
+### 1. Service Context (`NewServiceContextUnaryInterceptor`)
 
 在请求入口统一完成：
 
-- 解析入站 metadata 中的用户与 authz 上下文字段
+- 解析入站 metadata 中的普通身份字段和 authz compact JWS
 - 构造服务内唯一主上下文 `service.Context`
 - 从当前 OTel span 提取 trace 标识快照
-- 补齐当前服务自身身份（`ServiceAppId`、`ServiceInstanceId`）
-- 按需本地验签 `x-firefly-authz-context`
+- 按需本地验签 `x-firefly-authz-sign`
 
 **推荐用途**：
 - 在 gRPC 服务端入口统一注入 `service.Context`
@@ -21,13 +20,15 @@
 
 `gm` 当前只负责服务端入站中间件语义，不再定义服务内主上下文模型；业务代码应从 `go-micro/service` 读取 `service.Context`，出站调用统一由 `go-micro/invocation` 直接基于当前 gRPC context 与 OTel trace 处理。
 
+`service.Context.AppId` 只表示用户身份中的 app_id；当前这一跳调用方应用 ID 使用 `InvokeAppId`，被访问服务应用 ID 使用 `TargetAppId`。
+
 ### 2. Access Logger (`NewAccessLogger`)
 
 提供 gRPC 访问日志记录功能，输出结构化字段（zap fields）。
 
 **特性**：
 - **链路关联**：通过 `otelzap` 从 `ctx` 自动关联 trace（要求服务端启用 OTel stats handler，日志使用 `zap.Any("ctx", ctx)`）。
-- **身份识别**：优先读取 `ServiceContext`，必要时再回退到 metadata 中的兼容字段。
+- **身份识别**：优先读取进程内 `service.Context`，必要时只回退读取普通身份 metadata，不从未签名资源字段推导授权动作和路径。
 - **性能字段**：`duration`（微秒）、`status`（gRPC code）、`path` 等。
 
 **用法**：
@@ -63,10 +64,9 @@ s := grpc.NewServer(
     grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
     grpc.ChainUnaryInterceptor(
         gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
-            ServiceAppId:      "auth",
-            ServiceInstanceId: "auth-1",
-            // 生产环境建议配置 AuthzVerification，让服务侧信任签名上下文而不是普通 header。
-            // AuthzVerification: &service.AuthzContextVerificationOptions{...},
+            ExpectedTargetAppId: "auth",
+            // 生产环境建议配置 AuthzVerification，让服务侧信任验签后的 JWS payload。
+            // AuthzVerification: &service.AuthzSignVerificationOptions{...},
         }),
         gm.ValidationErrorToInvalidArgument(),
         gm.NewAccessLogger(accessLog),

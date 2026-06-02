@@ -51,7 +51,7 @@ func NewAccessLogger(log *logger.AccessLogger) func(next http.Handler) http.Hand
 			status := sw.status
 			elapsed := time.Since(start)
 
-			method, ok := RequestMethod[request.Method]
+			method, ok := constant.RequestMethodStringMap[request.Method]
 			if !ok {
 				method = 0
 			}

@@ -48,7 +48,7 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 		start := time.Now()
 		// 提前提取 metadata，后续用于补充访问日志字段。
 		md, _ := metadata.FromIncomingContext(ctx)
-		// 读取服务内部统一的 ServiceContext，优先复用已结构化的上下文数据。
+		// 读取服务内部统一的 service.Context，优先复用已结构化的上下文数据。
 		serviceContext, _ := service.FromContext(ctx)
 
 		// 调用下一个拦截器或服务方法
@@ -89,14 +89,6 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			fields = append(fields, zap.String("client_ip", v))
 		}
 
-		// 优先记录调用方服务身份信息。
-		if v := parseLogMetaKey(md, constant.ServiceAppId); v != "" {
-			fields = append(fields, zap.String("service_app_id", v))
-		}
-		if v := parseLogMetaKey(md, constant.ServiceInstanceId); v != "" {
-			fields = append(fields, zap.String("service_instance_id", v))
-		}
-
 		if v := parseLogMetaKey(md, constant.SystemName); v != "" {
 			fields = append(fields, zap.String("system_name", v))
 		}
@@ -118,13 +110,13 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 		if v := parseLogMetaKey(md, constant.AppVersion); v != "" {
 			fields = append(fields, zap.String("app_version", v))
 		}
-		// 若上游已在入口构建 ServiceContext，则优先使用结构化后的字段。
+		// 若入口已构建 service.Context，则优先使用结构化后的字段。
 		if serviceContext != nil {
 			// 记录用户主体 ID，服务和匿名主体通常为空。
 			if serviceContext.UserId != "" {
 				fields = append(fields, zap.String("user_id", serviceContext.UserId))
 			}
-			// 记录兼容 app_id 字段，语义上等同 invoke_app_id。
+			// 记录用户身份中的 app_id；服务间调用方 app_id 使用 invoke_app_id 表达。
 			if serviceContext.AppId != "" {
 				fields = append(fields, zap.String("app_id", serviceContext.AppId))
 			}
@@ -144,33 +136,18 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			if serviceContext.TargetAppId != "" {
 				fields = append(fields, zap.String("target_app_id", serviceContext.TargetAppId))
 			}
-			// 记录授权动作，HTTP 为方法名，gRPC 为 GRPC。
-			if serviceContext.ResourceType != "" {
-				fields = append(fields, zap.String("resource_type", serviceContext.ResourceType))
-			}
-			// 记录授权资源路径，gRPC 场景为 FullMethod。
-			if serviceContext.ResourcePath != "" {
-				fields = append(fields, zap.String("resource_path", serviceContext.ResourcePath))
-			}
+			// 授权动作和路径已由 access log 基础字段 method/path 表达，避免重复写入同名字段。
 			// 记录 authz 决策 ID，用于把业务日志和授权判定关联起来。
 			if serviceContext.DecisionId != "" {
 				fields = append(fields, zap.String("decision_id", serviceContext.DecisionId))
 			}
-			// 记录当前服务自身 app_id，和 invoke_app_id 一起用于区分调用方/被调方。
-			if serviceContext.ServiceAppId != "" {
-				fields = append(fields, zap.String("service_app_id", serviceContext.ServiceAppId))
-			}
-			// 记录当前服务实例 ID，便于定位具体进程实例。
-			if serviceContext.ServiceInstanceId != "" {
-				fields = append(fields, zap.String("service_instance_id", serviceContext.ServiceInstanceId))
-			}
 		} else {
-			// 没有 ServiceContext 时，再回退到原始 metadata 中兜底提取。
+			// 没有 service.Context 时，再回退到原始 metadata 中兜底提取。
 			// 兜底记录用户主体 ID。
 			if v := parseLogMetaKey(md, constant.UserId); v != "" {
 				fields = append(fields, zap.String("user_id", v))
 			}
-			// 兜底记录兼容 app_id 字段。
+			// 兜底记录用户身份中的 app_id。
 			if v := parseLogMetaKey(md, constant.AppId); v != "" {
 				fields = append(fields, zap.String("app_id", v))
 			}
@@ -190,14 +167,7 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			if v := parseLogMetaKey(md, constant.TargetAppId); v != "" {
 				fields = append(fields, zap.String("target_app_id", v))
 			}
-			// 兜底记录授权动作。
-			if v := parseLogMetaKey(md, constant.ResourceType); v != "" {
-				fields = append(fields, zap.String("resource_type", v))
-			}
-			// 兜底记录授权资源路径。
-			if v := parseLogMetaKey(md, constant.ResourcePath); v != "" {
-				fields = append(fields, zap.String("resource_path", v))
-			}
+			// 不从普通 metadata 兜底读取授权动作和路径，避免信任未签名资源字段。
 			// 兜底记录 authz 决策 ID。
 			if v := parseLogMetaKey(md, constant.DecisionId); v != "" {
 				fields = append(fields, zap.String("decision_id", v))
