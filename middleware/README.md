@@ -17,7 +17,7 @@
 位于 `middleware/grpc` 包下。
 
 主要功能：
-- `NewAccessLogger`: 访问日志（结构化字段 + zap/otelzap 兼容）。
+- `NewAccessLogger`: 访问日志（结构化字段 + zap/otelzap 适配）。
 - `ValidationErrorToInvalidArgument`: 将 protovalidate 错误映射为 `codes.InvalidArgument`。
 - `NewOtelServerStatsHandler`: OTel gRPC Server StatsHandler（用于 trace/metrics 自动埋点）。
 
