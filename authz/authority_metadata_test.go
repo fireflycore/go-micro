@@ -14,7 +14,7 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 	md := metadata.Pairs(
 		constant.UserAuthority, "user-token",
 		constant.ServiceAuthority, "old-service-token",
-		"authorization", "legacy-token",
+		"authorization", "foreign-authorization",
 		constant.AuthzSign, "old-jws",
 		constant.UserId, "user-1",
 		constant.InvokeAppId, "old-invoke",

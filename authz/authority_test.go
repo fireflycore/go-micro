@@ -7,20 +7,25 @@ import (
 	"time"
 )
 
-func TestNewServiceAuthorityProvider_Disabled(t *testing.T) {
-	provider, err := NewServiceAuthorityProvider(nil, nil)
-	if err != nil {
-		t.Fatalf("expected disabled provider without error, got %v", err)
-	}
-	if provider != nil {
-		t.Fatalf("expected nil provider when config is disabled")
+func TestNewServiceAuthorityProvider_RequiresFetch(t *testing.T) {
+	_, err := NewServiceAuthorityProvider(nil, nil)
+	if !errors.Is(err, ErrServiceAuthorityFetchMissing) {
+		t.Fatalf("expected %v, got %v", ErrServiceAuthorityFetchMissing, err)
 	}
 }
 
-func TestNewServiceAuthorityProvider_RequiresFetchWhenEnabled(t *testing.T) {
-	_, err := NewServiceAuthorityProvider(&ServiceAuthorityConfig{Enabled: true}, nil)
-	if !errors.Is(err, ErrServiceAuthorityFetchMissing) {
-		t.Fatalf("expected %v, got %v", ErrServiceAuthorityFetchMissing, err)
+func TestNewServiceAuthorityProvider_UsesDefaultsWithNilConfig(t *testing.T) {
+	provider, err := NewServiceAuthorityProvider(nil, func(context.Context) (*ServiceAuthorityToken, error) {
+		return &ServiceAuthorityToken{
+			Token:     "service-token",
+			ExpiresAt: time.Now().Add(10 * time.Minute),
+		}, nil
+	})
+	if err != nil {
+		t.Fatalf("new provider failed: %v", err)
+	}
+	if provider == nil {
+		t.Fatalf("expected provider")
 	}
 }
 
@@ -89,13 +94,10 @@ func TestNewServiceAuthorityToken_ParsesExpiredValue(t *testing.T) {
 	}
 }
 
-func TestParseServiceAuthorityExpiresAt_AllowsPermanentValue(t *testing.T) {
-	expiresAt, err := ParseServiceAuthorityExpiresAt(PermanentlyValidExpiredValue)
-	if err != nil {
-		t.Fatalf("parse permanent expired failed: %v", err)
-	}
-	if !expiresAt.IsZero() {
-		t.Fatalf("expected zero time for permanent token, got %s", expiresAt)
+func TestParseServiceAuthorityExpiresAt_RejectsEmptyValue(t *testing.T) {
+	_, err := ParseServiceAuthorityExpiresAt("")
+	if !errors.Is(err, ErrServiceAuthorityTokenExpiresAtMissing) {
+		t.Fatalf("expected %v, got %v", ErrServiceAuthorityTokenExpiresAtMissing, err)
 	}
 }
 
@@ -106,5 +108,12 @@ func TestValidateServiceAuthorityToken_RejectsExpiredToken(t *testing.T) {
 	}, time.Date(2026, 5, 31, 10, 0, 0, 0, time.UTC))
 	if !errors.Is(err, ErrServiceAuthorityTokenExpired) {
 		t.Fatalf("expected %v, got %v", ErrServiceAuthorityTokenExpired, err)
+	}
+}
+
+func TestValidateServiceAuthorityToken_RejectsMissingExpiresAt(t *testing.T) {
+	err := validateServiceAuthorityToken(&ServiceAuthorityToken{Token: "service-token"}, time.Now())
+	if !errors.Is(err, ErrServiceAuthorityTokenExpiresAtMissing) {
+		t.Fatalf("expected %v, got %v", ErrServiceAuthorityTokenExpiresAtMissing, err)
 	}
 }

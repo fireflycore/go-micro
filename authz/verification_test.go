@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-func TestNewVerificationOptionsDisabled(t *testing.T) {
-	// nil 配置表示不启用服务侧验签。
+func TestNewVerificationOptionsNilConfig(t *testing.T) {
+	// nil 配置表示调用方没有装配服务侧验签配置。
 	options, err := NewVerificationOptions(nil)
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
@@ -22,7 +22,7 @@ func TestNewVerificationOptionsDisabled(t *testing.T) {
 		t.Fatalf("expected non-nil options")
 	}
 	if options.AuthzVerification != nil {
-		t.Fatalf("expected nil authz verification when disabled")
+		t.Fatalf("expected nil authz verification when config is nil")
 	}
 	if len(options.AuthzSkipMethods) != 0 {
 		t.Fatalf("expected empty skip methods, got %v", options.AuthzSkipMethods)
@@ -40,7 +40,6 @@ func TestNewVerificationOptionsLoadsEd25519PublicKey(t *testing.T) {
 
 	// 根据配置构造 middleware 验签选项。
 	options, err := NewVerificationOptions(&VerificationConfig{
-		Enabled:       true,
 		Kid:           DefaultKid,
 		PublicKeyPath: path,
 		Issuer:        DefaultIssuer,
@@ -78,7 +77,6 @@ func TestNewVerificationOptionsUsesDefaults(t *testing.T) {
 
 	// 只配置必要字段，验证默认 kid、issuer 和 clock skew。
 	options, err := NewVerificationOptions(&VerificationConfig{
-		Enabled:       true,
 		PublicKeyPath: path,
 	})
 	if err != nil {
@@ -96,8 +94,8 @@ func TestNewVerificationOptionsUsesDefaults(t *testing.T) {
 }
 
 func TestNewVerificationOptionsRequiresPublicKeyPath(t *testing.T) {
-	// 启用验签后 public_key_path 必填。
-	_, err := NewVerificationOptions(&VerificationConfig{Enabled: true})
+	// 配置了验签结构后 public_key_path 必填。
+	_, err := NewVerificationOptions(&VerificationConfig{})
 	if err == nil {
 		t.Fatalf("expected error when public key path is empty")
 	}

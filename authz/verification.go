@@ -23,8 +23,6 @@ const (
 
 // VerificationConfig 描述业务服务如何本地验签 authz 注入的 x-firefly-authz-sign。
 type VerificationConfig struct {
-	// Enabled 控制是否启用服务侧 authz JWS 验签。
-	Enabled bool `json:"enabled" yaml:"enabled"`
 	// Kid 是当前使用的公钥 ID；为空时使用 DefaultKid。
 	Kid string `json:"kid" yaml:"kid"`
 	// PublicKeyPath 是 Ed25519 公钥 PEM 文件路径。
@@ -47,8 +45,8 @@ type VerificationOptions struct {
 
 // NewVerificationOptions 根据业务服务配置构造 go-micro 服务侧验签选项。
 func NewVerificationOptions(cfg *VerificationConfig) (*VerificationOptions, error) {
-	// 未配置或未启用时保持历史行为，不启用验签。
-	if cfg == nil || !cfg.Enabled {
+	// 未配置时表示调用方没有装配服务侧验签，返回空选项供启动层显式处理。
+	if cfg == nil {
 		return &VerificationOptions{}, nil
 	}
 
@@ -65,7 +63,7 @@ func NewVerificationOptions(cfg *VerificationConfig) (*VerificationOptions, erro
 	// 启用验签后必须显式配置公钥路径。
 	publicKeyPath := strings.TrimSpace(cfg.PublicKeyPath)
 	if publicKeyPath == "" {
-		return nil, fmt.Errorf("authz verification public_key_path is required when enabled")
+		return nil, fmt.Errorf("authz verification public_key_path is required")
 	}
 
 	// 从 PEM 文件加载 Ed25519 公钥。

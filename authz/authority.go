@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	// PermanentlyValidExpiredValue 是 auth 服务返回永久有效 service token 时的 expired 字符串。
-	PermanentlyValidExpiredValue = "PERMANENTLY_VALID"
 	// DefaultServiceAuthorityRefreshBefore 是 service token 过期前的默认主动刷新窗口。
 	DefaultServiceAuthorityRefreshBefore = time.Minute
 )
@@ -21,14 +19,14 @@ var (
 	ErrServiceAuthorityFetchMissing = errors.New("authz service authority fetch function is missing")
 	// ErrServiceAuthorityTokenMissing 表示取到的 service token 为空，不能写入出站请求。
 	ErrServiceAuthorityTokenMissing = errors.New("authz service authority token is missing")
+	// ErrServiceAuthorityTokenExpiresAtMissing 表示 service token 没有明确过期时间，无法做动态轮换。
+	ErrServiceAuthorityTokenExpiresAtMissing = errors.New("authz service authority token expires_at is missing")
 	// ErrServiceAuthorityTokenExpired 表示取到的 service token 已经过期。
 	ErrServiceAuthorityTokenExpired = errors.New("authz service authority token is expired")
 )
 
-// ServiceAuthorityConfig 描述服务间调用如何启用 service authority 自动注入。
+// ServiceAuthorityConfig 描述服务间调用 service token 的主动刷新策略。
 type ServiceAuthorityConfig struct {
-	// Enabled 控制是否启用 service authority provider。
-	Enabled bool `json:"enabled" yaml:"enabled"`
 	// RefreshBefore 表示 token 过期前多久主动刷新，例如 1m；为空使用默认值。
 	RefreshBefore string `json:"refresh_before" yaml:"refresh_before"`
 }
@@ -37,7 +35,7 @@ type ServiceAuthorityConfig struct {
 type ServiceAuthorityToken struct {
 	// Token 是最终写入 X-Firefly-Service-Authority 的服务 token。
 	Token string
-	// ExpiresAt 是 token 过期时间；零值表示永久有效或上游未声明过期时间。
+	// ExpiresAt 是 token 过期时间；目标链路要求 service token 必须可轮换，零值无效。
 	ExpiresAt time.Time
 }
 
@@ -74,13 +72,13 @@ type CachedServiceAuthorityProvider struct {
 
 // NewServiceAuthorityProvider 根据配置和取 token 函数构造缓存型 provider。
 func NewServiceAuthorityProvider(cfg *ServiceAuthorityConfig, fetch ServiceAuthorityFetchFunc) (ServiceAuthorityProvider, error) {
-	// 未配置或未启用时返回 nil，调用方可以直接传给 invocation 保持不注入 service authority。
-	if cfg == nil || !cfg.Enabled {
-		return nil, nil
-	}
-	// 启用后必须提供 fetch 函数，否则出站调用无法获得当前服务身份。
+	// 目标链路下 service authority provider 只要被构造，就必须能获取当前服务 token。
 	if fetch == nil {
 		return nil, ErrServiceAuthorityFetchMissing
+	}
+	// nil 配置表示使用默认刷新窗口，不表示禁用 service authority。
+	if cfg == nil {
+		cfg = &ServiceAuthorityConfig{}
 	}
 	// 解析刷新窗口，支持 30s、1m 等标准 duration。
 	refreshBefore, err := parseServiceAuthorityRefreshBefore(cfg.RefreshBefore)
@@ -178,10 +176,10 @@ func NewServiceAuthorityToken(token string, expired string) (*ServiceAuthorityTo
 
 // ParseServiceAuthorityExpiresAt 解析 auth 服务 SessionToken.expired 字段。
 func ParseServiceAuthorityExpiresAt(value string) (time.Time, error) {
-	// 空值表示上游没有声明过期时间，按永久有效处理。
+	// 目标链路要求 service token 必须有明确过期时间，便于调用方覆盖和动态轮换。
 	value = strings.TrimSpace(value)
-	if value == "" || strings.EqualFold(value, PermanentlyValidExpiredValue) {
-		return time.Time{}, nil
+	if value == "" {
+		return time.Time{}, ErrServiceAuthorityTokenExpiresAtMissing
 	}
 	// auth 服务当前使用 RFC3339 输出过期时间。
 	expiresAt, err := time.Parse(time.RFC3339, value)
@@ -202,7 +200,11 @@ func validateServiceAuthorityToken(token *ServiceAuthorityToken, now time.Time) 
 		return ErrServiceAuthorityTokenMissing
 	}
 	// 非零过期时间必须晚于当前时间。
-	if !token.ExpiresAt.IsZero() && !token.ExpiresAt.After(now.UTC()) {
+	if token.ExpiresAt.IsZero() {
+		return ErrServiceAuthorityTokenExpiresAtMissing
+	}
+	// 过期时间必须晚于当前时间。
+	if !token.ExpiresAt.After(now.UTC()) {
 		return ErrServiceAuthorityTokenExpired
 	}
 	// 校验通过后允许写入缓存。
@@ -220,9 +222,9 @@ func parseServiceAuthorityRefreshBefore(value string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse service authority refresh_before: %w", err)
 	}
-	// 非正数没有刷新意义，回退到默认值。
+	// 非正数没有刷新意义，目标链路直接拒绝错误配置。
 	if refreshBefore <= 0 {
-		return DefaultServiceAuthorityRefreshBefore, nil
+		return 0, fmt.Errorf("parse service authority refresh_before: value must be positive")
 	}
 	// 返回调用方配置的刷新窗口。
 	return refreshBefore, nil

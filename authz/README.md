@@ -27,7 +27,6 @@
 ```json
 {
   "authz_verification": {
-    "enabled": true,
     "kid": "default",
     "public_key_path": "/etc/firefly/authz/keys/default-pub.pem",
     "issuer": "firefly-authz",
@@ -39,6 +38,8 @@
   }
 }
 ```
+
+`authz_verification` 配置存在时必须提供 `public_key_path`。是否对某个服务入口启用验签由服务启动装配决定，不再通过 `enabled` 字段做运行时开关。
 
 然后在 gRPC server 初始化时接入：
 
@@ -69,7 +70,6 @@ gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
 ```go
 provider, err := authz.NewServiceAuthorityProvider(
     &authz.ServiceAuthorityConfig{
-        Enabled:       true,
         RefreshBefore: "1m",
     },
     func(ctx context.Context) (*authz.ServiceAuthorityToken, error) {
