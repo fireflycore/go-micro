@@ -17,6 +17,12 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+const (
+	testAuthzKid           = "default"
+	testAuthzIssuer        = "firefly-authz"
+	testAuthzDecisionAllow = "allow"
+)
+
 func TestNewServiceContextUnaryInterceptor(t *testing.T) {
 	original := otel.GetTracerProvider()
 	provider := trace.NewTracerProvider()
@@ -35,17 +41,15 @@ func TestNewServiceContextUnaryInterceptor(t *testing.T) {
 		constant.AppId, "app-1",
 		constant.TenantId, "tenant-1",
 		constant.OrgIds, "org-1",
+		constant.PostIds, "post-1",
 		constant.RoleIds, "role-1",
 		constant.SubjectType, constant.SubjectTypeUser,
 		constant.InvokeAppId, "app-1",
 		constant.TargetAppId, "svc-app",
-		constant.ResourceType, constant.RequestMethodGrpcString,
-		constant.ResourcePath, "/acme.test.v1.TestService/Get",
 	))
 
 	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ServiceAppId:      "svc-app",
-		ServiceInstanceId: "svc-1",
+		ExpectedTargetAppId: "svc-app",
 	})
 
 	resp, err := interceptor(baseCtx, &struct{}{}, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
@@ -53,7 +57,7 @@ func TestNewServiceContextUnaryInterceptor(t *testing.T) {
 		if !ok {
 			t.Fatal("expected service context in handler context")
 		}
-		if value.UserId != "user-1" || value.ServiceAppId != "svc-app" {
+		if value.UserId != "user-1" || value.AppId != "app-1" {
 			t.Fatalf("unexpected service context: %+v", value)
 		}
 		if value.SubjectType != constant.SubjectTypeUser || value.TargetAppId != "svc-app" {
@@ -72,38 +76,44 @@ func TestNewServiceContextUnaryInterceptor(t *testing.T) {
 	}
 }
 
-func TestNewServiceContextUnaryInterceptor_VerifiesAuthzContext(t *testing.T) {
+func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key failed: %v", err)
 	}
 
 	now := time.Unix(1710000000, 0).UTC()
-	token := signTestAuthzContext(t, privateKey, "default", map[string]any{
-		"iss":           "firefly-authz",
-		"sub":           "user-1",
-		"subject_type":  "user",
-		"user_id":       "user-1",
-		"tenant_id":     "tenant-1",
+	token := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
+		"iss":          testAuthzIssuer,
+		"sub":          "user-1",
+		"subject_type": constant.SubjectTypeUser,
+		"user_id":      "user-1",
+		"app_id":       "user-app",
+		"tenant_id":    "tenant-1",
+		"user_context": map[string]any{
+			"user_id":   "user-1",
+			"app_id":    "user-app",
+			"tenant_id": "tenant-1",
+			"post_ids":  []string{"post-1"},
+		},
 		"invoke_app_id": "app-caller",
 		"target_app_id": "svc-app",
-		"resource_type": "GRPC",
-		"path":          "/acme.test.v1.TestService/Get",
-		"decision":      "allow",
+		"api_method":    constant.RequestMethodGrpcString,
+		"api_path":      "/acme.test.v1.TestService/Get",
+		"decision":      testAuthzDecisionAllow,
 		"decision_id":   "decision-1",
 		"iat":           now.Unix(),
 		"exp":           now.Add(time.Minute).Unix(),
 	})
 
 	baseCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AuthzContext, token,
+		constant.AuthzSign, token,
 	))
 	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ServiceAppId:      "svc-app",
-		ServiceInstanceId: "svc-1",
-		AuthzVerification: &servicectx.AuthzContextVerificationOptions{
-			PublicKeys: map[string]ed25519.PublicKey{"default": publicKey},
-			Issuer:     "firefly-authz",
+		ExpectedTargetAppId: "svc-app",
+		AuthzVerification: &servicectx.AuthzSignVerificationOptions{
+			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
+			Issuer:     testAuthzIssuer,
 			Now:        func() time.Time { return now },
 		},
 	})
@@ -113,8 +123,20 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzContext(t *testing.T) {
 		if !ok {
 			t.Fatal("expected service context in handler context")
 		}
-		if value.AuthzContext == nil || value.UserId != "user-1" || value.AppId != "app-caller" {
-			t.Fatalf("expected verified authz context to populate service context: %+v", value)
+		if value.VerifiedAuthzSign == nil || value.UserId != "user-1" || value.AppId != "user-app" || value.InvokeAppId != "app-caller" {
+			t.Fatalf("expected verified authz sign to populate service context: %+v", value)
+		}
+		if value.ApiMethod != constant.RequestMethodGrpcString || value.ApiPath != "/acme.test.v1.TestService/Get" {
+			t.Fatalf("expected verified method/path to populate service context: %+v", value)
+		}
+		if value.UserContext == nil || value.UserContext.AppId != "user-app" {
+			t.Fatalf("expected grouped user context: %+v", value)
+		}
+		if len(value.UserContext.PostIds) != 1 || value.UserContext.PostIds[0] != "post-1" {
+			t.Fatalf("expected post ids in grouped user context: %+v", value)
+		}
+		if value.TargetServiceContext == nil || value.TargetServiceContext.AppId != "svc-app" {
+			t.Fatalf("expected grouped route context: %+v", value)
 		}
 		return "ok", nil
 	})
@@ -126,13 +148,13 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzContext(t *testing.T) {
 	}
 }
 
-func signTestAuthzContext(t *testing.T, privateKey ed25519.PrivateKey, kid string, claims map[string]any) string {
+func signTestAuthzSign(t *testing.T, privateKey ed25519.PrivateKey, kid string, claims map[string]any) string {
 	t.Helper()
 
 	header := map[string]any{
-		"alg": "EdDSA",
+		"alg": constant.JWSAlgorithmEdDSA,
 		"kid": kid,
-		"typ": "JWT",
+		"typ": constant.JWSTypeJWT,
 	}
 	headerSegment := encodeTestJWSSegment(t, header)
 	payloadSegment := encodeTestJWSSegment(t, claims)
