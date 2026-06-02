@@ -30,12 +30,12 @@
 新代码建议优先读取分组字段：
 
 - `UserContext`：用户身份，字段保持 `user_id / app_id / tenant_id / session / org_ids / post_ids / role_ids`
-- `InvokeServiceContext`：当前这一跳调用方服务身份，来源于 authz 对服务 authority 的解析
+- `InvokeServiceContext`：当前这一跳调用方服务身份，只在服务主体场景存在，来源于 authz 对服务 authority 的解析
 - `TargetServiceContext`：当前这一跳被访问服务身份，来源于 authz 对 route.app_id / route.instance_id 的映射
 - `DecisionContext`：authz allow 后的判定事实
 
-扁平字段仍然保留，方便日志和现有业务读取，但不要把 `AppId` 和 `InvokeAppId` 混用。
+扁平字段仍然保留，方便日志和业务读取，但不要把 `AppId`、`InvokeAppId` 和 `InvokeServiceContext.AppId` 混用。`InvokeAppId` 是授权元组里的调用方应用 ID；用户首跳时它可以来自 `UserContext.app_id`，此时不代表存在调用服务。
 
 `service.Context.AuthzSignJWS` 保存原始 `x-firefly-authz-sign` compact JWS；`service.Context.VerifiedAuthzSign` 保存验签后的 payload。
 
-`service.Context.ApiMethod` / `ApiPath` 只在 `BuildVerifiedContext(...)` 本地验签成功后可信；普通 metadata 只作为读取便利，不是信任根。
+`service.Context.ApiMethod` / `ApiPath` 只在 `BuildVerifiedContext(...)` 本地验签成功后可信；普通 metadata 只作为读取便利，不是信任根。验签后的 `AuthzSign` 必须携带结构化 `user_context`、`invoke_service_context` 和 `target_service_context`，不再接受旧平铺身份 payload。
