@@ -20,11 +20,12 @@
 在权限链路上，`go-micro` 只负责两件事：把入站 header/metadata 结构化为进程内 `service.Context`，以及按需本地验签 authz 写入的 compact JWS。
 
 - token 解析和权限判定由 authz 数据面完成
-- 跨进程只传 HTTP header / gRPC metadata，不传 `UserContext`、`InvokeServiceContext`、`TargetServiceContext` 或 `AuthzSign` 结构体
+- 跨进程只传 HTTP header / gRPC metadata，不传 `UserContext` 或 `AuthzSign` 结构体
 - `X-Firefly-User-Authority` / `X-Firefly-Service-Authority` 是传给 authz 校验的 authority 原文
 - `x-firefly-authz-sign` 是 authz 签名后的 compact JWS；业务服务验签后才得到 `VerifiedAuthzSign`
 - `service.Context` 是业务服务进程内结构体，由 metadata 和可选 JWS 验签结果组装
 - `service.Context.AppId` 只表示用户身份中的 app_id；本跳调用方应用 ID 使用 `InvokeAppId`
+- `service.Context.ServiceAppId / ServiceInstanceId` 只表示当前服务自身身份，用于本地日志、OTel 和数据库链路排障，不参与 authz 授权元组
 - 出站调用通过 `authz.ServiceAuthorityProvider` 透传用户 authority，并由当前服务覆盖服务 authority
 - 出站调用会保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，避免复用上一跳普通上下文或服务身份
 
@@ -49,7 +50,8 @@ s := grpc.NewServer(
 	grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
 	grpc.ChainUnaryInterceptor(
 		gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
-			ExpectedTargetAppId: "auth",
+			ServiceAppId:      "auth",
+			ServiceInstanceId: "auth-instance-1",
 			AuthzVerification: &service.AuthzSignVerificationOptions{
 				Issuer: "firefly-authz",
 				// PublicKeys: map[string]ed25519.PublicKey{"default": authzPublicKey},
