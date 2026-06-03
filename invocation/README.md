@@ -63,6 +63,7 @@
 - 复用当前链路 metadata
 - 保留用户 authority 与短 TTL authz sign，清理上一跳 authz 注入的普通身份 metadata
 - 按需覆盖 `X-Firefly-Service-Authority`
+- 生产服务间调用应配置 `ServiceAuthorityProvider`；不配置只适合获取 service token 自身的启动链路或测试链路
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
 
@@ -113,11 +114,13 @@ package example
 import (
 	"time"
 
+	"github.com/fireflycore/go-micro/authz"
 	"github.com/fireflycore/go-micro/invocation"
 )
 
-func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.RemoteServiceManaged {
-	invoker := invocation.NewUnaryInvoker(manager, 3*time.Second)
+func BuildRemoteServices(manager *invocation.ConnectionManager, provider authz.ServiceAuthorityProvider) *invocation.RemoteServiceManaged {
+	invoker := invocation.NewUnaryInvoker(manager, 3*time.Second).
+		WithServiceAuthorityProvider(provider)
 
 	return invocation.NewRemoteServiceManaged(
 		invoker,
