@@ -55,6 +55,17 @@ const (
 	ServiceAuthority = HeaderPrefix + "service-authority"
 )
 
+const (
+	// ServiceAppId 表示当前业务服务自身的应用 ID，只由本服务入口注入到本地上下文。
+	//
+	// 它不参与 authz 权限元组，也不允许跨服务出站透传。
+	ServiceAppId = HeaderPrefix + "service-app-id"
+	// ServiceInstanceId 表示当前业务服务自身的实例 ID，只由本服务入口注入到本地上下文。
+	//
+	// 它用于日志、OTel 和数据库链路排障，不参与 authz 权限元组，也不允许跨服务出站透传。
+	ServiceInstanceId = HeaderPrefix + "service-instance-id"
+)
+
 // 以下字段由 authz 从 X-Firefly-User-Authority 中解析后注入，业务侧按 UserContext 读取。
 const (
 	// UserId 表示用户主体 ID，服务主体或匿名主体为空。
@@ -77,14 +88,10 @@ const (
 	// InvokeAppId 表示 authz 本次授权元组中的调用方 app_id。
 	//
 	// 用户入口请求没有服务身份时可来自 UserContext.app_id；
-	// 服务间调用时来自 InvokeServiceContext.app_id。
+	// 服务间调用时来自 InvokeServiceAppId。
 	InvokeAppId = HeaderPrefix + "invoke-app-id"
-	// InvokeInstanceId 表示 authz 从当前跳服务 authority 中解析出的调用服务实例 ID，可为空。
-	InvokeInstanceId = HeaderPrefix + "invoke-instance-id"
 	// TargetAppId 表示 authz 从 route.app_id 映射出的被访问服务 app_id。
 	TargetAppId = HeaderPrefix + "target-app-id"
-	// TargetInstanceId 表示 authz 从 route.instance_id 映射出的被访问服务实例 ID。
-	TargetInstanceId = HeaderPrefix + "target-instance-id"
 )
 
 const (
