@@ -8,6 +8,7 @@
 
 在请求入口统一完成：
 
+- 注入当前业务服务自身的 `ServiceAppId / ServiceInstanceId`
 - 解析入站 metadata 中的普通身份字段和 authz compact JWS
 - 构造服务内唯一主上下文 `service.Context`
 - 从当前 OTel span 提取 trace 标识快照
@@ -21,6 +22,10 @@
 `gm` 当前只负责服务端入站中间件语义，不再定义服务内主上下文模型；业务代码应从 `go-micro/service` 读取 `service.Context`，出站调用统一由 `go-micro/invocation` 直接基于当前 gRPC context 与 OTel trace 处理。
 
 `service.Context.AppId` 只表示用户身份中的 app_id；当前这一跳调用方应用 ID 使用 `InvokeAppId`，被访问服务应用 ID 使用 `TargetAppId`。
+
+`ServiceAppId / ServiceInstanceId` 是当前业务服务自身身份，通常来自 `bootstrapConfig.App.Id` 和 `bootstrapConfig.App.InstanceId`。它们只服务本地日志、OTel 和 gormx 等组件，不参与 authz 授权元组，也不会随出站调用透传。
+
+启用 `AuthzVerification` 时必须提供 `ServiceAppId`。服务侧验签会用它绑定 `AuthzSign.target_app_id`，避免把其他服务的 allow 结果复用到当前服务。
 
 ### 2. Access Logger (`NewAccessLogger`)
 
@@ -64,7 +69,8 @@ s := grpc.NewServer(
     grpc.StatsHandler(gm.NewOtelServerStatsHandler()),
     grpc.ChainUnaryInterceptor(
         gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
-            ExpectedTargetAppId: "auth",
+            ServiceAppId:      bootstrapConfig.App.Id,
+            ServiceInstanceId: bootstrapConfig.App.InstanceId,
             // 生产环境建议配置 AuthzVerification，让服务侧信任验签后的 JWS payload。
             // AuthzVerification: &service.AuthzSignVerificationOptions{...},
         }),
