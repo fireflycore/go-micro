@@ -101,6 +101,25 @@ func TestNewVerificationOptionsRequiresPublicKeyPath(t *testing.T) {
 	}
 }
 
+func TestNewVerificationOptionsRejectsNegativeClockSkew(t *testing.T) {
+	// 生成测试用 Ed25519 公钥。
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate ed25519 key failed: %v", err)
+	}
+	// 写入 PKIX PEM 文件。
+	path := writePublicKeyPEM(t, publicKey)
+
+	// 负数时钟偏差没有业务意义，应作为错误配置拒绝。
+	_, err = NewVerificationOptions(&VerificationConfig{
+		PublicKeyPath: path,
+		ClockSkew:     "-1s",
+	})
+	if err == nil {
+		t.Fatalf("expected negative clock skew error")
+	}
+}
+
 func TestLoadEd25519PublicKeyRejectsNonEd25519(t *testing.T) {
 	// 生成 RSA 公钥，验证算法不匹配时会拒绝。
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
