@@ -49,7 +49,8 @@ func TestNewServiceContextUnaryInterceptor(t *testing.T) {
 	))
 
 	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ExpectedTargetAppId: "svc-app",
+		ServiceAppId:      "svc-app",
+		ServiceInstanceId: "svc-instance-1",
 	})
 
 	resp, err := interceptor(baseCtx, &struct{}{}, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
@@ -60,11 +61,58 @@ func TestNewServiceContextUnaryInterceptor(t *testing.T) {
 		if value.UserId != "user-1" || value.AppId != "app-1" {
 			t.Fatalf("unexpected service context: %+v", value)
 		}
+		if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-instance-1" {
+			t.Fatalf("unexpected local service identity: %+v", value)
+		}
 		if value.SubjectType != constant.SubjectTypeUser || value.TargetAppId != "svc-app" {
 			t.Fatalf("unexpected authz fields: %+v", value)
 		}
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			t.Fatal("expected incoming metadata in handler context")
+		}
+		if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "svc-app" {
+			t.Fatalf("expected local service app id metadata, got %v", got)
+		}
+		if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "svc-instance-1" {
+			t.Fatalf("expected local service instance id metadata, got %v", got)
+		}
 		if value.TraceId == "" {
 			t.Fatal("expected trace id from active span")
+		}
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if resp != "ok" {
+		t.Fatalf("unexpected response: %v", resp)
+	}
+}
+
+func TestNewServiceContextUnaryInterceptorInjectsLocalServiceIdentityWithoutIncomingMetadata(t *testing.T) {
+	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
+		ServiceAppId:      "svc-app",
+		ServiceInstanceId: "svc-instance-1",
+	})
+
+	resp, err := interceptor(context.Background(), &struct{}{}, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
+		value, ok := servicectx.FromContext(ctx)
+		if !ok {
+			t.Fatal("expected service context in handler context")
+		}
+		if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-instance-1" {
+			t.Fatalf("unexpected local service identity: %+v", value)
+		}
+		md, ok := metadata.FromIncomingContext(ctx)
+		if !ok {
+			t.Fatal("expected incoming metadata created by interceptor")
+		}
+		if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "svc-app" {
+			t.Fatalf("expected local service app id metadata, got %v", got)
+		}
+		if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "svc-instance-1" {
+			t.Fatalf("expected local service instance id metadata, got %v", got)
 		}
 		return "ok", nil
 	})
@@ -95,22 +143,21 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 			"tenant_id": "tenant-1",
 			"post_ids":  []string{"post-1"},
 		},
-		"target_service_context": map[string]any{
-			"app_id": "svc-app",
-		},
-		"api_method":  constant.RequestMethodGrpcString,
-		"api_path":    "/acme.test.v1.TestService/Get",
-		"decision":    testAuthzDecisionAllow,
-		"decision_id": "decision-1",
-		"iat":         now.Unix(),
-		"exp":         now.Add(time.Minute).Unix(),
+		"target_service_app_id": "svc-app",
+		"api_method":            constant.RequestMethodGrpcString,
+		"api_path":              "/acme.test.v1.TestService/Get",
+		"decision":              testAuthzDecisionAllow,
+		"decision_id":           "decision-1",
+		"iat":                   now.Unix(),
+		"exp":                   now.Add(time.Minute).Unix(),
 	})
 
 	baseCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
 		constant.AuthzSign, token,
 	))
 	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ExpectedTargetAppId: "svc-app",
+		ServiceAppId:      "svc-app",
+		ServiceInstanceId: "svc-instance-1",
 		AuthzVerification: &servicectx.AuthzSignVerificationOptions{
 			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
 			Issuer:     testAuthzIssuer,
@@ -126,6 +173,9 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 		if value.VerifiedAuthzSign == nil || value.UserId != "user-1" || value.AppId != "user-app" || value.InvokeAppId != "user-app" {
 			t.Fatalf("expected verified authz sign to populate service context: %+v", value)
 		}
+		if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-instance-1" {
+			t.Fatalf("expected local service identity to survive authz sign verification: %+v", value)
+		}
 		if value.ApiMethod != constant.RequestMethodGrpcString || value.ApiPath != "/acme.test.v1.TestService/Get" {
 			t.Fatalf("expected verified method/path to populate service context: %+v", value)
 		}
@@ -135,11 +185,11 @@ func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
 		if len(value.UserContext.PostIds) != 1 || value.UserContext.PostIds[0] != "post-1" {
 			t.Fatalf("expected post ids in grouped user context: %+v", value)
 		}
-		if value.TargetServiceContext == nil || value.TargetServiceContext.AppId != "svc-app" {
-			t.Fatalf("expected grouped route context: %+v", value)
+		if value.TargetServiceAppId != "svc-app" {
+			t.Fatalf("expected target service app id: %+v", value)
 		}
-		if value.InvokeServiceContext != nil {
-			t.Fatalf("expected user entrance without service context to keep invoke service context empty: %+v", value.InvokeServiceContext)
+		if value.InvokeServiceAppId != "" {
+			t.Fatalf("expected user entrance without service token to keep invoke service app id empty: %+v", value)
 		}
 		return "ok", nil
 	})
