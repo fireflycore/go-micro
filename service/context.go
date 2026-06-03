@@ -19,6 +19,14 @@ const (
 // 它不是跨进程传输对象；跨进程只传 HTTP header / gRPC metadata。
 // Context 由入口 metadata、当前服务配置和可选的 x-firefly-authz-sign 验签结果组装而来。
 type Context struct {
+	// ServiceAppId 表示当前业务服务自身 app_id，由服务入口按本地配置注入。
+	//
+	// 它只服务本地日志、OTel 和数据库链路排障，不参与 authz 权限元组，也不跨服务传播。
+	ServiceAppId string
+	// ServiceInstanceId 表示当前业务服务自身实例 ID，由服务入口按本地配置注入。
+	//
+	// 它只服务本地日志、OTel 和数据库链路排障，不参与 authz 权限元组，也不跨服务传播。
+	ServiceInstanceId string
 	// AppLanguage 表示客户端应用语言偏好。
 	AppLanguage string
 	// Session 表示 authz 从用户 token 中解析出的会话标识。
@@ -39,12 +47,8 @@ type Context struct {
 	SubjectType string
 	// InvokeAppId 表示本跳权限判定中的调用方应用 ID。
 	InvokeAppId string
-	// InvokeInstanceId 表示本跳调用方服务实例 ID，可为空。
-	InvokeInstanceId string
 	// TargetAppId 表示 authz 对 route.app_id 的判定语义。
 	TargetAppId string
-	// TargetInstanceId 表示被访问服务实例 ID，可为空。
-	TargetInstanceId string
 	// ApiMethod 表示本次授权动作，HTTP 为方法名，gRPC 为 GRPC。
 	ApiMethod string
 	// ApiPath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 FullMethod。
@@ -59,10 +63,10 @@ type Context struct {
 	TraceId string
 	// UserContext 保存用户身份上下文；启用验签时以 JWS payload 为准。
 	UserContext *UserContext
-	// InvokeServiceContext 保存本跳调用方服务身份上下文；启用验签时以 JWS payload 为准。
-	InvokeServiceContext *InvokeServiceContext
-	// TargetServiceContext 保存本跳被访问服务身份上下文；启用验签时以 JWS payload 为准。
-	TargetServiceContext *TargetServiceContext
+	// InvokeServiceAppId 表示服务 authority 解析出的当前跳调用服务 app_id。
+	InvokeServiceAppId string
+	// TargetServiceAppId 表示 route.app_id 映射出的当前跳被访问服务 app_id。
+	TargetServiceAppId string
 	// DecisionContext 保存 authz 决策事实；启用验签时以 JWS payload 为准。
 	DecisionContext *DecisionContext
 }
@@ -85,34 +89,14 @@ type UserContext struct {
 	RoleIds []string
 }
 
-// InvokeServiceContext 表示服务进程内可读取的当前跳调用方服务身份。
-type InvokeServiceContext struct {
-	// AppId 是当前这一跳调用方服务的应用 ID。
-	AppId string
-	// InstanceId 是当前这一跳调用方服务实例 ID，可为空。
-	InstanceId string
-}
-
-// TargetServiceContext 表示服务进程内可读取的当前跳被访问服务身份。
-type TargetServiceContext struct {
-	// AppId 是 route 所属服务 app_id；authz 判定时解释为 target_app_id。
-	AppId string
-	// InstanceId 是 route 所属服务实例 ID，可为空。
-	InstanceId string
-}
-
 // DecisionContext 表示服务进程内可读取的 authz 判定结果。
 type DecisionContext struct {
 	// SubjectType 表示本次请求主体类型：anonymous/user/service。
 	SubjectType string
 	// InvokeAppId 表示本跳权限判定中的调用方 app_id。
 	InvokeAppId string
-	// InvokeInstanceId 表示本跳调用方服务实例 ID，可为空。
-	InvokeInstanceId string
 	// TargetAppId 表示 authz 对 route.app_id 的判定语义。
 	TargetAppId string
-	// TargetInstanceId 表示本跳被访问服务实例 ID，可为空。
-	TargetInstanceId string
 	// ApiMethod 表示本次授权动作，HTTP 为方法名，gRPC 为 GRPC。
 	ApiMethod string
 	// ApiPath 表示本次授权资源路径，HTTP 为入口 path，gRPC 为 FullMethod。
@@ -123,6 +107,10 @@ type DecisionContext struct {
 
 // BuildContextOptions 定义构建服务主上下文时的可选验签规则。
 type BuildContextOptions struct {
+	// ServiceAppId 是当前进程自身 app_id，由服务入口从 bootstrap 配置传入。
+	ServiceAppId string
+	// ServiceInstanceId 是当前进程自身实例 ID，由服务入口从 bootstrap 配置传入。
+	ServiceInstanceId string
 	// AuthzVerification 配置后，BuildVerifiedContext 会用它校验 x-firefly-authz-sign JWS。
 	AuthzVerification *AuthzSignVerificationOptions
 }
@@ -186,6 +174,14 @@ func BuildVerifiedContext(ctx context.Context, options BuildContextOptions) (*Co
 		// 验签失败直接返回错误，由入口中间件转换成 gRPC 未认证错误。
 		return nil, err
 	}
+	// 启用验签时必须提供当前服务 app_id，否则无法判断签名是否被跨服务复用。
+	if options.ServiceAppId == "" {
+		return nil, ErrAuthzSignInvalidClaims
+	}
+	// 当前服务 app_id 是目标绑定的唯一可信本地来源，防止 A 服务的授权结果被拿到 B 服务复用。
+	if authzSign.TargetAppId != options.ServiceAppId {
+		return nil, ErrAuthzSignInvalidClaims
+	}
 	// 验签通过后，用可信 payload 覆盖普通 metadata，避免信任客户端伪造字段。
 	value.applyVerifiedAuthzSign(authzSign)
 	// 返回已经绑定可信 JWS payload 的进程内上下文。
@@ -194,8 +190,11 @@ func BuildVerifiedContext(ctx context.Context, options BuildContextOptions) (*Co
 
 // buildContextFromMetadata 只处理 Firefly 标准 metadata 到服务主上下文的字段映射。
 func buildContextFromMetadata(ctx context.Context, options BuildContextOptions) *Context {
-	// 进程内上下文只从入站 metadata 和可选签名载荷构造。
-	value := &Context{}
+	// 当前服务自身身份来自本地配置，先写入上下文，避免被上游 metadata 伪造。
+	value := &Context{
+		ServiceAppId:      options.ServiceAppId,
+		ServiceInstanceId: options.ServiceInstanceId,
+	}
 
 	// 只有 gRPC 入站 metadata 存在时才解析调用方上下文。
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
@@ -209,16 +208,12 @@ func buildContextFromMetadata(ctx context.Context, options BuildContextOptions) 
 		value.AppId = ParseMetaKey(md, constant.AppId)
 		// InvokeAppId 表示本跳权限判定中的调用方应用 ID。
 		value.InvokeAppId = ParseMetaKey(md, constant.InvokeAppId)
-		// InvokeInstanceId 表示本跳调用方服务实例 ID，可能为空。
-		value.InvokeInstanceId = ParseMetaKey(md, constant.InvokeInstanceId)
 		// TenantId 表示主体租户，服务或公共接口可能为空或通配。
 		value.TenantId = ParseMetaKey(md, constant.TenantId)
 		// SubjectType 区分 anonymous/user/service。
 		value.SubjectType = ParseMetaKey(md, constant.SubjectType)
 		// TargetAppId 是 authz 对 route.app_id 的判定语义，不是 route 层字段名。
 		value.TargetAppId = ParseMetaKey(md, constant.TargetAppId)
-		// TargetInstanceId 表示被访问服务实例 ID，通常为空。
-		value.TargetInstanceId = ParseMetaKey(md, constant.TargetInstanceId)
 		// ApiMethod 是 authz 注入的授权动作读取便利，可信版本仍以 AuthzSign 为准。
 		value.ApiMethod = ParseMetaKey(md, constant.ApiMethod)
 		// ApiPath 是 authz 注入的授权路径读取便利，可信版本仍以 AuthzSign 为准。
@@ -262,12 +257,8 @@ func (c *Context) applyVerifiedAuthzSign(authzSign *AuthzSign) {
 	c.SubjectType = authzSign.SubjectType
 	// InvokeAppId 以签名 claim 为准。
 	c.InvokeAppId = authzSign.InvokeAppId
-	// InvokeInstanceId 以签名 claim 为准。
-	c.InvokeInstanceId = authzSign.InvokeInstanceId
 	// TargetAppId 以签名 claim 为准。
 	c.TargetAppId = authzSign.TargetAppId
-	// TargetInstanceId 以签名 claim 为准。
-	c.TargetInstanceId = authzSign.TargetInstanceId
 	// ApiMethod 以签名 claim 为准。
 	c.ApiMethod = authzSign.ApiMethod
 	// ApiPath 以签名 claim 为准。
@@ -294,24 +285,10 @@ func (c *Context) applyVerifiedAuthzSign(authzSign *AuthzSign) {
 	} else {
 		c.UserContext = nil
 	}
-	// InvokeServiceContext 只来自结构化服务身份，不从 invoke_app_id 反推。
-	if authzSign.InvokeServiceContext != nil {
-		c.InvokeServiceContext = &InvokeServiceContext{
-			AppId:      authzSign.InvokeServiceContext.AppId,
-			InstanceId: authzSign.InvokeServiceContext.InstanceId,
-		}
-	} else {
-		c.InvokeServiceContext = nil
-	}
-	// TargetServiceContext 只来自结构化 route 所属服务身份。
-	if authzSign.TargetServiceContext != nil {
-		c.TargetServiceContext = &TargetServiceContext{
-			AppId:      authzSign.TargetServiceContext.AppId,
-			InstanceId: authzSign.TargetServiceContext.InstanceId,
-		}
-	} else {
-		c.TargetServiceContext = nil
-	}
+	// InvokeServiceAppId 只来自服务 authority 解析结果，不从 invoke_app_id 反推。
+	c.InvokeServiceAppId = authzSign.InvokeServiceAppId
+	// TargetServiceAppId 只来自 route.app_id 映射结果，不提前命名为 target_app_id。
+	c.TargetServiceAppId = authzSign.TargetServiceAppId
 	// 决策上下文仍聚合本跳授权结果，便于日志读取。
 	c.rebuildDecisionContext()
 }
@@ -335,23 +312,17 @@ func (c *Context) rebuildDerivedContexts() {
 	} else {
 		c.UserContext = nil
 	}
-	// InvokeServiceContext 只表达服务 token 解析出的当前跳调用服务身份。
-	if c.SubjectType == constant.SubjectTypeService && (c.InvokeAppId != "" || c.InvokeInstanceId != "") {
-		c.InvokeServiceContext = &InvokeServiceContext{
-			AppId:      c.InvokeAppId,
-			InstanceId: c.InvokeInstanceId,
-		}
+	// InvokeServiceAppId 只在服务主体场景下表达服务 token 解析出的当前跳调用服务身份。
+	if c.SubjectType == constant.SubjectTypeService && c.InvokeAppId != "" {
+		c.InvokeServiceAppId = c.InvokeAppId
 	} else {
-		c.InvokeServiceContext = nil
+		c.InvokeServiceAppId = ""
 	}
-	// TargetServiceContext 只表达 route 映射出的被访问服务身份。
-	if c.TargetAppId != "" || c.TargetInstanceId != "" {
-		c.TargetServiceContext = &TargetServiceContext{
-			AppId:      c.TargetAppId,
-			InstanceId: c.TargetInstanceId,
-		}
+	// TargetServiceAppId 只表达 route 映射出的被访问服务身份。
+	if c.TargetAppId != "" {
+		c.TargetServiceAppId = c.TargetAppId
 	} else {
-		c.TargetServiceContext = nil
+		c.TargetServiceAppId = ""
 	}
 	// 决策上下文只表达 authz 判定结果和本跳调用关系。
 	c.rebuildDecisionContext()
@@ -365,14 +336,12 @@ func (c *Context) rebuildDecisionContext() {
 	// 决策上下文只表达 authz 判定结果和本跳调用关系。
 	if c.SubjectType != "" || c.InvokeAppId != "" || c.TargetAppId != "" || c.ApiMethod != "" || c.ApiPath != "" || c.DecisionId != "" {
 		c.DecisionContext = &DecisionContext{
-			SubjectType:      c.SubjectType,
-			InvokeAppId:      c.InvokeAppId,
-			InvokeInstanceId: c.InvokeInstanceId,
-			TargetAppId:      c.TargetAppId,
-			TargetInstanceId: c.TargetInstanceId,
-			ApiMethod:        c.ApiMethod,
-			ApiPath:          c.ApiPath,
-			DecisionId:       c.DecisionId,
+			SubjectType: c.SubjectType,
+			InvokeAppId: c.InvokeAppId,
+			TargetAppId: c.TargetAppId,
+			ApiMethod:   c.ApiMethod,
+			ApiPath:     c.ApiPath,
+			DecisionId:  c.DecisionId,
 		}
 	} else {
 		c.DecisionContext = nil

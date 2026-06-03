@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/fireflycore/go-micro/constant"
 	"go.opentelemetry.io/otel/sdk/trace"
@@ -18,9 +22,7 @@ func TestBuildContext(t *testing.T) {
 		constant.TenantId, "tenant-1",
 		constant.SubjectType, constant.SubjectTypeUser,
 		constant.InvokeAppId, "app-1",
-		constant.InvokeInstanceId, "app-1-inst",
 		constant.TargetAppId, "order-app",
-		constant.TargetInstanceId, "order-app-inst",
 		constant.ApiMethod, constant.RequestMethodGrpcString,
 		constant.ApiPath, "/acme.order.v1.OrderService/List",
 		constant.DecisionId, "decision-1",
@@ -44,9 +46,6 @@ func TestBuildContext(t *testing.T) {
 	if value.SubjectType != constant.SubjectTypeUser || value.InvokeAppId != "app-1" || value.TargetAppId != "order-app" {
 		t.Fatalf("unexpected authz identity fields: %+v", value)
 	}
-	if value.InvokeInstanceId != "app-1-inst" || value.TargetInstanceId != "order-app-inst" {
-		t.Fatalf("unexpected service instance fields: %+v", value)
-	}
 	if value.ApiMethod != constant.RequestMethodGrpcString || value.ApiPath != "/acme.order.v1.OrderService/List" {
 		t.Fatalf("unexpected api fields: %+v", value)
 	}
@@ -62,17 +61,44 @@ func TestBuildContext(t *testing.T) {
 	if value.DecisionContext == nil || value.DecisionContext.TargetAppId != "order-app" {
 		t.Fatalf("unexpected grouped decision context: %+v", value)
 	}
-	if value.DecisionContext.InvokeAppId != "app-1" || value.DecisionContext.InvokeInstanceId != "app-1-inst" {
+	if value.DecisionContext.InvokeAppId != "app-1" {
 		t.Fatalf("unexpected grouped decision invoke fields: %+v", value.DecisionContext)
 	}
-	if value.InvokeServiceContext != nil {
-		t.Fatalf("expected user subject not to derive invoke service context: %+v", value.InvokeServiceContext)
+	if value.InvokeServiceAppId != "" {
+		t.Fatalf("expected user subject not to derive invoke service app id: %+v", value)
 	}
-	if value.TargetServiceContext == nil || value.TargetServiceContext.InstanceId != "order-app-inst" {
-		t.Fatalf("unexpected target service context: %+v", value)
+	if value.TargetServiceAppId != "order-app" {
+		t.Fatalf("unexpected target service app id: %+v", value)
 	}
 	if len(value.OrgIds) != 2 || len(value.PostIds) != 1 || len(value.RoleIds) != 1 {
 		t.Fatalf("unexpected scope fields: %+v", value)
+	}
+}
+
+func TestBuildContext_UsesLocalServiceIdentityOptions(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.ServiceAppId, "forged-service-app",
+		constant.ServiceInstanceId, "forged-instance",
+	))
+
+	value := BuildContext(ctx, BuildContextOptions{
+		ServiceAppId:      "local-service-app",
+		ServiceInstanceId: "local-instance",
+	})
+	if value.ServiceAppId != "local-service-app" || value.ServiceInstanceId != "local-instance" {
+		t.Fatalf("expected local service identity options to win, got %+v", value)
+	}
+}
+
+func TestBuildContext_IgnoresIncomingServiceIdentityWithoutOptions(t *testing.T) {
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.ServiceAppId, "forged-service-app",
+		constant.ServiceInstanceId, "forged-instance",
+	))
+
+	value := BuildContext(ctx, BuildContextOptions{})
+	if value.ServiceAppId != "" || value.ServiceInstanceId != "" {
+		t.Fatalf("expected incoming service identity to be ignored without options, got %+v", value)
 	}
 }
 
@@ -87,20 +113,102 @@ func TestBuildContext_DoesNotUseAppIdAsInvokeFallback(t *testing.T) {
 	}
 }
 
-func TestBuildContext_BuildsInvokeServiceContextForServiceSubject(t *testing.T) {
+func TestBuildContext_BuildsInvokeServiceAppIdForServiceSubject(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
 		constant.SubjectType, constant.SubjectTypeService,
 		constant.InvokeAppId, "service-a",
-		constant.InvokeInstanceId, "service-a-1",
 		constant.TargetAppId, "service-b",
 	))
 
 	value := BuildContext(ctx, BuildContextOptions{})
-	if value.InvokeServiceContext == nil || value.InvokeServiceContext.AppId != "service-a" || value.InvokeServiceContext.InstanceId != "service-a-1" {
-		t.Fatalf("expected service subject to build invoke service context: %+v", value)
+	if value.InvokeServiceAppId != "service-a" {
+		t.Fatalf("expected service subject to build invoke service app id: %+v", value)
 	}
 	if value.UserContext != nil {
 		t.Fatalf("expected service subject without user fields to keep user context empty: %+v", value.UserContext)
+	}
+}
+
+func TestBuildVerifiedContext_UsesServiceAppIdAsTargetExpectation(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key failed: %v", err)
+	}
+
+	now := time.Unix(1710000000, 0).UTC()
+	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
+		"iss":           testAuthzIssuer,
+		"sub":           "user-1",
+		"subject_type":  constant.SubjectTypeUser,
+		"invoke_app_id": "user-app",
+		"target_app_id": "svc-b",
+		"user_context": map[string]any{
+			"user_id": "user-1",
+			"app_id":  "user-app",
+		},
+		"target_service_app_id": "svc-b",
+		"api_method":            constant.RequestMethodGrpcString,
+		"api_path":              "/acme.test.v1.TestService/Get",
+		"decision":              testAuthzDecisionAllow,
+		"decision_id":           "decision-1",
+		"iat":                   now.Unix(),
+		"exp":                   now.Add(time.Minute).Unix(),
+	})
+
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.AuthzSign, raw,
+	))
+	_, err = BuildVerifiedContext(ctx, BuildContextOptions{
+		ServiceAppId: "svc-a",
+		AuthzVerification: &AuthzSignVerificationOptions{
+			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
+			Issuer:     testAuthzIssuer,
+			Now:        func() time.Time { return now },
+		},
+	})
+	if !errors.Is(err, ErrAuthzSignInvalidClaims) {
+		t.Fatalf("expected target app mismatch to be rejected, got %v", err)
+	}
+}
+
+func TestBuildVerifiedContext_RequiresServiceAppIdWhenVerificationEnabled(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key failed: %v", err)
+	}
+
+	now := time.Unix(1710000000, 0).UTC()
+	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
+		"iss":           testAuthzIssuer,
+		"sub":           "user-1",
+		"subject_type":  constant.SubjectTypeUser,
+		"invoke_app_id": "user-app",
+		"target_app_id": "svc-a",
+		"user_context": map[string]any{
+			"user_id": "user-1",
+			"app_id":  "user-app",
+		},
+		"target_service_app_id": "svc-a",
+		"api_method":            constant.RequestMethodGrpcString,
+		"api_path":              "/acme.test.v1.TestService/Get",
+		"decision":              testAuthzDecisionAllow,
+		"decision_id":           "decision-1",
+		"iat":                   now.Unix(),
+		"exp":                   now.Add(time.Minute).Unix(),
+	})
+
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		constant.AuthzSign, raw,
+	))
+	_, err = BuildVerifiedContext(ctx, BuildContextOptions{
+		AuthzVerification: &AuthzSignVerificationOptions{
+			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
+			Issuer:     testAuthzIssuer,
+			Now:        func() time.Time { return now },
+		},
+	})
+	if !errors.Is(err, ErrAuthzSignInvalidClaims) {
+		t.Fatalf("expected missing local service app id to be rejected, got %v", err)
 	}
 }
 
