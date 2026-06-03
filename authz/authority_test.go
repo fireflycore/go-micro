@@ -67,6 +67,32 @@ func TestCachedServiceAuthorityProvider_CachesUntilRefreshWindow(t *testing.T) {
 	}
 }
 
+func TestCachedServiceAuthorityProvider_RejectsCachedTokenWithoutExpiresAt(t *testing.T) {
+	fetchCount := 0
+	provider, err := NewCachedServiceAuthorityProvider(CachedServiceAuthorityProviderOptions{
+		RefreshBefore: time.Minute,
+		Fetch: func(context.Context) (*ServiceAuthorityToken, error) {
+			fetchCount++
+			return &ServiceAuthorityToken{
+				Token:     "service-token",
+				ExpiresAt: time.Now().Add(10 * time.Minute),
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new provider failed: %v", err)
+	}
+	provider.token = "stale-token-without-expires-at"
+
+	token, err := provider.ServiceAuthority(context.Background())
+	if err != nil {
+		t.Fatalf("service authority failed: %v", err)
+	}
+	if token != "service-token" || fetchCount != 1 {
+		t.Fatalf("expected zero expires_at cache to be refreshed, token=%q fetch=%d", token, fetchCount)
+	}
+}
+
 func TestCachedServiceAuthorityProvider_RejectsEmptyToken(t *testing.T) {
 	provider, err := NewCachedServiceAuthorityProvider(CachedServiceAuthorityProviderOptions{
 		Fetch: func(context.Context) (*ServiceAuthorityToken, error) {
