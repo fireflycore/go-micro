@@ -66,7 +66,7 @@ type CachedServiceAuthorityProvider struct {
 	refreshBefore time.Duration
 	// token 保存最近一次成功获取的 service token。
 	token string
-	// expiresAt 保存 token 过期时间；零值表示永久有效。
+	// expiresAt 保存 token 过期时间；目标链路要求零值无效，避免服务 token 无法轮换。
 	expiresAt time.Time
 }
 
@@ -152,17 +152,13 @@ func (p *CachedServiceAuthorityProvider) isCachedTokenUsableLocked() bool {
 	if strings.TrimSpace(p.token) == "" {
 		return false
 	}
-	// 零值过期时间表示永久有效，可以一直复用。
-	if p.expiresAt.IsZero() {
-		return true
-	}
 	// 当前时间加刷新窗口仍早于过期时间时，说明 token 可继续使用。
 	return time.Now().UTC().Add(p.refreshBefore).Before(p.expiresAt)
 }
 
 // NewServiceAuthorityToken 根据 auth 服务返回的 token 和 expired 字符串构造统一 token。
 func NewServiceAuthorityToken(token string, expired string) (*ServiceAuthorityToken, error) {
-	// 先解析 expired，允许永久有效或空值。
+	// 先解析 expired；service token 必须有明确过期时间，便于动态轮换。
 	expiresAt, err := ParseServiceAuthorityExpiresAt(expired)
 	if err != nil {
 		return nil, err
