@@ -20,7 +20,7 @@
 
 `x-firefly-authz-sign` 是服务侧验签输入。业务服务开启 `AuthzVerification` 后，`service.Context.VerifiedAuthzSign` 保存验签后的 JWS payload，`service.Context.ApiMethod` / `service.Context.ApiPath` 以该 payload 为可信来源。
 
-`service.Context.AppId` 只表示用户身份中的 app_id；当前这一跳的调用方应用 ID 使用 `service.Context.InvokeAppId`。如果需要读取结构化上下文，新代码优先使用 `service.Context.UserContext`、`InvokeServiceContext`、`TargetServiceContext` 和 `DecisionContext`。
+`service.Context.AppId` 只表示用户身份中的 app_id；当前这一跳的调用方应用 ID 使用 `service.Context.InvokeAppId`。`service.Context.ServiceAppId / ServiceInstanceId` 只表示当前业务服务自身身份，用于本地日志、OTel 和数据库链路排障，不参与 authz 权限元组。新代码优先使用 `service.Context.UserContext`、`InvokeServiceAppId`、`TargetServiceAppId` 和 `DecisionContext`。
 
 业务服务只需要在启动配置中声明：
 
@@ -41,6 +41,8 @@
 
 `authz_verification` 配置存在时必须提供 `public_key_path`。是否对某个服务入口启用验签由服务启动装配决定，不再通过 `enabled` 字段做运行时开关。
 
+启用验签时，`ServiceContextUnaryInterceptor` 必须传入当前服务 `ServiceAppId`。服务侧本地验签会用该值校验 `AuthzSign.target_app_id`，防止其他服务的授权结果被跨服务复用。
+
 然后在 gRPC server 初始化时接入：
 
 ```go
@@ -50,9 +52,10 @@ if err != nil {
 }
 
 gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
-    ExpectedTargetAppId: bootstrapConfig.App.Id,
-    AuthzVerification:   verification.AuthzVerification,
-    AuthzSkipMethods:    verification.AuthzSkipMethods,
+    ServiceAppId:      bootstrapConfig.App.Id,
+    ServiceInstanceId: bootstrapConfig.App.InstanceId,
+    AuthzVerification: verification.AuthzVerification,
+    AuthzSkipMethods:  verification.AuthzSkipMethods,
 })
 ```
 
@@ -90,4 +93,4 @@ invoker := invocation.NewUnaryInvoker(manager, timeout).
 
 `ServiceAuthorityProvider` 会在进程内缓存 service token，并在过期前按 `RefreshBefore` 主动刷新。
 
-出站 metadata 采用白名单策略，保留用户 authority、短 TTL `x-firefly-authz-sign`、OTel trace/baggage 和访问日志需要的客户端事实；普通身份 metadata、上一跳 service authority 以及未知业务 metadata 会被清理。下一跳 authz 可以验签复用身份解析结果，但仍必须基于当前 route 重新做权限判定并重新签发新的 `x-firefly-authz-sign`。
+出站 metadata 采用白名单策略，保留用户 authority、短 TTL `x-firefly-authz-sign`、OTel trace/baggage 和访问日志需要的客户端事实；普通身份 metadata、当前服务自身 metadata、上一跳 service authority 以及未知业务 metadata 会被清理。下一跳 authz 可以验签复用身份解析结果，但仍必须基于当前 route 重新做权限判定并重新签发新的 `x-firefly-authz-sign`。
