@@ -19,6 +19,8 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 		constant.UserId, "user-1",
 		constant.InvokeAppId, "old-invoke",
 		constant.TargetAppId, "old-target",
+		constant.ServiceAppId, "local-service-app",
+		constant.ServiceInstanceId, "local-instance",
 		constant.AppLanguage, "zh-CN",
 		constant.XForwardedFor, "10.0.0.1, 10.0.0.2",
 		constant.Session, "session-1",
@@ -53,6 +55,12 @@ func TestPrepareOutgoingAuthorityMetadata_PreservesUserAuthorityAndOverridesServ
 	}
 	if got := prepared.Get(constant.TargetAppId); len(got) != 0 {
 		t.Fatalf("expected stale target app id to be removed, got %v", got)
+	}
+	if got := prepared.Get(constant.ServiceAppId); len(got) != 0 {
+		t.Fatalf("expected local service app id to be removed, got %v", got)
+	}
+	if got := prepared.Get(constant.ServiceInstanceId); len(got) != 0 {
+		t.Fatalf("expected local service instance id to be removed, got %v", got)
 	}
 	if got := prepared.Get(constant.AppLanguage); len(got) == 0 || got[0] != "zh-CN" {
 		t.Fatalf("expected app language to be preserved, got %v", got)
