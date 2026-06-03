@@ -112,6 +112,14 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 		}
 		// 若入口已构建 service.Context，则优先使用结构化后的字段。
 		if serviceContext != nil {
+			// 记录当前业务服务自身 app_id，只表达本地服务身份，不参与 authz 权限主体判断。
+			if serviceContext.ServiceAppId != "" {
+				fields = append(fields, zap.String("service_app_id", serviceContext.ServiceAppId))
+			}
+			// 记录当前业务服务自身实例 ID，用于实例级日志和 OTel 排障。
+			if serviceContext.ServiceInstanceId != "" {
+				fields = append(fields, zap.String("service_instance_id", serviceContext.ServiceInstanceId))
+			}
 			// 记录用户主体 ID，服务和匿名主体通常为空。
 			if serviceContext.UserId != "" {
 				fields = append(fields, zap.String("user_id", serviceContext.UserId))
@@ -143,6 +151,14 @@ func NewAccessLogger(log *logger.AccessLogger, options ...AccessLoggerOptions) g
 			}
 		} else {
 			// 没有 service.Context 时，再回退到原始 metadata 中兜底提取。
+			// 兜底记录当前业务服务自身 app_id。
+			if v := parseLogMetaKey(md, constant.ServiceAppId); v != "" {
+				fields = append(fields, zap.String("service_app_id", v))
+			}
+			// 兜底记录当前业务服务自身实例 ID。
+			if v := parseLogMetaKey(md, constant.ServiceInstanceId); v != "" {
+				fields = append(fields, zap.String("service_instance_id", v))
+			}
 			// 兜底记录用户主体 ID。
 			if v := parseLogMetaKey(md, constant.UserId); v != "" {
 				fields = append(fields, zap.String("user_id", v))
