@@ -60,7 +60,7 @@
 
 - 获取连接
 - 复用当前链路 metadata
-- 清理上一跳 authz 普通身份 metadata 与 compact JWS
+- 保留用户 authority 与短 TTL `x-firefly-authz-sign`，清理上一跳 authz 普通身份 metadata
 - 按需覆盖 `X-Firefly-Service-Authority`
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
@@ -128,6 +128,7 @@ auth.default.svc.cluster.local:9090
 - `UnaryInvoker` 直接复用当前链路 metadata
 - `UnaryInvoker` 会保留用户 authority 和短 TTL `x-firefly-authz-sign`，清理上一跳 authz 注入的普通身份 metadata
 - 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
+- 生产服务间调用应配置 `ServiceAuthorityProvider`；不配置只适合获取 service token 自身的启动链路或测试链路
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 未显式配置 timeout 时，默认使用 `5s`
 - 不再暴露 metadata / timeout 的单次调用覆盖能力
@@ -167,7 +168,7 @@ sequenceDiagram
 
     Boot->>DM: NewDNSManager(DNSConfig)
     Boot->>CM: NewConnectionManager(DNSManager, DialOptions)
-    Boot->>UI: NewUnaryInvoker(manager, timeout)
+    Boot->>UI: NewUnaryInvoker(manager, timeout).WithServiceAuthorityProvider(provider)
     Boot->>RSM: NewRemoteServiceManaged(invoker, DNS...)
     Boot->>Repo: 注入 repo 依赖
 

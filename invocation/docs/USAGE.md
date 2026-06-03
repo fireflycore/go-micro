@@ -26,11 +26,13 @@ package example
 import (
 	"time"
 
+	"github.com/fireflycore/go-micro/authz"
 	"github.com/fireflycore/go-micro/invocation"
 )
 
-func BuildRemoteServices(manager *invocation.ConnectionManager) *invocation.RemoteServiceManaged {
-	invoker := invocation.NewUnaryInvoker(manager, 3*time.Second)
+func BuildRemoteServices(manager *invocation.ConnectionManager, provider authz.ServiceAuthorityProvider) *invocation.RemoteServiceManaged {
+	invoker := invocation.NewUnaryInvoker(manager, 3*time.Second).
+		WithServiceAuthorityProvider(provider)
 
 	return invocation.NewRemoteServiceManaged(
 		invoker,
@@ -88,12 +90,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/fireflycore/go-micro/authz"
 	"github.com/fireflycore/go-micro/invocation"
 )
 
-func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
+func ExampleSingleCaller(manager *invocation.ConnectionManager, provider authz.ServiceAuthorityProvider) error {
 	caller := invocation.NewRemoteServiceCaller(
-		invocation.NewUnaryInvoker(manager, 3*time.Second),
+		invocation.NewUnaryInvoker(manager, 3*time.Second).
+			WithServiceAuthorityProvider(provider),
 		&invocation.DNS{Service: "auth"},
 	)
 
@@ -136,6 +140,7 @@ func ExampleSingleCaller(manager *invocation.ConnectionManager) error {
 - `UnaryInvoker` 直接复用当前链路 metadata
 - `UnaryInvoker` 会保留用户 authority 和短 TTL `x-firefly-authz-sign`，清理上一跳 authz 普通身份 metadata
 - 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
+- 生产服务间调用应配置 `ServiceAuthorityProvider`；不配置只适合获取 service token 自身的启动链路或测试链路
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 不再暴露 metadata / timeout 的单次调用覆盖能力
 
