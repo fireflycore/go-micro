@@ -141,6 +141,10 @@ func parseClockSkew(value string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse authz verification clock_skew: %w", err)
 	}
+	// 负数时钟偏差没有业务意义，直接拒绝错误配置。
+	if clockSkew < 0 {
+		return 0, fmt.Errorf("parse authz verification clock_skew: value must be non-negative")
+	}
 	// 返回调用方配置的时钟偏差。
 	return clockSkew, nil
 }
