@@ -82,7 +82,7 @@ func (u *UnaryInvoker) WithServiceAuthorityProvider(provider authz.ServiceAuthor
 	if u == nil {
 		return nil
 	}
-	// provider 可为 nil，表示只清理旧上下文但不注入 service authority；该模式仅适合取 token 启动链路或测试链路。
+	// provider 可为 nil，表示只清理旧上下文但不注入 service authority；无下游业务调用或取 token 启动链路可不装配。
 	u.ServiceAuthorityProvider = provider
 	// 返回自身，便于启动装配中链式配置。
 	return u
