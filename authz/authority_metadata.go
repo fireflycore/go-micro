@@ -38,7 +38,7 @@ func PrepareOutgoingAuthorityMetadata(ctx context.Context, md metadata.MD, provi
 	// 先按业务服务出站白名单重建 metadata，清理上一跳普通上下文字段和未知 header。
 	md = filterOutgoingAuthorityMetadata(md)
 
-	// 未配置 provider 时只做清理，适合无下游业务调用的组件、获取 service token 的启动链路或测试链路。
+	// 未配置 provider 时只做清理，仅适合获取 service token 的启动链路、authz 这类无下游热路径组件或测试链路。
 	if provider == nil {
 		return md, nil
 	}
