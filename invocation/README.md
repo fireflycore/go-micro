@@ -62,8 +62,8 @@
 
 - 复用当前链路 metadata
 - 保留用户 authority 与短 TTL authz sign，清理上一跳 authz 注入的普通身份 metadata
-- 按需覆盖 `X-Firefly-Service-Authority`
-- 存在下游业务服务调用时应按需配置 `ServiceAuthorityProvider`；无下游业务调用的组件、获取 service token 的启动链路或测试链路可不配置
+- 每一跳覆盖 `X-Firefly-Service-Authority`
+- 普通业务服务应初始化 ServiceToken 管理器并启动后台刷新；获取 service token 的启动链路或测试链路可不配置 provider
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
 
