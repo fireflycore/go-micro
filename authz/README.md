@@ -15,7 +15,7 @@
 - 加载 Ed25519 公钥 PEM
 - 构造 `service.AuthzSignVerificationOptions`
 - 返回 gRPC middleware 需要的 `AuthzVerification` 与 `AuthzSkipMethods`
-- 定义 `ServiceAuthorityProvider`，供出站调用每一跳覆盖 `X-Firefly-Service-Authority`
+- 定义 `ServiceAuthorityProvider` / ServiceToken 管理器，供出站调用每一跳覆盖 `X-Firefly-Service-Authority`
 - 提供 gRPC client interceptor 和 metadata helper，统一保留用户 authority 与短 TTL authz sign，清理普通身份 metadata 和未知业务 metadata
 
 `x-firefly-authz-sign` 是服务侧验签输入。业务服务开启 `AuthzVerification` 后，`service.Context.VerifiedAuthzSign` 保存验签后的 JWS payload，`service.Context.ApiMethod` / `service.Context.ApiPath` 以该 payload 为可信来源。
@@ -68,7 +68,7 @@ gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
 - 入站存在 `X-Firefly-User-Authority` 时继续透传，保持用户身份上下文。
 - 每一跳由当前服务覆盖 `X-Firefly-Service-Authority`，表达当前调用方服务身份。
 
-推荐在启动期把 auth 服务的 `GenerateServiceToken` 封装为 fetch 函数：
+推荐在启动期把 auth 服务的 `GenerateServiceToken` 封装为 fetch 函数，并启动后台刷新：
 
 ```go
 provider, err := authz.NewServiceAuthorityProvider(
@@ -86,11 +86,15 @@ provider, err := authz.NewServiceAuthorityProvider(
 if err != nil {
     panic(err)
 }
+if err := provider.Start(ctx); err != nil {
+    panic(err)
+}
+defer provider.Stop()
 
 invoker := invocation.NewUnaryInvoker(manager, timeout).
     WithServiceAuthorityProvider(provider)
 ```
 
-`ServiceAuthorityProvider` 会在进程内缓存 service token，并在过期前按 `RefreshBefore` 主动刷新。
+`ServiceAuthorityProvider` 会在进程内缓存 service token，并在后台按 `RefreshBefore` 主动刷新。首次 fetch 会在 `Start(ctx)` 后立即异步执行；失败后按 `min(1 minute * retry_count * 10, 60 minutes)` 退避并无限次重试，成功后清零。没有有效 service token 时，出站 Firefly 服务调用返回 `ErrServiceTokenUnavailable`，不会只携带用户 token 穿透下游。
 
 出站 metadata 采用白名单策略，保留用户 authority、短 TTL `x-firefly-authz-sign`、OTel trace/baggage 和访问日志需要的客户端事实；普通身份 metadata、当前服务自身 metadata、上一跳 service authority 以及未知业务 metadata 会被清理。下一跳 authz 可以验签复用身份解析结果，但仍必须基于当前 route 重新做权限判定并重新签发新的 `x-firefly-authz-sign`。
