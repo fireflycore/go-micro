@@ -17,7 +17,7 @@
 - 指标、链路、日志相关能力围绕 OTel 生态组织
 - `invocation` 的后续实现也应默认对齐这一观测模型
 
-在权限链路上，`go-micro` 只负责两件事：把入站 header/metadata 结构化为进程内 `service.Context`，以及按需本地验签 authz 写入的 compact JWS。
+在权限链路上，`go-micro` 只负责两件事：把入站 header/metadata 结构化为进程内 `service.Context`，以及在服务显式配置后本地验签 authz 写入的 compact JWS。
 
 - token 解析和权限判定由 authz 数据面完成
 - 跨进程只传 HTTP header / gRPC metadata，不传 `UserContext` 或 `AuthzSign` 结构体
@@ -26,7 +26,8 @@
 - `service.Context` 是业务服务进程内结构体，由 metadata 和可选 JWS 验签结果组装
 - `service.Context.AppId` 只表示用户身份中的 app_id；本跳调用方应用 ID 使用 `InvokeAppId`
 - `service.Context.ServiceAppId / ServiceInstanceId` 只表示当前服务自身身份，用于本地日志、OTel 和数据库链路排障，不参与 authz 授权元组
-- 出站调用通过 `authz.ServiceAuthorityProvider` 透传用户 authority，并由当前服务覆盖服务 authority
+- 出站调用通过 `invocation` 透传用户 authority，并通过 `authz.ServiceAuthorityProvider` 由当前服务覆盖服务 authority
+- ServiceToken 管理器在启动后后台异步获取和刷新 token；获取失败不阻塞服务启动，缺少有效 token 时下游 Firefly 服务调用返回不可用错误
 - 出站调用会保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，避免复用上一跳普通上下文或服务身份
 
 ## 安装
@@ -70,7 +71,7 @@ _ = s
 - 用 `DNSManager` 统一组装标准 gRPC target
 - 用 `ConnectionManager` 统一管理 `grpc.ClientConn`
 - 用 `RemoteServiceManaged / RemoteServiceCaller / UnaryInvoker` 统一串起 metadata、连接复用与底层调用
-- 用 `authz.ServiceAuthorityProvider` 统一接入 auth 服务签发的 service token
+- 用 `authz.ServiceAuthorityProvider` / ServiceToken 管理器统一接入 auth 服务签发的 service token
 - 并默认把调用链路接入 OTel 观测体系
 
 适用场景：
