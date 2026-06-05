@@ -82,7 +82,7 @@ func (u *UnaryInvoker) WithServiceAuthorityProvider(provider authz.ServiceAuthor
 	if u == nil {
 		return nil
 	}
-	// provider 可为 nil，表示只清理旧上下文但不注入 service authority；无下游业务调用或取 token 启动链路可不装配。
+	// provider 可为 nil，表示只清理旧上下文但不注入 service authority；仅适合取 token 启动链路或测试链路。
 	u.ServiceAuthorityProvider = provider
 	// 返回自身，便于启动装配中链式配置。
 	return u
@@ -142,7 +142,7 @@ func resolveOutgoingMetadata(ctx context.Context, serviceAuthorityProvider authz
 		// 两者都不存在时创建空 metadata。
 		md = metadata.New(nil)
 	}
-	// 保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，并按需写入当前服务 authority。
+	// 保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，并写入当前服务 authority。
 	md, err := authz.PrepareOutgoingAuthorityMetadata(ctx, md, serviceAuthorityProvider)
 	if err != nil {
 		return nil, err
