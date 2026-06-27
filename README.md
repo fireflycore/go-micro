@@ -86,7 +86,7 @@ _ = s
 
 - [invocation](./invocation/README.md)：新的服务调用模型（推荐）
 - [service](./service/README.md)：服务内统一主上下文模型
-- [go-consul/agent](file:///Users/lhdht/product/firefly/go-consul/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
+- [go-consul/agent](/Users/lhdht/product/synergy/firefly/golang/go-consul/agent/README.md)：业务服务与本机 sidecar-agent 的联动桥接
 - [middleware](./middleware/README.md)：中间件（gRPC/HTTP）
 - [logger](./logger/README.md)：zap/otelzap 日志封装
 - [constant](./constant/README.md)：通用常量
