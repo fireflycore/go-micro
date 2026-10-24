@@ -2,231 +2,132 @@ package gm
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/json"
+	"net"
 	"testing"
-	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	servicectx "github.com/fireflycore/go-micro/service"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/sdk/trace"
+	"github.com/fireflycore/go-micro/internal/contexttest"
+	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
 )
 
-const (
-	testAuthzKid           = constant.AuthzSignDefaultKid
-	testAuthzIssuer        = constant.AuthzSignDefaultIssuer
-	testAuthzDecisionAllow = constant.AuthzSignDecisionAllow
-)
-
-func TestNewServiceContextUnaryInterceptor(t *testing.T) {
-	original := otel.GetTracerProvider()
-	provider := trace.NewTracerProvider()
-	otel.SetTracerProvider(provider)
-	defer func() {
-		otel.SetTracerProvider(original)
-		_ = provider.Shutdown(context.Background())
-	}()
-
-	tracer := provider.Tracer("gm-test")
-	baseCtx, span := tracer.Start(context.Background(), "interceptor")
-	defer span.End()
-
-	baseCtx = metadata.NewIncomingContext(baseCtx, metadata.Pairs(
-		constant.UserId, "user-1",
-		constant.AppId, "app-1",
-		constant.TenantId, "tenant-1",
-		constant.OrgIds, "org-1",
-		constant.PostIds, "post-1",
-		constant.RoleIds, "role-1",
-		constant.SubjectType, constant.SubjectTypeUser,
-		constant.InvokeAppId, "app-1",
-		constant.TargetAppId, "svc-app",
-	))
-
-	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ServiceAppId:      "svc-app",
-		ServiceInstanceId: "svc-instance-1",
-	})
-
-	resp, err := interceptor(baseCtx, &struct{}{}, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
-		value, ok := servicectx.FromContext(ctx)
-		if !ok {
-			t.Fatal("expected service context in handler context")
+// TestActualEntryBinding 验证以适配器实际方法校验投递绑定，非业务入口跳过验签但不建立可信身份。
+func TestActualEntryBinding(t *testing.T) {
+	v := contexttest.Options()
+	i := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{ServiceAppId: "B", ServiceInstanceId: "local", AuthzVerification: &v, AuthzSkipMethods: []string{"/health"}})
+	for _, path := range []string{"/items.Service/Get", "/other", "/health"} {
+		md := metadata.Pairs(constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)), constant.XRealIp, "forged")
+		ctx := metadata.NewIncomingContext(context.Background(), md)
+		ctx = peer.NewContext(ctx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1}})
+		called := false
+		_, err := i(ctx, nil, &grpc.UnaryServerInfo{FullMethod: path}, func(ctx context.Context, _ any) (any, error) {
+			called = true
+			c := service.MustFromContext(ctx)
+			if c.ServicePath != path || c.ClientIp != "192.0.2.1" {
+				t.Fatal(c)
+			}
+			if (c.AuthzSignContext == nil) != (path == "/health") {
+				t.Fatal("skip created verified identity")
+			}
+			md, _ := metadata.FromIncomingContext(ctx)
+			if len(md.Get(constant.AuthzSign)) != 0 {
+				t.Fatal("proof exposed")
+			}
+			return nil, nil
+		})
+		if path == "/other" {
+			if err == nil || called {
+				t.Fatal("accepted cross-method proof")
+			}
+		} else if err != nil || !called {
+			t.Fatal(err)
 		}
-		if value.UserId != "user-1" || value.AppId != "app-1" {
-			t.Fatalf("unexpected service context: %+v", value)
-		}
-		if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-instance-1" {
-			t.Fatalf("unexpected local service identity: %+v", value)
-		}
-		if value.SubjectType != constant.SubjectTypeUser || value.TargetAppId != "svc-app" {
-			t.Fatalf("unexpected authz fields: %+v", value)
-		}
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			t.Fatal("expected incoming metadata in handler context")
-		}
-		if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "svc-app" {
-			t.Fatalf("expected local service app id metadata, got %v", got)
-		}
-		if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "svc-instance-1" {
-			t.Fatalf("expected local service instance id metadata, got %v", got)
-		}
-		if value.TraceId == "" {
-			t.Fatal("expected trace id from active span")
-		}
-		return "ok", nil
-	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if resp != "ok" {
-		t.Fatalf("unexpected response: %v", resp)
 	}
 }
 
-func TestNewServiceContextUnaryInterceptorInjectsLocalServiceIdentityWithoutIncomingMetadata(t *testing.T) {
-	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ServiceAppId:      "svc-app",
-		ServiceInstanceId: "svc-instance-1",
-	})
+// testServerStream 只替换测试流的上下文，无需建立网络连接。
+type testServerStream struct {
+	grpc.ServerStream                 // 保留流接口；本测试不执行消息收发。
+	ctx               context.Context // 模拟原始入站上下文及其取消信号。
+}
 
-	resp, err := interceptor(context.Background(), &struct{}{}, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
-		value, ok := servicectx.FromContext(ctx)
-		if !ok {
-			t.Fatal("expected service context in handler context")
-		}
-		if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-instance-1" {
-			t.Fatalf("unexpected local service identity: %+v", value)
-		}
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			t.Fatal("expected incoming metadata created by interceptor")
-		}
-		if got := md.Get(constant.ServiceAppId); len(got) == 0 || got[0] != "svc-app" {
-			t.Fatalf("expected local service app id metadata, got %v", got)
-		}
-		if got := md.Get(constant.ServiceInstanceId); len(got) == 0 || got[0] != "svc-instance-1" {
-			t.Fatalf("expected local service instance id metadata, got %v", got)
-		}
-		return "ok", nil
+func (s *testServerStream) Context() context.Context { return s.ctx }
+
+// TestStreamingContextBindingAndCancellation 验证流入口绑定、受控 IP 提取、凭证隐藏和取消传递。
+func TestStreamingContextBindingAndCancellation(t *testing.T) {
+	v := contexttest.Options()
+	interceptor := NewServiceContextStreamInterceptor(ServiceContextInterceptorOptions{
+		ServiceAppId: "B", AuthzVerification: &v,
+		TrustedClientIP: func(context.Context, metadata.MD) string { return "trusted" },
 	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
+	parent, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	md := metadata.Pairs(constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)), constant.UserAuthority, "secret")
+	stream := &testServerStream{ctx: metadata.NewIncomingContext(parent, md)}
+	called := false
+	err := interceptor(nil, stream, &grpc.StreamServerInfo{FullMethod: "/items.Service/Get", IsClientStream: true, IsServerStream: true}, func(_ any, s grpc.ServerStream) error {
+		called = true
+		c := service.MustFromContext(s.Context())
+		if c.ServicePath != "/items.Service/Get" || c.InvokeAppId != "A" || c.ClientIp != "trusted" {
+			t.Fatal("stream context not bound")
+		}
+		public, _ := metadata.FromIncomingContext(s.Context())
+		if len(public.Get(constant.UserAuthority)) != 0 {
+			t.Fatal("stream exposed credential")
+		}
+		cancel()
+		if s.Context().Err() != context.Canceled {
+			t.Fatal("stream lost cancellation")
+		}
+		return nil
+	})
+	if err != nil || !called {
+		t.Fatal(err)
 	}
-	if resp != "ok" {
-		t.Fatalf("unexpected response: %v", resp)
+	err = interceptor(nil, stream, &grpc.StreamServerInfo{FullMethod: "/wrong"}, func(any, grpc.ServerStream) error {
+		t.Fatal("accepted wrong stream binding")
+		return nil
+	})
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatal(err)
 	}
 }
 
-func TestNewServiceContextUnaryInterceptor_VerifiesAuthzSign(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key failed: %v", err)
+// TestMissingVerificationFailsClosed 验证 unary 与 stream 都不把漏装配置当作全局豁免。
+func TestMissingVerificationFailsClosed(t *testing.T) {
+	options := ServiceContextInterceptorOptions{ServiceAppId: "B", AuthzSkipMethods: []string{"/health"}}
+	unary := NewServiceContextUnaryInterceptor(options)
+	stream := NewServiceContextStreamInterceptor(options)
+	for _, path := range []string{"/items.Service/Get", "/health/extra", "/health"} {
+		t.Run(path, func(t *testing.T) {
+			ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(constant.UserId, "forged"))
+			calls := 0
+			check := func(ctx context.Context) {
+				calls++
+				c := service.MustFromContext(ctx)
+				if c.UserContext != nil || c.AuthzSignContext != nil || c.InvokeAppId != "" {
+					t.Fatal("independent entry created trusted identity")
+				}
+			}
+			_, unaryErr := unary(ctx, nil, &grpc.UnaryServerInfo{FullMethod: path}, func(ctx context.Context, _ any) (any, error) {
+				check(ctx)
+				return nil, nil
+			})
+			streamErr := stream(nil, &testServerStream{ctx: ctx}, &grpc.StreamServerInfo{FullMethod: path}, func(_ any, s grpc.ServerStream) error {
+				check(s.Context())
+				return nil
+			})
+			if path == "/health" {
+				if unaryErr != nil || streamErr != nil || calls != 2 {
+					t.Fatalf("independent entry failed: unary=%v stream=%v calls=%d", unaryErr, streamErr, calls)
+				}
+			} else if status.Code(unaryErr) != codes.Internal || status.Code(streamErr) != codes.Internal || calls != 0 {
+				t.Fatalf("missing verification accepted: unary=%v stream=%v calls=%d", unaryErr, streamErr, calls)
+			}
+		})
 	}
-
-	now := time.Unix(1710000000, 0).UTC()
-	token := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
-		"iss":           testAuthzIssuer,
-		"sub":           "user-1",
-		"subject_type":  constant.SubjectTypeUser,
-		"invoke_app_id": "user-app",
-		"target_app_id": "svc-app",
-		"user_context": map[string]any{
-			"user_id":   "user-1",
-			"app_id":    "user-app",
-			"tenant_id": "tenant-1",
-			"post_ids":  []string{"post-1"},
-		},
-		"target_service_app_id": "svc-app",
-		"route_method":          "POST",
-		"route_path":            "/v1/test/get",
-		"target_method":         constant.RequestMethodGrpcString,
-		"target_path":           "/acme.test.v1.TestService/Get",
-		"decision":              testAuthzDecisionAllow,
-		"decision_id":           "decision-1",
-		"iat":                   now.Unix(),
-		"exp":                   now.Add(time.Minute).Unix(),
-	})
-
-	baseCtx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AuthzSign, token,
-	))
-	interceptor := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{
-		ServiceAppId:      "svc-app",
-		ServiceInstanceId: "svc-instance-1",
-		AuthzVerification: &servicectx.AuthzSignVerificationOptions{
-			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
-			Issuer:     testAuthzIssuer,
-			Now:        func() time.Time { return now },
-		},
-	})
-
-	resp, err := interceptor(baseCtx, &struct{}{}, &grpc.UnaryServerInfo{FullMethod: "/acme.test.v1.TestService/Get"}, func(ctx context.Context, req any) (any, error) {
-		value, ok := servicectx.FromContext(ctx)
-		if !ok {
-			t.Fatal("expected service context in handler context")
-		}
-		if value.VerifiedAuthzSign == nil || value.UserId != "user-1" || value.AppId != "user-app" || value.InvokeAppId != "user-app" {
-			t.Fatalf("expected verified authz sign to populate service context: %+v", value)
-		}
-		if value.ServiceAppId != "svc-app" || value.ServiceInstanceId != "svc-instance-1" {
-			t.Fatalf("expected local service identity to survive authz sign verification: %+v", value)
-		}
-		if value.RouteMethod != "POST" || value.RoutePath != "/v1/test/get" {
-			t.Fatalf("expected verified api method/path to populate service context: %+v", value)
-		}
-		if value.TargetMethod != constant.RequestMethodGrpcString || value.TargetPath != "/acme.test.v1.TestService/Get" {
-			t.Fatalf("expected verified target method/path to populate service context: %+v", value)
-		}
-		if value.UserContext == nil || value.UserContext.AppId != "user-app" {
-			t.Fatalf("expected grouped user context: %+v", value)
-		}
-		if len(value.UserContext.PostIds) != 1 || value.UserContext.PostIds[0] != "post-1" {
-			t.Fatalf("expected post ids in grouped user context: %+v", value)
-		}
-		if value.TargetServiceAppId != "svc-app" {
-			t.Fatalf("expected target service app id: %+v", value)
-		}
-		if value.InvokeServiceAppId != "" {
-			t.Fatalf("expected user entrance without service token to keep invoke service app id empty: %+v", value)
-		}
-		return "ok", nil
-	})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if resp != "ok" {
-		t.Fatalf("unexpected response: %v", resp)
-	}
-}
-
-func signTestAuthzSign(t *testing.T, privateKey ed25519.PrivateKey, kid string, claims map[string]any) string {
-	t.Helper()
-
-	header := map[string]any{
-		"alg": constant.JWSAlgorithmEdDSA,
-		"kid": kid,
-		"typ": constant.JWSTypeJWT,
-	}
-	headerSegment := encodeTestJWSSegment(t, header)
-	payloadSegment := encodeTestJWSSegment(t, claims)
-	signingInput := headerSegment + "." + payloadSegment
-	signature := ed25519.Sign(privateKey, []byte(signingInput))
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
-}
-
-func encodeTestJWSSegment(t *testing.T, value any) string {
-	t.Helper()
-
-	data, err := json.Marshal(value)
-	if err != nil {
-		t.Fatalf("marshal jws segment failed: %v", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(data)
 }

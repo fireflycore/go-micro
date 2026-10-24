@@ -2,126 +2,123 @@ package gm
 
 import (
 	"context"
+	"net"
 
 	"github.com/fireflycore/go-micro/constant"
 	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
-// ServiceContextInterceptorOptions 定义拦截器选项。
+// ServiceContextInterceptorOptions 配置实际服务事实与入口信任边界。
 type ServiceContextInterceptorOptions struct {
-	// ServiceAppId 表示当前业务服务自身 app_id，只注入本地 service.Context 和入口 metadata。
+	// ServiceAppId 来自本地配置，不能接受客户端同名头覆盖。
 	ServiceAppId string
-	// ServiceInstanceId 表示当前业务服务自身实例 ID，只注入本地 service.Context 和入口 metadata。
+	// ServiceInstanceId 是当前实例的本地标识。
 	ServiceInstanceId string
-	// AuthzVerification 非空时，入口会本地验签 x-firefly-authz-sign。
+	// AuthzVerification 是业务入口必需的本地验签规则；实际方法由拦截器捕获。
 	AuthzVerification *service.AuthzSignVerificationOptions
-	// AuthzSkipMethods 表示不执行 authz 上下文验签的 gRPC 完整方法名，常用于 health check。
+	// AuthzSkipMethods 只精确匹配独立入口，跳过后不建立可信用户或 Invoke 身份。
 	AuthzSkipMethods []string
+	// TrustedClientIP 必须先验证连接对端再解释代理 metadata；未配置时仅取对端 IP。
+	TrustedClientIP func(context.Context, metadata.MD) string
 }
 
-// NewServiceContextUnaryInterceptor 在请求入口统一建立并注入 service.Context。
+// NewServiceContextUnaryInterceptor 在业务 handler 前捕获真实 FullMethod 并构建上下文。
 func NewServiceContextUnaryInterceptor(options ServiceContextInterceptorOptions) grpc.UnaryServerInterceptor {
-	// 预先构造基础 BuildContextOptions，避免每次请求重复分配。
-	buildOptions := service.BuildContextOptions{
-		ServiceAppId:      options.ServiceAppId,
-		ServiceInstanceId: options.ServiceInstanceId,
-	}
-	// 预先整理跳过验签的方法集合，热路径只做 map 查询。
-	skipAuthzMethods := buildServiceContextAuthzSkipMethods(options.AuthzSkipMethods)
+	build := incomingContextBuilder(options)
 
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		// 先把当前服务自身身份写入本地 incoming metadata，供 gormx 等只读 metadata 的组件使用。
-		ctx = appendLocalServiceIdentityToIncomingContext(ctx, options.ServiceAppId, options.ServiceInstanceId)
-		// 根据配置决定只结构化上下文，还是结构化后再校验 authz JWS。
-		serviceContext, err := buildServiceContext(ctx, info, buildOptions, options.AuthzVerification, skipAuthzMethods)
+		if info == nil {
+			return nil, status.Error(codes.Internal, "missing actual service entry")
+		}
+
+		in, err := build(ctx, info.FullMethod)
 		if err != nil {
-			// 验签失败说明入口身份不可被信任，统一返回 Unauthenticated。
-			return nil, status.Error(codes.Unauthenticated, err.Error())
-		}
-		// 构建成功后把 service.Context 注入 ctx，业务层统一从 service.FromContext 读取。
-		if serviceContext != nil {
-			ctx = service.WithContext(ctx, serviceContext)
+			return nil, err
 		}
 
-		// 继续执行后续拦截器或业务 handler。
-		return handler(ctx, req)
+		return handler(in, req)
 	}
 }
 
-func appendLocalServiceIdentityToIncomingContext(ctx context.Context, serviceAppId string, serviceInstanceId string) context.Context {
-	// 没有本地服务身份配置时，直接返回原 ctx，避免制造空 metadata。
-	if serviceAppId == "" && serviceInstanceId == "" {
-		return ctx
+// NewServiceContextStreamInterceptor 将请求视图绑定到整个流生命周期，保留原始取消信号。
+func NewServiceContextStreamInterceptor(options ServiceContextInterceptorOptions) grpc.StreamServerInterceptor {
+	build := incomingContextBuilder(options)
+
+	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		if info == nil {
+			return status.Error(codes.Internal, "missing actual service entry")
+		}
+
+		in, err := build(stream.Context(), info.FullMethod)
+		if err != nil {
+			return err
+		}
+
+		return handler(srv, &contextServerStream{ServerStream: stream, ctx: in})
 	}
-	// 复制已有 incoming metadata，避免修改 gRPC 运行时持有的原始 map。
-	md, _ := metadata.FromIncomingContext(ctx)
-	md = md.Copy()
-	// ServiceAppId 表示当前进程自身 app_id，只在本地入口上下文中有效。
-	if serviceAppId != "" {
-		md.Set(constant.ServiceAppId, serviceAppId)
-	}
-	// ServiceInstanceId 表示当前进程自身实例 ID，只在本地入口上下文中有效。
-	if serviceInstanceId != "" {
-		md.Set(constant.ServiceInstanceId, serviceInstanceId)
-	}
-	// 把整理后的 metadata 放回 incoming context，供后续本地中间件读取。
-	return metadata.NewIncomingContext(ctx, md)
 }
 
-func buildServiceContext(ctx context.Context, info *grpc.UnaryServerInfo, buildOptions service.BuildContextOptions, verification *service.AuthzSignVerificationOptions, skipAuthzMethods map[string]struct{}) (*service.Context, error) {
-	// 没有配置验签或当前方法明确跳过验签时，只构造进程内 service.Context。
-	if verification == nil || shouldSkipServiceContextAuthz(info, skipAuthzMethods) {
-		return service.BuildContext(ctx, buildOptions), nil
-	}
-
-	// 每次请求复制验签选项，避免把当前 gRPC 方法推导出的期望值写回共享配置。
-	resolvedVerification := *verification
-	// gRPC 服务端入口的后端目标动作固定为 GRPC。
-	if resolvedVerification.ExpectedTargetMethod == "" {
-		resolvedVerification.ExpectedTargetMethod = constant.RequestMethodGrpcString
-	}
-	// 未显式配置目标路径时，使用当前 gRPC FullMethod 校验授权结果不可跨方法复用。
-	if resolvedVerification.ExpectedTargetPath == "" && info != nil {
-		resolvedVerification.ExpectedTargetPath = info.FullMethod
-	}
-
-	// 把本次请求解析出的期望值放回 buildOptions，交给 service 层完成实际验签。
-	buildOptions.AuthzVerification = &resolvedVerification
-	// 返回已验签的进程内 service.Context；失败时返回明确错误。
-	return service.BuildVerifiedContext(ctx, buildOptions)
+type contextServerStream struct {
+	// ServerStream 保留原始收发及状态接口，仅替换 Context 访问器。
+	grpc.ServerStream
+	// ctx 是已清洗 metadata 并注入业务视图的派生上下文。
+	ctx context.Context
 }
 
-func buildServiceContextAuthzSkipMethods(methods []string) map[string]struct{} {
-	// 没有跳过规则时返回 nil，后续判断可以直接走快速分支。
-	if len(methods) == 0 {
-		return nil
+func (s *contextServerStream) Context() context.Context { return s.ctx }
+
+// incomingContextBuilder 供 unary/stream 复用相同的精确跳过与绑定策略。
+func incomingContextBuilder(options ServiceContextInterceptorOptions) func(context.Context, string) (context.Context, error) {
+	skip := make(map[string]bool, len(options.AuthzSkipMethods))
+	for _, method := range options.AuthzSkipMethods {
+		if method != "" {
+			skip[method] = true
+		}
 	}
-	// 使用 map 表达集合，避免每次请求线性扫描。
-	result := make(map[string]struct{}, len(methods))
-	// 逐个整理调用方传入的完整 gRPC method。
-	for _, method := range methods {
-		// 空字符串不是有效 method，直接忽略。
+
+	return func(ctx context.Context, method string) (context.Context, error) {
 		if method == "" {
-			continue
+			return nil, status.Error(codes.Internal, "missing actual service entry")
 		}
-		// struct{} 不占额外值空间，适合作为 set value。
-		result[method] = struct{}{}
-	}
-	// 返回只读使用的跳过集合。
-	return result
-}
 
-func shouldSkipServiceContextAuthz(info *grpc.UnaryServerInfo, methods map[string]struct{}) bool {
-	// 没有配置跳过集合或缺少 gRPC 方法信息时，不跳过验签。
-	if len(methods) == 0 || info == nil {
-		return false
+		// 漏装配置必须拒绝，独立入口只有精确命中跳过列表才可不验签。
+		if !skip[method] && options.AuthzVerification == nil {
+			return nil, status.Error(codes.Internal, "authz verification is not configured")
+		}
+
+		var ip string
+
+		md, _ := metadata.FromIncomingContext(ctx)
+		if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+			ip, _, _ = net.SplitHostPort(p.Addr.String())
+		}
+
+		if options.TrustedClientIP != nil {
+			// 代理策略只收到副本，不能反向修改原始入站 metadata。
+			ip = options.TrustedClientIP(ctx, md.Copy())
+		}
+
+		build := service.BuildContextOptions{
+			ServiceAppId: options.ServiceAppId, ServiceInstanceId: options.ServiceInstanceId,
+			ServiceMethod: constant.RequestMethodGrpcString, ServicePath: method, ClientIp: ip,
+		}
+
+		if !skip[method] {
+			// 独立入口只跳过验签，不从普通头恢复任何可信身份。
+			build.AuthzVerification = options.AuthzVerification
+		}
+
+		in, err := service.NewIncomingContext(ctx, md, build)
+		if err != nil {
+			// 对外使用稳定错误，不把凭证或签名解析细节带入响应。
+			return nil, status.Error(codes.Unauthenticated, "invalid service context")
+		}
+
+		return in, nil
 	}
-	// FullMethod 命中集合时跳过验签，常见于 health check。
-	_, ok := methods[info.FullMethod]
-	// 返回是否跳过当前方法。
-	return ok
 }

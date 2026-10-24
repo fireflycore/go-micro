@@ -126,3 +126,33 @@ func TestNewAccessLoggerLogsStructuredErrorIdentity(t *testing.T) {
 		t.Fatal("error metadata must not be logged by default")
 	}
 }
+
+// TestNewAccessLoggerRequiresLogger 验证缺少日志依赖时不会静默关闭普通 RPC 的访问日志。
+func TestNewAccessLoggerRequiresLogger(t *testing.T) {
+	interceptor := NewAccessLogger(nil)
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil logger was silently accepted")
+		}
+	}()
+	_, _ = interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/example.Service/Get"},
+		func(context.Context, any) (any, error) { return nil, nil })
+}
+
+// TestNewAccessLoggerRequiresInfo 验证错误调用缺少 RPC 信息时，不会先执行 handler 再失败。
+func TestNewAccessLoggerRequiresInfo(t *testing.T) {
+	interceptor := NewAccessLogger(logger.NewAccessLogger(zap.NewNop()))
+	handlerCalled := false
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil RPC info was silently accepted")
+		}
+		if handlerCalled {
+			t.Fatal("handler executed before missing RPC info was exposed")
+		}
+	}()
+	_, _ = interceptor(context.Background(), nil, nil, func(context.Context, any) (any, error) {
+		handlerCalled = true
+		return nil, nil
+	})
+}

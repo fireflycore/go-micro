@@ -4,15 +4,15 @@
 
 ## 功能列表
 
-### 1. Service Context (`NewServiceContextUnaryInterceptor`)
+### 1. Service Context (`NewServiceContextUnaryInterceptor` / `NewServiceContextStreamInterceptor`)
 
 在请求入口统一完成：
 
 - 注入当前业务服务自身的 `ServiceAppId / ServiceInstanceId`
-- 解析入站 metadata 中的普通身份字段和 authz compact JWS
+- 按允许列表收集入站输入，验签后建立可信身份，剥离原始凭证和签名
 - 构造服务内唯一主上下文 `service.Context`
 - 从当前 OTel span 提取 trace 标识快照
-- 按需本地验签 `x-firefly-authz-sign`
+- 业务入口必须本地验签 `x-firefly-authz-sign`，漏装配置时拒绝请求
 
 **推荐用途**：
 - 在 gRPC 服务端入口统一注入 `service.Context`
@@ -21,11 +21,11 @@
 
 `gm` 当前只负责服务端入站中间件语义，不再定义服务内主上下文模型；业务代码应从 `go-micro/service` 读取 `service.Context`，出站调用统一由 `go-micro/invocation` 直接基于当前 gRPC context 与 OTel trace 处理。
 
-`service.Context.AppId` 只表示用户身份中的 app_id；当前这一跳调用方应用 ID 使用 `InvokeAppId`，被访问服务应用 ID 使用 `TargetAppId`。
+`service.Context.UserContext.AppId` 是登录应用；`InvokeAppId` 只表示已认证上一跳服务。单次目标使用 `OutgoingContext.TargetAppId`，不存入业务运行时。
 
 `ServiceAppId / ServiceInstanceId` 是当前业务服务自身身份，通常来自 `bootstrapConfig.App.Id` 和 `bootstrapConfig.App.InstanceId`。它们只服务本地日志、OTel 和 gormx 等组件，不参与 authz 授权元组，也不会随出站调用透传。
 
-启用 `AuthzVerification` 时必须提供 `ServiceAppId`。服务侧验签会用它绑定 `AuthzSign.target_app_id`，避免把其他服务的 allow 结果复用到当前服务。
+业务入口必须配置 `AuthzVerification` 和本地 `ServiceAppId`，漏配验签规则返回 Internal，不执行 handler。实际 `GRPC / FullMethod` 来自拦截器，并与签名 `Service*` 全量比较。默认 ClientIp 是连接 peer，可信代理提取必须显式注入 callback。健康 / 管理等跳过项只精确匹配，不产生可信身份。
 
 ### 2. Access Logger (`NewAccessLogger`)
 
@@ -33,7 +33,7 @@
 
 **特性**：
 - **链路关联**：通过 `otelzap` 从 `ctx` 自动关联 trace（要求服务端启用 OTel stats handler，日志使用 `zap.Any("ctx", ctx)`）。
-- **身份识别**：优先读取进程内 `service.Context`，必要时只回退读取普通身份 metadata，不从未签名资源字段推导授权动作和路径。
+- **身份识别**：只读取进程内可信结构化身份，不回退 metadata。默认不输出 session、凭证、body 或错误原文。
 - **性能字段**：`duration`（微秒）、`status`（gRPC code）、`path` 等。
 - **错误聚合**：结构化错误额外记录 `error_domain / error_reason`；ErrorInfo metadata 默认不写日志。
 
@@ -106,8 +106,8 @@ s := grpc.NewServer(
         gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
             ServiceAppId:      bootstrapConfig.App.Id,
             ServiceInstanceId: bootstrapConfig.App.InstanceId,
-            // 生产环境建议配置 AuthzVerification，让服务侧信任验签后的 JWS payload。
-            // AuthzVerification: &service.AuthzSignVerificationOptions{...},
+            // 业务入口必须装配验签配置；独立入口通过 AuthzSkipMethods 精确声明。
+            AuthzVerification: authzVerification,
         }),
         gm.NewAccessLogger(accessLog),
         gm.ErrorToStatus(),
