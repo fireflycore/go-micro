@@ -16,11 +16,11 @@
 - 构造 `service.AuthzSignVerificationOptions`
 - 返回 gRPC middleware 需要的 `AuthzVerification` 与 `AuthzSkipMethods`
 - 定义 `ServiceAuthorityProvider` / ServiceToken 管理器，供出站调用每一跳覆盖 `X-Firefly-Service-Authority`
-- 提供 gRPC client interceptor 和 metadata helper，统一保留用户 authority 与短 TTL authz sign，清理普通身份 metadata 和未知业务 metadata
+- 提供 unary / stream gRPC client interceptor、HTTP `AuthorityTransport` 和 metadata helper，独立构建当次出站白名单
 
-`x-firefly-authz-sign` 是服务侧验签输入。业务服务开启 `AuthzVerification` 后，`service.Context.VerifiedAuthzSign` 保存验签后的 JWS payload，`service.Context.RouteMethod` / `service.Context.RoutePath` 以该 payload 为可信来源。
+`x-firefly-authz-sign` 只用于本跳入口验签，不向下游传播。业务上下文保存 `AuthzSignContext` 投影，不暴露原始签名或凭证。
 
-`service.Context.AppId` 只表示用户身份中的 app_id；当前这一跳的调用方应用 ID 使用 `service.Context.InvokeAppId`。`service.Context.ServiceAppId / ServiceInstanceId` 只表示当前业务服务自身身份，用于本地日志、OTel 和数据库链路排障，不参与 authz 权限元组。新代码优先使用 `service.Context.UserContext`、`InvokeServiceAppId`、`TargetServiceAppId` 和 `DecisionContext`。
+用户应用读取 `service.Context.UserContext.AppId`；上一跳服务读取 `InvokeAppId`，只能来自已验签的 `invoke_service_app_id`。授权主体读取 `AuthzSignContext.SubjectAppId`。本地 `ServiceAppId / ServiceInstanceId` 不接受上游覆盖。
 
 业务服务只需要在启动配置中声明：
 
@@ -39,9 +39,11 @@
 }
 ```
 
-`authz_verification` 配置存在时必须提供 `public_key_path`。是否对某个服务入口启用验签由服务启动装配决定，不再通过 `enabled` 字段做运行时开关。
+业务入口必须装配 `authz_verification`，配置必须提供 `public_key_path`；HTTP/gRPC 适配器漏配 verifier 时拒绝执行 handler。不再通过 `enabled` 字段做运行时开关；健康、管理等独立入口只能通过精确 skip 配置跳过，跳过不建立可信身份。
 
-启用验签时，`ServiceContextUnaryInterceptor` 必须传入当前服务 `ServiceAppId`。服务侧本地验签会用该值校验 `AuthzSign.target_app_id`，防止其他服务的授权结果被跨服务复用。
+启用验签时，入口必须传入本地 `ServiceAppId`；HTTP / gRPC 适配器独立捕获实际入口并校验签名 `service_app_id / service_method / service_path`。授权 `method / path` 不作为缺失投递绑定的回退。
+
+gRPC 普通 metadata 仅支持可打印 ASCII，出站 helper 在传输前拒绝不能编码的值；HTTP `AuthorityTransport` 保持合法 UTF-8，不套用 gRPC 限制。未引入隐式转义或 `-bin` 头协议。
 
 然后在 gRPC server 初始化时接入：
 
@@ -99,4 +101,6 @@ invoker := invocation.NewUnaryInvoker(manager, timeout).
 
 管理端或排障接口可通过 `ServiceAuthorityStatus()` 读取安全状态快照。该快照只包含 `started`、`loaded`、`expires_at`、`expires_in_seconds`、`refresh_before` 和 `last_error`，不包含 service token 原文，适合挂到业务服务 `/info` 这类自管理接口。
 
-出站 metadata 采用白名单策略，保留用户 authority、短 TTL `x-firefly-authz-sign`、OTel trace/baggage 和访问日志需要的客户端事实；普通身份 metadata、当前服务自身 metadata、上一跳 service authority 以及未知业务 metadata 会被清理。下一跳 authz 可以验签复用身份解析结果，但仍必须基于当前 route 重新做权限判定并重新签发新的 `x-firefly-authz-sign`。
+出站只继承框架私有用户 authority 和八个客户端环境字段，覆盖当前服务 authority 与当前实际入口的 Invoke 方法，使用活动 OTel span 注入 trace / baggage。不发送旧签名、普通身份、组件 IP、本地身份或未知 Firefly 头；Accept-Language 不透传。provider 缺失、空值或失败均拒绝业务调用。
+
+凭证获取使用独立、绑定单个方法的 `invocation.NewBootstrapUnaryInvoker`，不通过缺省 provider 豁免业务调用。下一跳 authz 必须验证所有携带凭证及各自在线 session，选择本跳主体后重新签发 60 秒证明；本库不实现 authz 的在线认证或签发。

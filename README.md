@@ -17,18 +17,21 @@
 - 指标、链路、日志相关能力围绕 OTel 生态组织
 - `invocation` 的后续实现也应默认对齐这一观测模型
 
-在权限链路上，`go-micro` 只负责两件事：把入站 header/metadata 结构化为进程内 `service.Context`，以及在服务显式配置后本地验签 authz 写入的 compact JWS。
+在权限链路上，`go-micro` 负责三层上下文适配、业务入口本地验签及逐次出站传播；不承担 token 认证、在线 session 校验或权限策略判定。
 
 - token 解析和权限判定由 authz 数据面完成
 - 跨进程只传 HTTP header / gRPC metadata，不传 `UserContext` 或 `AuthzSign` 结构体
 - `X-Firefly-User-Authority` / `X-Firefly-Service-Authority` 是传给 authz 校验的 authority 原文
-- `x-firefly-authz-sign` 是 authz 签名后的 compact JWS；业务服务验签后才得到 `VerifiedAuthzSign`
-- `service.Context` 是业务服务进程内结构体，由 metadata 和可选 JWS 验签结果组装
-- `service.Context.AppId` 只表示用户身份中的 app_id；本跳调用方应用 ID 使用 `InvokeAppId`
+- `x-firefly-authz-sign` 是 authz 签名后的 compact JWS；业务服务验签后得到 `AuthzSignContext` 与独立 `UserContext`
+- `service.Context` 是业务服务进程内结构体；业务适配器必须配置验签，只有显式跳过的独立入口不建立可信身份
+- `service.Context.UserContext.AppId` 是用户登录应用；`InvokeAppId` 只表示已认证上一跳服务，授权主体另读 `AuthzSignContext.SubjectAppId`
 - `service.Context.ServiceAppId / ServiceInstanceId` 只表示当前服务自身身份，用于本地日志、OTel 和数据库链路排障，不参与 authz 授权元组
 - 出站调用通过 `invocation` 透传用户 authority，并通过 `authz.ServiceAuthorityProvider` 由当前服务覆盖服务 authority
 - ServiceToken 管理器在启动后后台异步获取和刷新 token；获取失败不阻塞服务启动，缺少有效 token 时下游 Firefly 服务调用返回不可用错误
-- 出站调用会保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，避免复用上一跳普通上下文或服务身份
+- 出站每次独立构建 `OutgoingContext`；继承私有用户 authority、覆盖当前服务 authority，不传播上一跳签名、普通身份或组件头
+
+当前工作区实现了破坏性 Context 新协议，详见 [service](./service/README.md)。
+核心版本尚待发布与消费方迁移，不能和旧 authz 签发协议混用。
 
 ## 安装
 
