@@ -2,22 +2,36 @@ package hm
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/internal/contexttest"
 	"github.com/fireflycore/go-micro/service"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // TestHTTPActualBindingAndPrivateHeaders 验证真实 HTTP 入口绑定，以及业务可见请求头的私有输入清理。
 func TestHTTPActualBindingAndPrivateHeaders(t *testing.T) {
-	claims := contexttest.Claims("service", true)
-	claims["service_method"], claims["service_path"] = "POST", "/v1/items"
-	options := contexttest.Options()
+	// HTTP 样本直接声明本协议入口，不从其他包的 gRPC 测试数据改写绑定。
+	now := time.Unix(1792627200, 0)
+	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	claims := map[string]any{
+		"iss": "firefly-authz", "sub": "A", "subject_type": "service", "subject_app_id": "A", "invoke_service_app_id": "A",
+		"method": "POST", "path": "/v1/items", "service_app_id": "B", "service_method": "POST", "service_path": "/v1/items",
+		"decision": "allow", "decision_id": "decision", "iat": now.Unix(), "exp": now.Unix() + 60,
+		"user_context": map[string]any{"session": "secret-session", "user_id": "user", "app_id": "login-app", "tenant_id": "user-tenant"},
+	}
+	options := service.AuthzSignVerificationOptions{
+		PublicKeys: map[string]ed25519.PublicKey{"default": key.Public().(ed25519.PublicKey)}, Issuer: "firefly-authz",
+		ExpectedServiceAppId: "B", ExpectedServiceMethod: "POST", ExpectedServicePath: "/v1/items",
+		Now: func() time.Time { return now },
+	}
 	called := 0
 	handler := NewServiceContextMiddleware(ServiceContextOptions{ServiceAppId: "B", AuthzVerification: &options})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called++
@@ -39,7 +53,7 @@ func TestHTTPActualBindingAndPrivateHeaders(t *testing.T) {
 	}))
 	r := httptest.NewRequest("POST", "http://local/v1/items", nil)
 	r.RemoteAddr = "127.0.0.1:123"
-	r.Header.Set(constant.AuthzSign, contexttest.Sign(claims))
+	r.Header.Set(constant.AuthzSign, signContextTestClaims(t, key, claims))
 	r.Header.Set(constant.UserAuthority, "secret")
 	r.Header.Set(constant.XRealIp, "forged")
 	r.Header.Set("x-firefly-unknown", "drop")
@@ -49,7 +63,7 @@ func TestHTTPActualBindingAndPrivateHeaders(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), r)
 	// 不同大小写的同名签名头也属于重复输入，不能绕过标量校验。
 	duplicate := r.Clone(context.Background())
-	duplicate.Header[constant.AuthzSign] = []string{contexttest.Sign(claims)}
+	duplicate.Header[constant.AuthzSign] = []string{signContextTestClaims(t, key, claims)}
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, duplicate)
 	if w.Code != 401 || called != 1 {
@@ -63,6 +77,18 @@ func TestHTTPActualBindingAndPrivateHeaders(t *testing.T) {
 	if w.Code != 401 || called != 1 || r.Header.Get(constant.UserAuthority) != "secret" {
 		t.Fatal("binding or input mutation")
 	}
+}
+
+// signContextTestClaims 仅为本包 HTTP 入口测试生成签名，不进入生产构建。
+func signContextTestClaims(t *testing.T, key ed25519.PrivateKey, claims map[string]any) string {
+	t.Helper()
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := base64.RawURLEncoding.EncodeToString
+	input := enc([]byte(`{"alg":"EdDSA","kid":"default","typ":"JWT"}`)) + "." + enc(payload)
+	return input + "." + enc(ed25519.Sign(key, []byte(input)))
 }
 
 // TestHTTPMissingVerificationFailsClosed 区分验签装配缺失与精确配置的独立入口。

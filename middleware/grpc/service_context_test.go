@@ -2,11 +2,14 @@ package gm
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/internal/contexttest"
 	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,10 +20,10 @@ import (
 
 // TestActualEntryBinding 验证以适配器实际方法校验投递绑定，非业务入口跳过验签但不建立可信身份。
 func TestActualEntryBinding(t *testing.T) {
-	v := contexttest.Options()
+	v := contextTestOptions()
 	i := NewServiceContextUnaryInterceptor(ServiceContextInterceptorOptions{ServiceAppId: "B", ServiceInstanceId: "local", AuthzVerification: &v, AuthzSkipMethods: []string{"/health"}})
 	for _, path := range []string{"/items.Service/Get", "/other", "/health"} {
-		md := metadata.Pairs(constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)), constant.XRealIp, "forged")
+		md := metadata.Pairs(constant.AuthzSign, signContextTestClaims(t, contextTestClaims()), constant.XRealIp, "forged")
 		ctx := metadata.NewIncomingContext(context.Background(), md)
 		ctx = peer.NewContext(ctx, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 1}})
 		called := false
@@ -59,14 +62,14 @@ func (s *testServerStream) Context() context.Context { return s.ctx }
 
 // TestStreamingContextBindingAndCancellation 验证流入口绑定、受控 IP 提取、凭证隐藏和取消传递。
 func TestStreamingContextBindingAndCancellation(t *testing.T) {
-	v := contexttest.Options()
+	v := contextTestOptions()
 	interceptor := NewServiceContextStreamInterceptor(ServiceContextInterceptorOptions{
 		ServiceAppId: "B", AuthzVerification: &v,
 		TrustedClientIP: func(context.Context, metadata.MD) string { return "trusted" },
 	})
 	parent, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	md := metadata.Pairs(constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)), constant.UserAuthority, "secret")
+	md := metadata.Pairs(constant.AuthzSign, signContextTestClaims(t, contextTestClaims()), constant.UserAuthority, "secret")
 	stream := &testServerStream{ctx: metadata.NewIncomingContext(parent, md)}
 	called := false
 	err := interceptor(nil, stream, &grpc.StreamServerInfo{FullMethod: "/items.Service/Get", IsClientStream: true, IsServerStream: true}, func(_ any, s grpc.ServerStream) error {
@@ -94,6 +97,43 @@ func TestStreamingContextBindingAndCancellation(t *testing.T) {
 	})
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatal(err)
+	}
+}
+
+// contextTestNow 固定本包拦截器与真实 gRPC 回环测试的时钟。
+var contextTestNow = time.Unix(1792627200, 0)
+
+// contextTestKey 是本包专用的全零种子测试密钥，不能用于实际服务。
+var contextTestKey = ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+
+// contextTestClaims 只保留本包使用的服务主体加用户样本，独立表达 HTTP 授权与 gRPC 投递。
+func contextTestClaims() map[string]any {
+	return map[string]any{
+		"iss": "firefly-authz", "sub": "A", "subject_type": "service", "subject_app_id": "A", "invoke_service_app_id": "A",
+		"method": "POST", "path": "/v1/items", "service_app_id": "B", "service_method": "GRPC", "service_path": "/items.Service/Get",
+		"decision": "allow", "decision_id": "decision", "iat": contextTestNow.Unix(), "exp": contextTestNow.Unix() + 60,
+		"user_context": map[string]any{"session": "secret-session", "user_id": "user", "app_id": "login-app", "tenant_id": "user-tenant"},
+	}
+}
+
+// signContextTestClaims 在测试实际投递路径确定后签名，支持错绑定负例。
+func signContextTestClaims(t *testing.T, claims map[string]any) string {
+	t.Helper()
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := base64.RawURLEncoding.EncodeToString
+	input := enc([]byte(`{"alg":"EdDSA","kid":"default","typ":"JWT"}`)) + "." + enc(payload)
+	return input + "." + enc(ed25519.Sign(contextTestKey, []byte(input)))
+}
+
+// contextTestOptions 的预期绑定来自本地测试入口，不读取待验证的 claims。
+func contextTestOptions() service.AuthzSignVerificationOptions {
+	return service.AuthzSignVerificationOptions{
+		PublicKeys: map[string]ed25519.PublicKey{"default": contextTestKey.Public().(ed25519.PublicKey)}, Issuer: "firefly-authz",
+		ExpectedServiceAppId: "B", ExpectedServiceMethod: "GRPC", ExpectedServicePath: "/items.Service/Get",
+		Now: func() time.Time { return contextTestNow },
 	}
 }
 

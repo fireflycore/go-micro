@@ -2,12 +2,14 @@ package logger
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/internal/contexttest"
 	"github.com/fireflycore/go-micro/service"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -16,9 +18,29 @@ import (
 
 // 验证日志只信任验签视图，ORM 投影维持五项身份，访问日志保留必要入口归因。
 func TestContextLogsTrustedIdentityWithoutSecrets(t *testing.T) {
-	o := contexttest.Options()
+	// 日志脱敏样本留在本测试中；固定时钟和密钥只用于构造已验签身份。
+	now := time.Unix(1792627200, 0)
+	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
+	claims := map[string]any{
+		"iss": "firefly-authz", "sub": "A", "subject_type": "service", "subject_app_id": "A", "invoke_service_app_id": "A",
+		"method": "POST", "path": "/v1/items", "service_app_id": "B", "service_method": "GRPC", "service_path": "/items.Service/Get",
+		"decision": "allow", "decision_id": "decision", "iat": now.Unix(), "exp": now.Unix() + 60,
+		"user_context": map[string]any{"session": "secret-session", "user_id": "user", "app_id": "login-app", "tenant_id": "user-tenant"},
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc := base64.RawURLEncoding.EncodeToString
+	input := enc([]byte(`{"alg":"EdDSA","kid":"default","typ":"JWT"}`)) + "." + enc(payload)
+	proof := input + "." + enc(ed25519.Sign(key, []byte(input)))
+	o := service.AuthzSignVerificationOptions{
+		PublicKeys: map[string]ed25519.PublicKey{"default": key.Public().(ed25519.PublicKey)}, Issuer: "firefly-authz",
+		ExpectedServiceAppId: "B", ExpectedServiceMethod: "GRPC", ExpectedServicePath: "/items.Service/Get",
+		Now: func() time.Time { return now },
+	}
 	ctx, err := service.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)),
+		constant.AuthzSign, proof,
 		constant.UserAuthority, "secret-token", constant.UserId, "forged-user", constant.Session, "secret-session",
 	), service.BuildContextOptions{ServiceAppId: "B", ServiceMethod: "GRPC", ServicePath: "/items.Service/Get", AuthzVerification: &o})
 	if err != nil {

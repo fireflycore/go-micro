@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/internal/contexttest"
 	"github.com/fireflycore/go-micro/service"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
@@ -20,7 +19,7 @@ func entry(t *testing.T, md metadata.MD, verify bool) context.Context {
 	t.Helper()
 	o := service.BuildContextOptions{ServiceAppId: "B", ServiceInstanceId: "local", ServiceMethod: "GRPC", ServicePath: "/items.Service/Get"}
 	if verify {
-		v := contexttest.Options()
+		v := authzTestOptions()
 		o.AuthzVerification = &v
 	}
 	ctx, err := service.NewIncomingContext(context.Background(), md, o)
@@ -54,7 +53,7 @@ func TestIncomingDoesNotTrustObservation(t *testing.T) {
 
 // 验证双身份保留、读取副本隔离、并发出站白名单和当次活动 span。
 func TestVerifiedProjectionAndOutgoingIsolation(t *testing.T) {
-	md := metadata.Pairs(constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)),
+	md := metadata.Pairs(constant.AuthzSign, authzTestSign(t, authzTestClaims("service", true)),
 		constant.UserAuthority, "user-secret", constant.InvokeMethod, "POST", constant.InvokePath, "/a", constant.AppVersion, "1",
 		"x-firefly-unknown", "forged", constant.TraceParent, "forged-trace", constant.XRealIp, "forged-ip")
 	ctx := entry(t, md, true)

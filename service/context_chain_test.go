@@ -7,7 +7,6 @@ import (
 
 	"github.com/fireflycore/go-micro/authz"
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/internal/contexttest"
 	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc/metadata"
 )
@@ -21,7 +20,7 @@ func (p chainAuthorityProvider) ServiceAuthority(context.Context) (string, error
 
 // chainClaims 仅模拟每跳 authz 重新签发，实际入口始终由测试中的本地适配事实提供。
 func chainClaims(subject string, user bool, invokeApp, targetApp, path string) map[string]any {
-	claims := contexttest.Claims(subject, user)
+	claims := authzTestClaims(subject, user)
 	claims["service_app_id"], claims["service_path"] = targetApp, path
 	if subject == constant.SubjectTypeService {
 		claims["sub"], claims["subject_app_id"], claims["invoke_service_app_id"] = invokeApp, invokeApp, invokeApp
@@ -32,7 +31,7 @@ func chainClaims(subject string, user bool, invokeApp, targetApp, path string) m
 // chainEntry 建立新一跳入口，不能继承上一服务的私有 context 值或本地身份。
 func chainEntry(t *testing.T, md metadata.MD, app, path string) context.Context {
 	t.Helper()
-	verification := contexttest.Options()
+	verification := authzTestOptions()
 	ctx, err := service.NewIncomingContext(context.Background(), md, service.BuildContextOptions{
 		ServiceAppId: app, ServiceInstanceId: app + "-instance",
 		ServiceMethod: constant.RequestMethodGrpcString, ServicePath: path,
@@ -59,7 +58,7 @@ func TestContextChainKeepsUserAndReplacesEachHop(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			const aPath, bPath, cPath = "/a.Service/Run", "/b.Service/Run", "/c.Service/Run"
-			proofA := contexttest.Sign(chainClaims(tc.subject, tc.user, "origin-service", "A", aPath))
+			proofA := authzTestSign(t, chainClaims(tc.subject, tc.user, "origin-service", "A", aPath))
 			incoming := metadata.Pairs(constant.AuthzSign, proofA, constant.InvokeMethod, "POST", constant.InvokePath, "/origin")
 			userAuthority := ""
 			if tc.user {
@@ -87,7 +86,7 @@ func TestContextChainKeepsUserAndReplacesEachHop(t *testing.T) {
 				t.Fatal(err)
 			}
 			checkChainOutgoing(t, toB, userAuthority, "A-token", aPath)
-			proofB := contexttest.Sign(chainClaims(constant.SubjectTypeService, tc.user, "A", "B", bPath))
+			proofB := authzTestSign(t, chainClaims(constant.SubjectTypeService, tc.user, "A", "B", bPath))
 			atB := toB.Copy()
 			atB.Delete(constant.ServiceAuthority)
 			atB.Set(constant.AuthzSign, proofB)
@@ -102,7 +101,7 @@ func TestContextChainKeepsUserAndReplacesEachHop(t *testing.T) {
 				t.Fatal(err)
 			}
 			checkChainOutgoing(t, toC, userAuthority, "B-token", bPath)
-			proofC := contexttest.Sign(chainClaims(constant.SubjectTypeService, tc.user, "B", "C", cPath))
+			proofC := authzTestSign(t, chainClaims(constant.SubjectTypeService, tc.user, "B", "C", cPath))
 			atC := toC.Copy()
 			atC.Delete(constant.ServiceAuthority)
 			atC.Set(constant.AuthzSign, proofC)
@@ -113,7 +112,7 @@ func TestContextChainKeepsUserAndReplacesEachHop(t *testing.T) {
 			}
 
 			// 即使证明仍在有效期内，B 的旧允许结果也不能投递到 C。
-			verification := contexttest.Options()
+			verification := authzTestOptions()
 			verification.ExpectedServiceAppId = "C"
 			verification.ExpectedServicePath = cPath
 			if _, err := service.VerifyAuthzSign(proofB, verification); !errors.Is(err, service.ErrAuthzSignInvalidClaims) {

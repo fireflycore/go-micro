@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	"github.com/fireflycore/go-micro/internal/contexttest"
 	"github.com/fireflycore/go-micro/service"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -44,7 +43,7 @@ func (s *contextHealthServer) Watch(_ *healthpb.HealthCheckRequest, stream healt
 
 // TestGRPCTransportBindingAndPrivateMetadata 经过真实编解码与 unary/stream 传输，不依赖 Python 或外部端口。
 func TestGRPCTransportBindingAndPrivateMetadata(t *testing.T) {
-	verification := contexttest.Options()
+	verification := contextTestOptions()
 	options := ServiceContextInterceptorOptions{
 		ServiceAppId: "B", ServiceInstanceId: "b-local", AuthzVerification: &verification,
 	}
@@ -94,11 +93,11 @@ func TestGRPCTransportBindingAndPrivateMetadata(t *testing.T) {
 	parent, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	requestContext := func(path string) context.Context {
-		claims := contexttest.Claims("service", true)
+		claims := contextTestClaims()
 		// 授权 API 保持 HTTP；仅投递绑定使用本次 gRPC 方法，不能隐式回退。
 		claims["service_path"] = path
 		return metadata.NewOutgoingContext(parent, metadata.Pairs(
-			constant.AuthzSign, contexttest.Sign(claims), constant.UserAuthority, "private-user-token",
+			constant.AuthzSign, signContextTestClaims(t, claims), constant.UserAuthority, "private-user-token",
 			constant.ServiceAuthority, "must-be-consumed", "x-firefly-service-app-id", "forged",
 			"x-firefly-unknown", "drop", constant.TraceParent, "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01",
 		))
