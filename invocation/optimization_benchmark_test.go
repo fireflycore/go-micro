@@ -122,7 +122,7 @@ func BenchmarkConnectionManagerDialCachedParallel(b *testing.B) {
 }
 
 func BenchmarkUnaryInvokerInvoke(b *testing.B) {
-	// 构造带入站 metadata 的上下文，模拟真实链路透传场景。
+	// 构造原始入站 metadata，度量调用器按新白名单重建出站信息的开销。
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
 		constant.UserId, "u-1",
 		"x-request-id", "req-1",
@@ -131,8 +131,9 @@ func BenchmarkUnaryInvokerInvoke(b *testing.B) {
 	dns := &DNS{Service: "auth", Namespace: "default"}
 	// 构造统一调用器，并用假的 Dialer/InvokeFunc 避免真实网络开销干扰。
 	invoker := &UnaryInvoker{
-		Dialer:  testDialer{conn: &grpc.ClientConn{}},
-		Timeout: 3 * time.Second,
+		Dialer:                   testDialer{conn: &grpc.ClientConn{}},
+		ServiceAuthorityProvider: fixedServiceAuthorityProvider("benchmark-service-token"), // 固定凭证，排除外部获取耗时。
+		Timeout:                  3 * time.Second,
 		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 			// 消费连接对象，防止调用被优化掉。
 			benchmarkConnSink = conn
@@ -162,7 +163,8 @@ func BenchmarkRemoteServiceManagedInvoke(b *testing.B) {
 	// 预注册两组业务服务，模拟真实多服务装配场景。
 	services := NewRemoteServiceManaged(
 		&UnaryInvoker{
-			Dialer: testDialer{conn: &grpc.ClientConn{}},
+			Dialer:                   testDialer{conn: &grpc.ClientConn{}},
+			ServiceAuthorityProvider: fixedServiceAuthorityProvider("benchmark-service-token"),
 			InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 				// 消费连接对象，防止编译器消除。
 				benchmarkConnSink = conn
@@ -239,10 +241,10 @@ func oldBuildDNSManagerTarget(manager *DNSManager, dns *DNS) (*Target, error) {
 
 // oldConnectionManager 模拟优化前“整段 Dial 持有互斥锁”的实现。
 type oldConnectionManager struct {
-	mu      sync.Mutex
-	options ConnectionManagerOptions
-	conns   map[string]*grpc.ClientConn
-	closed  bool
+	mu      sync.Mutex                  // 模拟旧实现覆盖整个拨号过程的互斥锁。
+	options ConnectionManagerOptions    // 目标解析和假拨号函数配置。
+	conns   map[string]*grpc.ClientConn // 按解析后的 gRPC 目标缓存连接。
+	closed  bool                        // 模拟管理器关闭状态。
 }
 
 func newOldConnectionManager() *oldConnectionManager {
@@ -295,6 +297,7 @@ func oldUnaryInvoke(u *UnaryInvoker, ctx context.Context, dns *DNS, method strin
 		return ErrInvokeMethodEmpty
 	}
 
+	// 对比旧调用结构时仍使用当前凭证规则，避免基准绕过身份边界。
 	resolvedMetadata, err := resolveOutgoingMetadata(ctx, u.ServiceAuthorityProvider)
 	if err != nil {
 		return err

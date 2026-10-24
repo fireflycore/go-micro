@@ -9,11 +9,13 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T) {
+// TestRemoteServiceCaller_Invoke_InheritsPrivateAuthority 验证继承私有用户凭证但不透传旧身份头。
+func TestRemoteServiceCaller_Invoke_InheritsPrivateAuthority(t *testing.T) {
 	invoked := false
 	caller := NewRemoteServiceCaller(
 		&UnaryInvoker{
-			Dialer: testDialer{conn: &grpc.ClientConn{}},
+			Dialer:                   testDialer{conn: &grpc.ClientConn{}},
+			ServiceAuthorityProvider: fixedServiceAuthorityProvider("service-token"),
 			InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
 				invoked = true
 
@@ -39,11 +41,7 @@ func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T
 		},
 	)
 
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.UserAuthority, "user-token",
-		constant.UserId, "u-100",
-		"x-request-id", "req-1",
-	))
+	ctx := privateContext(t)
 
 	err := caller.Invoke(ctx, "/acme.auth.app.v1.AuthAppService/GetAppSecret", &struct{}{}, &struct{}{})
 	if err != nil {
@@ -54,6 +52,7 @@ func TestRemoteServiceCaller_Invoke_ReusesIncomingMetadataByDefault(t *testing.T
 	}
 }
 
+// TestRemoteServiceCaller_Invoke_OverridesServiceAuthority 验证出站服务凭证取自当前服务提供器。
 func TestRemoteServiceCaller_Invoke_OverridesServiceAuthority(t *testing.T) {
 	caller := NewRemoteServiceCaller(
 		&UnaryInvoker{
@@ -82,10 +81,7 @@ func TestRemoteServiceCaller_Invoke_OverridesServiceAuthority(t *testing.T) {
 		},
 	)
 
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.UserAuthority, "user-token",
-		constant.UserId, "u-incoming",
-	))
+	ctx := privateContext(t)
 
 	err := caller.Invoke(
 		ctx,
@@ -98,6 +94,7 @@ func TestRemoteServiceCaller_Invoke_OverridesServiceAuthority(t *testing.T) {
 	}
 }
 
+// TestRemoteServiceCaller_Invoke_ReturnsInvokerErrorWhenInvokerMissing 验证未配置调用器时返回明确错误。
 func TestRemoteServiceCaller_Invoke_ReturnsInvokerErrorWhenInvokerMissing(t *testing.T) {
 	caller := NewRemoteServiceCaller(nil, &DNS{
 		Service:   "auth",

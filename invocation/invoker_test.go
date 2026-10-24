@@ -6,439 +6,172 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fireflycore/go-micro/authz"
 	"github.com/fireflycore/go-micro/constant"
-	"go.opentelemetry.io/otel/trace"
+	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
+// testDialer 隔离真实网络，分别模拟连接成功与拨号失败。
 type testDialer struct {
-	conn *grpc.ClientConn
-	err  error
+	conn *grpc.ClientConn // 供测试调用函数接收的连接占位对象。
+	err  error            // 预设拨号错误；用于验证错误传递。
 }
 
-func (d testDialer) Dial(ctx context.Context, service *DNS) (*grpc.ClientConn, error) {
-	return d.conn, d.err
+func (d testDialer) Dial(context.Context, *DNS) (*grpc.ClientConn, error) { return d.conn, d.err }
+func (d testDialer) Close() error                                         { return nil }
+
+// fixedServiceAuthorityProvider 返回当前服务的固定测试凭证。
+type fixedServiceAuthorityProvider string
+
+func (p fixedServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
+	return string(p), nil
 }
 
-func (d testDialer) Close() error {
-	return nil
-}
-
-func TestNewUnaryInvoker_SetsDefaultTimeout(t *testing.T) {
-	invoker := NewUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, 0)
-	if invoker == nil {
-		t.Fatal("expected invoker")
-	}
-	if invoker.Timeout != DefaultInvokeTimeout {
-		t.Fatalf("unexpected invoker timeout: %s", invoker.Timeout)
-	}
-}
-
-func TestUnaryInvoker_Invoke_ReusesIncomingMetadataAndInvokeFunc(t *testing.T) {
-	invoked := false
-
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: &grpc.ClientConn{}},
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			invoked = true
-
-			md, ok := metadata.FromOutgoingContext(ctx)
-			if !ok {
-				t.Fatalf("expected outgoing metadata")
-			}
-			if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
-				t.Fatalf("unexpected user authority metadata: %v", got)
-			}
-			if got := md.Get(constant.UserId); len(got) != 0 {
-				t.Fatalf("expected stale user id metadata to be removed: %v", got)
-			}
-
-			return nil
-		},
-	}
-
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.UserAuthority, "user-token",
-		constant.UserId, "u-1",
-	))
-
-	err := invoker.Invoke(ctx, &DNS{
-		Service:   "auth",
-		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !invoked {
-		t.Fatalf("expected invoke func to be called")
-	}
-}
-
-func TestUnaryInvoker_Invoke_PreservesTraceMetadataAndSpanContext(t *testing.T) {
-	traceID := trace.TraceID{0x4b, 0xf9, 0x2f, 0x35, 0x77, 0xb3, 0x4d, 0xa6, 0xa3, 0xce, 0x92, 0x9d, 0x0e, 0x0e, 0x47, 0x36}
-	spanID := trace.SpanID{0x00, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb7}
-	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: trace.FlagsSampled,
-		Remote:     true,
-	})
-
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: &grpc.ClientConn{}},
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			md, ok := metadata.FromOutgoingContext(ctx)
-			if !ok {
-				t.Fatal("expected outgoing metadata")
-			}
-			if got := md.Get(constant.TraceParent); len(got) == 0 || got[0] != "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" {
-				t.Fatalf("expected traceparent to be preserved, got %v", got)
-			}
-			if got := md.Get(constant.TraceState); len(got) == 0 || got[0] != "vendor=value" {
-				t.Fatalf("expected tracestate to be preserved, got %v", got)
-			}
-			if got := md.Get(constant.Baggage); len(got) == 0 || got[0] != "tenant=demo" {
-				t.Fatalf("expected baggage to be preserved, got %v", got)
-			}
-			if got := trace.SpanContextFromContext(ctx); !got.IsValid() || got.TraceID() != traceID {
-				t.Fatalf("expected span context to remain on outgoing ctx, got %v", got)
-			}
-			return nil
-		},
-	}
-
-	ctx := trace.ContextWithSpanContext(context.Background(), spanContext)
-	ctx = metadata.NewIncomingContext(ctx, metadata.Pairs(
-		constant.TraceParent, "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-		constant.TraceState, "vendor=value",
-		constant.Baggage, "tenant=demo",
-		constant.UserAuthority, "user-token",
-	))
-
-	err := invoker.Invoke(ctx, &DNS{
-		Service:   "secure",
-		Namespace: "lhdht",
-	}, "/acme.secure.code.verify.graphic.v1.SecureGraphicVerifyCodeService/Validate", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_WithoutExtraOptionsDoesNotPanic(t *testing.T) {
-	invoked := false
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: &grpc.ClientConn{}},
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			invoked = true
-			return nil
-		},
-	}
-
-	err := invoker.Invoke(context.Background(), &DNS{
-		Service:   "auth",
-		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	if !invoked {
-		t.Fatal("expected invoke func to be called")
-	}
-}
-
-func TestUnaryInvoker_Invoke_OverridesServiceAuthority(t *testing.T) {
-	invoker := &UnaryInvoker{
-		Dialer:                   testDialer{conn: &grpc.ClientConn{}},
-		ServiceAuthorityProvider: fixedServiceAuthorityProvider("config-service-token"),
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			md, ok := metadata.FromOutgoingContext(ctx)
-			if !ok {
-				t.Fatal("expected outgoing metadata")
-			}
-			if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
-				t.Fatalf("unexpected user authority metadata: %v", got)
-			}
-			if got := md.Get(constant.UserId); len(got) != 0 {
-				t.Fatalf("expected stale user id metadata to be removed: %v", got)
-			}
-			if got := md.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "config-service-token" {
-				t.Fatalf("unexpected service authority metadata: %v", got)
-			}
-			return nil
-		},
-	}
-
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.UserAuthority, "user-token",
-		constant.UserId, "u-incoming",
-	))
-
-	err := invoker.Invoke(ctx, &DNS{
-		Service:   "auth",
-		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_UsesConfiguredTimeout(t *testing.T) {
-	invoker := &UnaryInvoker{
-		Dialer:  testDialer{conn: &grpc.ClientConn{}},
-		Timeout: 200 * time.Millisecond,
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			deadline, ok := ctx.Deadline()
-			if !ok {
-				t.Fatal("expected deadline")
-			}
-			remaining := time.Until(deadline)
-			if remaining <= 0 || remaining > time.Second {
-				t.Fatalf("unexpected configured timeout remaining: %s", remaining)
-			}
-			return nil
-		},
-	}
-
-	err := invoker.Invoke(context.Background(), &DNS{
-		Service:   "auth",
-		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_UsesDefaultTimeoutWhenUnset(t *testing.T) {
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: &grpc.ClientConn{}},
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			deadline, ok := ctx.Deadline()
-			if !ok {
-				t.Fatal("expected deadline")
-			}
-			remaining := time.Until(deadline)
-			if remaining <= 4*time.Second || remaining > DefaultInvokeTimeout {
-				t.Fatalf("unexpected default timeout remaining: %s", remaining)
-			}
-			return nil
-		},
-	}
-
-	err := invoker.Invoke(context.Background(), &DNS{
-		Service:   "auth",
-		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_PreservesParentCancellation(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: &grpc.ClientConn{}},
-		InvokeFunc: func(ctx context.Context, conn *grpc.ClientConn, method string, req any, resp any, options ...grpc.CallOption) error {
-			select {
-			case <-ctx.Done():
-				return nil
-			default:
-				t.Fatal("expected canceled context")
-				return nil
-			}
-		},
-	}
-
-	err := invoker.Invoke(parent, &DNS{
-		Service:   "auth",
-		Namespace: "default",
-	}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestNewOutgoingCallContext_CopiesMetadata(t *testing.T) {
-	source := metadata.Pairs("x-request-id", "req-1")
-	ctx, cancel := NewOutgoingCallContext(context.Background(), source, 0)
-	defer cancel()
-
-	source.Set("x-request-id", "req-2")
-
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		t.Fatal("expected outgoing metadata")
-	}
-	if got := md.Get("x-request-id"); len(got) == 0 || got[0] != "req-1" {
-		t.Fatalf("metadata should be copied before writing outgoing context: %v", got)
-	}
-}
-
-func TestNewOutgoingCallContext_PreservesParentCancellationAndTimeout(t *testing.T) {
-	parent, stop := context.WithCancel(context.Background())
-	ctx, cancel := NewOutgoingCallContext(parent, metadata.Pairs("x-request-id", "req-1"), time.Second)
-	defer cancel()
-	stop()
-
-	select {
-	case <-ctx.Done():
-	default:
-		t.Fatal("expected child context to be canceled with parent")
-	}
-
-	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("expected timeout to add deadline")
-	}
-}
-
-func TestResolveOutgoingMetadata_UsesOutgoingContextMetadataAllowlist(t *testing.T) {
-	parent := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
-		constant.UserAuthority, "user-token",
-		"x-request-id", "req-inherited",
-	))
-	md, err := resolveOutgoingMetadata(parent, nil)
-	if err != nil {
-		t.Fatalf("resolve metadata failed: %v", err)
-	}
-
-	if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
-		t.Fatalf("expected user authority to be preserved, got %v", got)
-	}
-	if got := md.Get("x-request-id"); len(got) != 0 {
-		t.Fatalf("expected non-allowlisted request id to be dropped, got %v", got)
-	}
-}
-
-func TestResolveOutgoingMetadata_InjectsServiceAuthority(t *testing.T) {
-	md, err := resolveOutgoingMetadata(context.Background(), fixedServiceAuthorityProvider("auth-service-token"))
-	if err != nil {
-		t.Fatalf("resolve metadata failed: %v", err)
-	}
-
-	if got := md.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "auth-service-token" {
-		t.Fatalf("unexpected service authority metadata: %v", got)
-	}
-}
-
-func TestResolveOutgoingMetadata_PreservesUserAuthorityAndAuthzSign(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.UserAuthority, "user-token",
-		constant.ServiceAuthority, "old-service-token",
-		"authorization", "foreign-authorization",
-		constant.AuthzSign, "old-jws",
-		constant.UserId, "user-1",
-	))
-
-	md, err := resolveOutgoingMetadata(ctx, fixedServiceAuthorityProvider("new-service-token"))
-	if err != nil {
-		t.Fatalf("resolve metadata failed: %v", err)
-	}
-	if got := md.Get(constant.UserAuthority); len(got) == 0 || got[0] != "user-token" {
-		t.Fatalf("expected user authority to be preserved, got %v", got)
-	}
-	if got := md.Get(constant.ServiceAuthority); len(got) == 0 || got[0] != "new-service-token" {
-		t.Fatalf("expected service authority to be overridden, got %v", got)
-	}
-	if got := md.Get("authorization"); len(got) != 0 {
-		t.Fatalf("expected authorization to be dropped, got %v", got)
-	}
-	if got := md.Get(constant.AuthzSign); len(got) == 0 || got[0] != "old-jws" {
-		t.Fatalf("expected authz sign to be preserved for downstream authz reuse, got %v", got)
-	}
-	if got := md.Get(constant.UserId); len(got) != 0 {
-		t.Fatalf("expected stale user context header to be dropped, got %v", got)
-	}
-}
-
-func TestUnaryInvoker_Invoke_ReturnsServiceAuthorityProviderError(t *testing.T) {
-	expectedErr := errors.New("service token unavailable")
-	invoker := &UnaryInvoker{
-		Dialer:                   testDialer{conn: &grpc.ClientConn{}},
-		ServiceAuthorityProvider: failingServiceAuthorityProvider{err: expectedErr},
-	}
-
-	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if !errors.Is(err, expectedErr) {
-		t.Fatalf("expected %v, got %v", expectedErr, err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_ReturnsErrorWhenDialerMissing(t *testing.T) {
-	var invoker *UnaryInvoker
-
-	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err != ErrInvokerDialerIsNil {
-		t.Fatalf("expected %v, got %v", ErrInvokerDialerIsNil, err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_ReturnsErrorWhenMethodEmpty(t *testing.T) {
-	invoker := &UnaryInvoker{Dialer: testDialer{conn: &grpc.ClientConn{}}}
-
-	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "", struct{}{}, &struct{}{})
-	if err != ErrInvokeMethodEmpty {
-		t.Fatalf("expected %v, got %v", ErrInvokeMethodEmpty, err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_PropagatesDialError(t *testing.T) {
-	expectedErr := errors.New("dial failed")
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{err: expectedErr},
-	}
-
-	err := invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if !errors.Is(err, expectedErr) {
-		t.Fatalf("expected %v, got %v", expectedErr, err)
-	}
-}
-
-func TestUnaryInvoker_Invoke_UsesDefaultUnaryInvokeFuncWhenInvokeFuncMissing(t *testing.T) {
-	conn, err := grpc.NewClient("passthrough:///auth.default.svc.cluster.local:9090", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-	defer func() { _ = conn.Close() }()
-
-	invoker := &UnaryInvoker{
-		Dialer: testDialer{conn: conn},
-	}
-
-	err = invoker.Invoke(context.Background(), &DNS{Service: "auth", Namespace: "default"}, "/acme.auth.v1.AuthService/Check", struct{}{}, &struct{}{})
-	if err == nil {
-		t.Fatal("expected error from default grpc invoke path")
-	}
-}
-
-func TestNewOutgoingCallContext_AllowsNilParentAndNilMetadata(t *testing.T) {
-	ctx, cancel := NewOutgoingCallContext(nil, nil, 0)
-	defer cancel()
-
-	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		t.Fatal("expected outgoing metadata")
-	}
-	if len(md) != 0 {
-		t.Fatalf("expected empty metadata, got %v", md)
-	}
-	if _, ok := ctx.Deadline(); !ok {
-		t.Fatal("expected default timeout deadline")
-	}
-}
-
+// failingServiceAuthorityProvider 模拟当前服务无法获取凭证。
 type failingServiceAuthorityProvider struct {
-	err error
+	err error // 获取凭证失败时返回的预设错误。
 }
 
 func (p failingServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
 	return "", p.err
 }
 
-type fixedServiceAuthorityProvider string
+// privateContext 通过框架入站路径保管用户凭证，旧签名仅作为待清理的输入。
+func privateContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, err := service.NewIncomingContext(context.Background(), metadata.Pairs(constant.UserAuthority, "user-token", constant.AuthzSign, "old"),
+		service.BuildContextOptions{ServiceAppId: "A", ServiceMethod: "POST", ServicePath: "/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx
+}
 
-func (p fixedServiceAuthorityProvider) ServiceAuthority(context.Context) (string, error) {
-	return string(p), nil
+// TestInvokePrivateCredentialsDeadlineAndCancellation 验证凭证重建不破坏原生超时和取消。
+func TestInvokePrivateCredentialsDeadlineAndCancellation(t *testing.T) {
+	u := NewUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, 200*time.Millisecond).WithServiceAuthorityProvider(fixedServiceAuthorityProvider("A-token"))
+	called := false
+	u.InvokeFunc = func(ctx context.Context, _ *grpc.ClientConn, _ string, _, _ any, _ ...grpc.CallOption) error {
+		called = true
+		md, _ := metadata.FromOutgoingContext(ctx)
+		if md.Get(constant.UserAuthority)[0] != "user-token" || md.Get(constant.ServiceAuthority)[0] != "A-token" || len(md.Get(constant.AuthzSign)) != 0 {
+			t.Fatal(md)
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 200*time.Millisecond {
+			t.Fatal("lost deadline")
+		}
+		return nil
+	}
+	if err := u.Invoke(privateContext(t), &DNS{Service: "B"}, "/B/Get", nil, nil); err != nil || !called {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(privateContext(t))
+	cancel()
+	if err := u.Invoke(ctx, nil, "/B/Get", nil, nil); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+// TestInvokeErrors 覆盖配置缺失、方法为空以及凭证获取和拨号失败的错误路径。
+func TestInvokeErrors(t *testing.T) {
+	u := NewUnaryInvoker(testDialer{}, 0)
+	if u.Timeout != DefaultInvokeTimeout {
+		t.Fatal("wrong default")
+	}
+	if err := u.Invoke(context.Background(), nil, "/B/Get", nil, nil); !errors.Is(err, authz.ErrServiceAuthorityFetchMissing) {
+		t.Fatal(err)
+	}
+	if err := u.Invoke(context.Background(), nil, "", nil, nil); err != ErrInvokeMethodEmpty {
+		t.Fatal(err)
+	}
+	var absent *UnaryInvoker
+	if err := absent.Invoke(context.Background(), nil, "/B/Get", nil, nil); err != ErrInvokerDialerIsNil {
+		t.Fatal(err)
+	}
+	expected := errors.New("dial failed")
+	u.Dialer = testDialer{err: expected}
+	u.ServiceAuthorityProvider = fixedServiceAuthorityProvider("A-token")
+	if err := u.Invoke(context.Background(), nil, "/B/Get", nil, nil); !errors.Is(err, expected) {
+		t.Fatal(err)
+	}
+	u.ServiceAuthorityProvider = failingServiceAuthorityProvider{expected}
+	if err := u.Invoke(context.Background(), nil, "/B/Get", nil, nil); !errors.Is(err, expected) {
+		t.Fatal(err)
+	}
+}
+
+// TestBootstrapIsMethodBoundAndCredentialFree 验证凭证引导调用只开放指定方法且不携带身份元数据。
+func TestBootstrapIsMethodBoundAndCredentialFree(t *testing.T) {
+	b := NewBootstrapUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, time.Second, "/auth/Issue")
+	b.InvokeFunc = func(ctx context.Context, _ *grpc.ClientConn, _ string, _, _ any, _ ...grpc.CallOption) error {
+		md, _ := metadata.FromOutgoingContext(ctx)
+		if len(md) != 0 {
+			t.Fatal(md)
+		}
+		return nil
+	}
+	if err := b.Invoke(privateContext(t), nil, "/auth/Issue", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Invoke(privateContext(t), nil, "/B/Get", nil, nil); err == nil {
+		t.Fatal("unbound bootstrap")
+	}
+}
+
+// TestNewOutgoingCallContextCopiesAndPreservesParent 验证元数据独立复制，取消仍沿父上下文传递。
+func TestNewOutgoingCallContextCopiesAndPreservesParent(t *testing.T) {
+	p, stop := context.WithCancel(context.Background())
+	md := metadata.Pairs("key", "old")
+	ctx, cancel := NewOutgoingCallContext(p, md, time.Second)
+	defer cancel()
+	md.Set("key", "new")
+	out, _ := metadata.FromOutgoingContext(ctx)
+	if out.Get("key")[0] != "old" {
+		t.Fatal("shared metadata")
+	}
+	stop()
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatal("lost cancellation")
+	}
+}
+
+// TestOutgoingCallsRequireExplicitContext 防止 nil 被静默替换，后台调用仍可显式使用 Background。
+func TestOutgoingCallsRequireExplicitContext(t *testing.T) {
+	invoke := func(context.Context, *grpc.ClientConn, string, any, any, ...grpc.CallOption) error { return nil }
+	u := NewUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, time.Second).
+		WithServiceAuthorityProvider(fixedServiceAuthorityProvider("A-token"))
+	u.InvokeFunc = invoke
+	b := NewBootstrapUnaryInvoker(testDialer{conn: &grpc.ClientConn{}}, time.Second, "/auth/Issue")
+	b.InvokeFunc = invoke
+	for _, tc := range []struct {
+		name string                      // 三种出站入口遵守相同的父 context 契约。
+		call func(context.Context) error // 只替换父 context，其余调用依赖保持有效。
+	}{
+		{name: "unary", call: func(ctx context.Context) error {
+			return u.Invoke(ctx, nil, "/B/Get", nil, nil)
+		}},
+		{name: "bootstrap", call: func(ctx context.Context) error {
+			return b.Invoke(ctx, nil, "/auth/Issue", nil, nil)
+		}},
+		{name: "outgoing_context", call: func(ctx context.Context) error {
+			out, cancel := NewOutgoingCallContext(ctx, metadata.MD{}, time.Second)
+			defer cancel()
+			return out.Err()
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.call(context.Background()); err != nil {
+				t.Fatalf("explicit background context failed: %v", err)
+			}
+			defer func() {
+				if recover() == nil {
+					t.Fatal("nil context was silently accepted")
+				}
+			}()
+			_ = tc.call(nil)
+		})
+	}
 }

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/fireflycore/go-micro/authz"
+	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -54,8 +56,8 @@ func defaultUnaryInvokeFunc(ctx context.Context, conn *grpc.ClientConn, method s
 // UnaryInvoker 是默认的 Invoker 实现。
 //
 // 它的执行流程非常明确：
-// 1. 基于 DNS 获取连接；
-// 2. 基于当前链路 metadata 构造统一出站上下文，并覆盖当前服务 authority；
+// 1. 从当前运行时上下文独立构建出站视图并获取当前服务凭证；
+// 2. 基于 DNS 获取连接；
 // 3. 使用 grpc.ClientConn.Invoke 发起 unary 调用。
 type UnaryInvoker struct {
 	// Dialer 负责连接获取与复用。
@@ -82,13 +84,13 @@ func (u *UnaryInvoker) WithServiceAuthorityProvider(provider authz.ServiceAuthor
 	if u == nil {
 		return nil
 	}
-	// provider 可为 nil，表示只清理旧上下文但不注入 service authority；仅适合取 token 启动链路或测试链路。
+	// 业务调用必须装配 provider；凭证获取使用独立的精确绑定调用器。
 	u.ServiceAuthorityProvider = provider
 	// 返回自身，便于启动装配中链式配置。
 	return u
 }
 
-// Invoke 执行一次标准 unary 调用。
+// Invoke 执行一次标准 unary 调用；ctx 必须由调用方显式提供，不能为 nil。
 func (u *UnaryInvoker) Invoke(ctx context.Context, dns *DNS, method string, req any, resp any, callOptions ...grpc.CallOption) error {
 	if u == nil || u.Dialer == nil {
 		return ErrInvokerDialerIsNil
@@ -96,17 +98,23 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *DNS, method string, req 
 	if method == "" {
 		return ErrInvokeMethodEmpty
 	}
+	// 凭证准备、连接获取及远程调用共享同一取消与总时限。
+	ctx, cancel := context.WithTimeout(ctx, normalizeInvokeTimeout(u.Timeout))
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// 先确定最终使用的调用函数，避免热路径上每次创建匿名闭包。
 	invokeFunc := u.InvokeFunc
 	if invokeFunc == nil {
 		invokeFunc = defaultUnaryInvokeFunc
 	}
-	// 统一计算一次 timeout，避免重复归一化。
-	timeout := normalizeInvokeTimeout(u.Timeout)
-
-	// 直接复用当前链路 metadata，清理旧授权上下文，并覆盖当前服务 authority。
-	resolvedMetadata, err := resolveOutgoingMetadata(ctx, u.ServiceAuthorityProvider)
+	// 每次调用构建白名单，不继承原始 metadata 或上一跳签名。
+	resolvedMetadata, err := authz.PrepareOutgoingAuthorityMetadata(ctx, service.OutgoingTarget{
+		TargetMethod: constant.RequestMethodGrpcString,
+		TargetPath:   method,
+	}, u.ServiceAuthorityProvider)
 	if err != nil {
 		return err
 	}
@@ -118,48 +126,23 @@ func (u *UnaryInvoker) Invoke(ctx context.Context, dns *DNS, method string, req 
 	}
 
 	// 最后把调用上下文转成出站 metadata 上下文。
-	outCtx, cancel := newOutgoingCallContextWithOwnedMetadata(ctx, resolvedMetadata, timeout)
-	defer cancel()
+	outCtx := metadata.NewOutgoingContext(ctx, resolvedMetadata)
 
 	// 使用最终的 invoke 实现发起调用。
 	return invokeFunc(outCtx, conn, method, req, resp, callOptions...)
 }
 
-// resolveOutgoingMetadata 从当前链路解析最终出站 metadata，并覆盖当前服务 authority。
-//
-// 优先读取 incoming metadata，是因为最常见场景是服务端处理请求后继续发起下游调用；
-// 若当前已经位于客户端调用链，则退化为复用现有 outgoing metadata。
+// resolveOutgoingMetadata 复用统一白名单构建，不从原始 transport metadata 回退。
 func resolveOutgoingMetadata(ctx context.Context, serviceAuthorityProvider authz.ServiceAuthorityProvider) (metadata.MD, error) {
-	// 优先尝试继承服务端入站 metadata。
-	var md metadata.MD
-	if incoming, ok := metadata.FromIncomingContext(ctx); ok {
-		// 有入站 metadata 时复制一份作为出站基础。
-		md = incoming.Copy()
-	} else if outgoing, ok := metadata.FromOutgoingContext(ctx); ok {
-		// 否则尝试继承已有的出站 metadata。
-		md = outgoing.Copy()
-	} else {
-		// 两者都不存在时创建空 metadata。
-		md = metadata.New(nil)
-	}
-	// 保留用户 authority 和短 TTL authz sign，清理普通身份 metadata，并写入当前服务 authority。
-	md, err := authz.PrepareOutgoingAuthorityMetadata(ctx, md, serviceAuthorityProvider)
-	if err != nil {
-		return nil, err
-	}
-	// 返回当前调用独占使用的 metadata。
-	return md, nil
+	return authz.PrepareOutgoingAuthorityMetadata(ctx, service.OutgoingTarget{}, serviceAuthorityProvider)
 }
 
 // NewOutgoingCallContext 基于父 context、metadata 和 timeout 构造新的 gRPC 出站 context。
 //
 // 这里保留父 context 的取消信号与已有 deadline，
 // 避免像旧实现那样切断上游取消传播。
+// parent 必须非 nil；后台调用应显式传入自己的生命周期 context。
 func NewOutgoingCallContext(parent context.Context, md metadata.MD, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if parent == nil {
-		// 调用侧若未提供父 context，则退化为 Background，保证返回值始终可用。
-		parent = context.Background()
-	}
 	if md == nil {
 		// gRPC metadata 上下文要求可写的 metadata 容器，这里统一兜底一份空 map。
 		md = metadata.New(nil)
