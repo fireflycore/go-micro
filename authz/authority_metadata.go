@@ -5,120 +5,80 @@ import (
 	"strings"
 
 	"github.com/fireflycore/go-micro/constant"
+	"github.com/fireflycore/go-micro/service"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
-var outgoingAuthorityMetadataAllowlist = map[string]struct{}{
-	// UserAuthority 是用户 authority 原文，需要贯穿完整调用链交给下一跳 authz 校验。
-	constant.UserAuthority: {},
-	// AuthzSign 是 authz 签名过的短 TTL payload，只能辅助下一跳 authz 复用身份解析结果，不能复用上一跳授权结论。
-	constant.AuthzSign: {},
-	// OTel/W3C 传播头由当前链路继续传递，保证 trace 不被出站清理截断。
-	constant.TraceParent: {},
-	constant.TraceState:  {},
-	constant.Baggage:     {},
-	// 客户端和入口代理事实用于下游访问日志，不参与权限判定。
-	constant.XRealIp:       {},
-	constant.XForwardedFor: {},
-	constant.AppLanguage:   {},
-	constant.AppVersion:    {},
-	constant.SystemType:    {},
-	constant.SystemName:    {},
-	constant.SystemVersion: {},
-	constant.ClientType:    {},
-	constant.ClientName:    {},
-	constant.ClientVersion: {},
-}
-
-// PrepareOutgoingAuthorityMetadata 清理出站 metadata，并写入当前这一跳 service authority。
-//
-// 这里处理的是传输层 metadata，不处理 service.Context / AuthzSign 这类进程内结构。
-func PrepareOutgoingAuthorityMetadata(ctx context.Context, md metadata.MD, provider ServiceAuthorityProvider) (metadata.MD, error) {
-	// 先按业务服务出站白名单重建 metadata，清理上一跳普通上下文字段和未知 header。
-	md = filterOutgoingAuthorityMetadata(md)
-
-	// 未配置 provider 时只做清理，仅适合获取 service token 的启动链路、authz 这类无下游热路径组件或测试链路。
-	if provider == nil {
-		return md, nil
-	}
-
-	// 每一跳都重新获取当前服务的 service authority。
-	token, err := provider.ServiceAuthority(ctx)
+// PrepareOutgoingAuthorityMetadata 为本次调用构建新白名单，不复制原始 metadata 或上一跳证明。
+func PrepareOutgoingAuthorityMetadata(ctx context.Context, target service.OutgoingTarget, provider ServiceAuthorityProvider) (metadata.MD, error) {
+	out, err := buildOutgoingAuthorityContext(ctx, target, provider)
 	if err != nil {
 		return nil, err
 	}
-	// provider 返回空 token 时等同于身份不可用。
-	if token == "" {
-		return nil, ErrServiceAuthorityTokenMissing
+
+	md := out.Metadata()
+	// gRPC 普通 metadata 只支持可打印 ASCII；不能等到传输层才将合法 UTF-8 报成 Internal。
+	// 不私自增加转义或 -bin 协议，HTTP 适配仍可使用原始 UTF-8 观测值。
+	for _, values := range md {
+		for _, value := range values {
+			for i := 0; i < len(value); i++ {
+				if value[i] < 0x20 || value[i] > 0x7e {
+					return nil, service.ErrIncomingContextInvalid
+				}
+			}
+		}
 	}
-	// 当前服务身份必须覆盖继承自上游的 service authority。
-	md.Set(constant.ServiceAuthority, token)
-	// 返回已经清理并注入当前服务身份的 metadata。
+
 	return md, nil
 }
 
-// NewOutgoingAuthorityContext 基于当前 ctx 构造带 Firefly authority 的 gRPC 出站 ctx。
-func NewOutgoingAuthorityContext(ctx context.Context, provider ServiceAuthorityProvider) (context.Context, error) {
-	// 优先复用已有 outgoing metadata，其次复用 server incoming metadata。
-	md := ContextAuthorityMetadata(ctx)
-	// 清理旧上下文并注入当前服务 authority。
-	prepared, err := PrepareOutgoingAuthorityMetadata(ctx, md, provider)
+// buildOutgoingAuthorityContext 统一获取当前服务凭证，协议编码限制留给各自适配器。
+func buildOutgoingAuthorityContext(ctx context.Context, target service.OutgoingTarget, provider ServiceAuthorityProvider) (*service.OutgoingContext, error) {
+	if provider == nil {
+		return nil, ErrServiceAuthorityFetchMissing
+	}
+
+	token, err := provider.ServiceAuthority(ctx)
+	if err != nil {
+		// 当前服务凭证失败必须中止，不能退化为仅凭用户身份调用。
+		return nil, err
+	}
+
+	if strings.TrimSpace(token) == "" {
+		return nil, ErrServiceAuthorityTokenMissing
+	}
+
+	return service.BuildOutgoingContext(ctx, target, token)
+}
+
+// NewOutgoingAuthorityContext 保留父级取消、期限与活动 span，只替换当次出站 metadata。
+func NewOutgoingAuthorityContext(ctx context.Context, target service.OutgoingTarget, provider ServiceAuthorityProvider) (context.Context, error) {
+	md, err := PrepareOutgoingAuthorityMetadata(ctx, target, provider)
 	if err != nil {
 		return nil, err
 	}
-	// 将处理后的 metadata 写入 outgoing context。
-	return metadata.NewOutgoingContext(ctx, prepared), nil
+	return metadata.NewOutgoingContext(ctx, md), nil
 }
 
-// NewServiceAuthorityUnaryClientInterceptor 创建统一的 service authority gRPC 客户端拦截器。
+// NewServiceAuthorityUnaryClientInterceptor 为非 invocation 的 unary 调用提供相同的出站边界。
 func NewServiceAuthorityUnaryClientInterceptor(provider ServiceAuthorityProvider) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req any, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		// 先构造新的 outgoing context，再进入真实 gRPC 调用。
-		outCtx, err := NewOutgoingAuthorityContext(ctx, provider)
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		out, err := NewOutgoingAuthorityContext(ctx, service.OutgoingTarget{TargetMethod: constant.RequestMethodGrpcString, TargetPath: method}, provider)
 		if err != nil {
 			return err
 		}
-		// 带着 Firefly authority 双头继续执行调用。
-		return invoker(outCtx, method, req, reply, cc, opts...)
+		return invoker(out, method, req, reply, cc, opts...)
 	}
 }
 
-// ContextAuthorityMetadata 复制当前 ctx 中最适合作为出站基础的 metadata。
-func ContextAuthorityMetadata(ctx context.Context) metadata.MD {
-	// 空 context 直接返回空 metadata。
-	if ctx == nil {
-		return metadata.New(nil)
-	}
-	// 已经处于客户端链路时优先复用 outgoing metadata。
-	if outgoing, ok := metadata.FromOutgoingContext(ctx); ok {
-		return outgoing.Copy()
-	}
-	// 服务端处理请求后发起下游调用时，复用 incoming metadata。
-	if incoming, ok := metadata.FromIncomingContext(ctx); ok {
-		return incoming.Copy()
-	}
-	// 没有任何 metadata 时返回空容器。
-	return metadata.New(nil)
-}
-
-func filterOutgoingAuthorityMetadata(md metadata.MD) metadata.MD {
-	// nil metadata 直接返回空容器，保证调用方后续 Set 安全。
-	if md == nil {
-		return metadata.New(nil)
-	}
-	// 使用新 map 承载白名单字段，避免在原 map 上做增删造成调用方可见副作用。
-	filtered := metadata.New(nil)
-	for key, values := range md {
-		// gRPC metadata key 语义上大小写不敏感，统一小写后再匹配白名单。
-		normalizedKey := strings.ToLower(strings.TrimSpace(key))
-		// 不在白名单中的字段一律丢弃，包括普通身份 metadata、上一跳 service authority 和未知业务 header。
-		if _, ok := outgoingAuthorityMetadataAllowlist[normalizedKey]; !ok {
-			continue
+// NewServiceAuthorityStreamClientInterceptor 在创建流时独立构建本跳凭证和传播字段。
+func NewServiceAuthorityStreamClientInterceptor(provider ServiceAuthorityProvider) grpc.StreamClientInterceptor {
+	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
+		out, err := NewOutgoingAuthorityContext(ctx, service.OutgoingTarget{TargetMethod: constant.RequestMethodGrpcString, TargetPath: method}, provider)
+		if err != nil {
+			return nil, err
 		}
-		// 复制 value 切片，避免调用方后续修改原 metadata 影响本次出站调用。
-		filtered[normalizedKey] = append(filtered[normalizedKey], values...)
+		return streamer(out, desc, cc, method, opts...)
 	}
-	// 返回只包含允许透传字段的新 metadata。
-	return filtered
 }
