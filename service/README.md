@@ -1,47 +1,48 @@
 # Service
 
-`service` 包定义服务内统一主上下文模型。
+本地实现链路为 `IncomingContext → Context → OutgoingContext`。运行时仍是
+`service.Context`，标识为 `service.context`，不把三个对象当成同一结构或复制原始 metadata。
 
-`service.Context` 是业务服务进程内结构体，不是跨进程传输对象。跨进程只传 HTTP header / gRPC metadata；入口中间件把这些 metadata 结构化成本地 `service.Context`。
+## 入口与业务视图
 
-它只负责：
+- `CollectIncomingContext` 收集逐项允许的输入，收集不代表认证。
+- `NewIncomingContext` 本地验签并剥离原始凭证；用户 authority 仅留在框架私有 context key。
+- `BuildContext` / `BuildVerifiedContext` 返回 `(*Context, error)`；不吞掉输入和验签错误。
+- `WithContext` / `FromContext` 防御性复制运行时及嵌套视图。
+- `UserContext` 仅含 `Session / UserId / AppId / TenantId`，AppId 是用户登录应用。
+- `AuthzSignContext` 只有已验证授权事实；业务 Context 不包含 authority 或 JWS 原文。
+- `InvokeAppId` 只派生自签名 `invoke_service_app_id`，不取用户应用或明文头。
 
-- 定义 `service.Context`
-- 提供 `WithContext(...)` / `FromContext(...)` / `MustFromContext(...)`
-- 提供 `BuildContext(...)` 把入站 metadata 与当前 OTel span 结构化为服务内主上下文
-- 提供 `VerifyAuthzSign(...)` / `BuildVerifiedContext(...)` 对 `x-firefly-authz-sign` JWS 做本地验签
+本地配置提供 `ServiceAppId / ServiceInstanceId`；HTTP / gRPC 适配器捕获实际
+`ServiceMethod / ServicePath`。签名的 `service_app_id / service_method / service_path`
+必须与它们匹配，不能反填实际入口。授权 `method / path` 可以与投递入口不同。
 
-它不负责：
+`VerifyAuthzSign` 只支持 Ed25519、allow、固定 60 秒有效期和最多 5 秒时钟偏差，
+拒绝旧 claim、未知字段、重复字段及缺失绑定。user 主体应用须等于用户 AppId；
+service 主体应用须等于已认证上一跳服务，且可同时保留 UserContext。
+业务服务不在线重查身份 session，该责任仍属于 authz。
 
-- 远程业务服务 DNS 建模
-- gRPC interceptor 装配
-- 出站 metadata 拼装
-- 下游服务调用
-- token 解析或在线权限判断
-- LHDHT 等产品域的数据权限事实和授权策略
+## 出站与日志
 
-当前推荐分工：
+`BuildOutgoingContext` 为单次 `OutgoingTarget{TargetAppId, TargetMethod, TargetPath}` 建立独立视图。
+`authz.PrepareOutgoingAuthorityMetadata` 必须从当前 provider 获取服务凭证，用户凭证走私有继承；
+不继承上一跳 AuthzSign。Invoke 方法取当前实际入口，只用于观测。
+OTel 从当前活动 context 注入，取消和期限继续沿原生 context 传播。
 
-- `middleware/grpc`：在 gRPC 服务端入口创建并注入 `service.Context`
-- `service`：供 `service / biz / data / log` 统一读取服务内主上下文，并提供 authz JWS 本地验签能力
-- `invocation`：负责远程业务服务 DNS 与纯出站调用语义
+入站标量拒绝重复值、非法 UTF-8 和控制字符；InvokeMethod 最长 32 UTF-8 字节，
+InvokePath 最长 2048 字节。其余普通字段 2048 字节，authority / JWS / baggage 16384 字节。
+Accept-Language 仅在 Firefly 语言头缺失时归一，不通用透传。
+gRPC 出站适配另检查普通 metadata 的可打印 ASCII 限制，不能编码的值提前报错；
+HTTP 保持合法 UTF-8，不私自增加转义或二进制头协议。
 
-`service.Context` 中的 `AppId` 只表示用户身份中的应用 ID；没有用户身份时可以为空。本跳权限判定中的调用方应用 ID 使用 `InvokeAppId`，route 所属服务 app_id 在 authz 判定中表现为 `TargetAppId`。
+`TrustedLogIdentity` 只投影 UserId / AppId / TenantId / ServiceAppId / ServiceInstanceId，
+不含 session、凭证或请求入口，供 ORM 接入层适配。请求入口和 Invoke 信息属于访问日志，
+不要求每条 SQL 日志重复记录。
+普通业务日志不自动附加整份请求上下文，仍只补充既有 trace/span 与日志类型；访问日志显式提取请求归因。
+默认访问日志只读取可信结构化身份与本地服务事实，不读取原始 metadata、body 或错误原文。
+健康、管理、认证启动及 ext_authz 入口须显式配置独立契约；跳过验签不建立可信用户身份。
+HTTP/gRPC 业务适配器漏装验签配置时拒绝执行 handler；公共接口的匿名访问仍需 authz 签发匿名证明，不通过漏配配置实现。
 
-`service.Context.ServiceAppId` / `ServiceInstanceId` 表示当前业务服务自身身份，由入口中间件从本地 bootstrap 配置注入。它们用于本地日志、OTel 和数据库链路排障，不是 `InvokeServiceAppId`，不参与 authz 权限元组，也不会被出站调用透传给下一跳。
-
-新代码建议优先读取分组字段：
-
-- `UserContext`：用户身份，字段保持 `user_id / app_id / tenant_id / session / org_ids / post_ids / role_ids`
-- `InvokeServiceAppId`：当前这一跳调用方服务 app_id，只在服务主体场景存在，来源于 authz 对服务 authority 的解析
-- `TargetServiceAppId`：当前这一跳被访问服务 app_id，来源于 authz 对 route.app_id 的映射
-- `DecisionContext`：authz allow 后的判定事实
-
-扁平字段仍然保留，方便日志和业务读取，但不要把 `AppId`、`InvokeAppId` 和 `InvokeServiceAppId` 混用。`InvokeAppId` 是授权元组里的调用方应用 ID；用户首跳时它可以来自 `UserContext.app_id`，此时不代表存在调用服务。
-
-服务权限粒度当前固定到 app_id 级别，`service.Context` 不再保留 `InvokeInstanceId` / `TargetInstanceId`。当前服务自身实例标识仍可通过 `ServiceInstanceId` 进入本地上下文，也可用于服务注册、健康检查和 OTel resource，但不进入 authz 权限元组。
-
-`service.Context.AuthzSignJWS` 保存原始 `x-firefly-authz-sign` compact JWS；`service.Context.VerifiedAuthzSign` 保存验签后的 payload。
-
-`service.Context.RouteMethod` / `RoutePath` 只在 `BuildVerifiedContext(...)` 本地验签成功后可信；普通 metadata 只作为读取便利，不是信任根。验签后的 `AuthzSign` 必须携带结构化 `user_context`，以及字符串字段 `invoke_service_app_id` / `target_service_app_id`，不再接受旧平铺身份 payload。
+此协议是破坏性变更，无旧字段别名或双读。核心库发布后仍须协调 authz 与全部在线消费者切换；
+不能把本地框架测试当作线上链路验收。
 
