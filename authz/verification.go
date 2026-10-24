@@ -30,7 +30,7 @@ type VerificationConfig struct {
 	PublicKeyPath string `json:"public_key_path" yaml:"public_key_path"`
 	// Issuer 是期望的 JWS iss；为空时使用 DefaultIssuer。
 	Issuer string `json:"issuer" yaml:"issuer"`
-	// ClockSkew 是允许的时钟偏差，例如 5s。
+	// ClockSkew 是允许的时钟偏差，只允许 0s 到 5s。
 	ClockSkew string `json:"clock_skew" yaml:"clock_skew"`
 	// SkipMethods 是不执行 authz 上下文验签的 gRPC FullMethod 列表。
 	SkipMethods []string `json:"skip_methods" yaml:"skip_methods"`
@@ -142,9 +142,9 @@ func parseClockSkew(value string) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse authz verification clock_skew: %w", err)
 	}
-	// 负数时钟偏差没有业务意义，直接拒绝错误配置。
-	if clockSkew < 0 {
-		return 0, fmt.Errorf("parse authz verification clock_skew: value must be non-negative")
+	// 容差不得为负或超过 5 秒，防止放宽短时证明的接收窗口。
+	if clockSkew < 0 || clockSkew > 5*time.Second {
+		return 0, fmt.Errorf("parse authz verification clock_skew: value must be between 0s and 5s")
 	}
 	// 返回调用方配置的时钟偏差。
 	return clockSkew, nil
