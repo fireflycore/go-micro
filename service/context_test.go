@@ -1,248 +1,133 @@
-package service
+package service_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"errors"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/fireflycore/go-micro/constant"
-	"go.opentelemetry.io/otel/sdk/trace"
+	"github.com/fireflycore/go-micro/internal/contexttest"
+	"github.com/fireflycore/go-micro/service"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/metadata"
 )
 
-func TestBuildContext(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AppLanguage, "zh-CN",
-		constant.Session, "session-1",
-		constant.UserId, "user-1",
-		constant.AppId, "app-1",
-		constant.TenantId, "tenant-1",
-		constant.SubjectType, constant.SubjectTypeUser,
-		constant.InvokeAppId, "app-1",
-		constant.TargetAppId, "order-app",
-		constant.RouteMethod, constant.RequestMethodGrpcString,
-		constant.RoutePath, "/acme.order.v1.OrderService/List",
-		constant.TargetMethod, constant.RequestMethodGrpcString,
-		constant.TargetPath, "/acme.order.v1.OrderService/List",
-		constant.DecisionId, "decision-1",
-		constant.AuthzSign, "signed-context",
-		constant.OrgIds, "org-1",
-		constant.OrgIds, "org-2",
-		constant.PostIds, "post-1",
-		constant.RoleIds, "role-1",
-	))
-
-	value := BuildContext(ctx, BuildContextOptions{})
-	if value == nil {
-		t.Fatal("expected service context, got nil")
+// entry 固定本地服务事实，便于区分明文输入和验签后身份。
+func entry(t *testing.T, md metadata.MD, verify bool) context.Context {
+	t.Helper()
+	o := service.BuildContextOptions{ServiceAppId: "B", ServiceInstanceId: "local", ServiceMethod: "GRPC", ServicePath: "/items.Service/Get"}
+	if verify {
+		v := contexttest.Options()
+		o.AuthzVerification = &v
 	}
-	if value.UserId != "user-1" || value.AppId != "app-1" || value.TenantId != "tenant-1" {
-		t.Fatalf("unexpected identity fields: %+v", value)
-	}
-	if value.AppLanguage != "zh-CN" || value.Session != "session-1" {
-		t.Fatalf("unexpected app context fields: %+v", value)
-	}
-	if value.SubjectType != constant.SubjectTypeUser || value.InvokeAppId != "app-1" || value.TargetAppId != "order-app" {
-		t.Fatalf("unexpected authz identity fields: %+v", value)
-	}
-	if value.RouteMethod != constant.RequestMethodGrpcString || value.RoutePath != "/acme.order.v1.OrderService/List" {
-		t.Fatalf("unexpected api fields: %+v", value)
-	}
-	if value.TargetMethod != constant.RequestMethodGrpcString || value.TargetPath != "/acme.order.v1.OrderService/List" {
-		t.Fatalf("unexpected target fields: %+v", value)
-	}
-	if value.DecisionId != "decision-1" {
-		t.Fatalf("unexpected decision id: %+v", value)
-	}
-	if value.AuthzSignJWS != "signed-context" {
-		t.Fatalf("unexpected authz sign token: %+v", value)
-	}
-	if value.UserContext == nil || value.UserContext.AppId != "app-1" || value.UserContext.Session != "session-1" {
-		t.Fatalf("unexpected grouped user context: %+v", value)
-	}
-	if value.DecisionContext == nil || value.DecisionContext.TargetAppId != "order-app" {
-		t.Fatalf("unexpected grouped decision context: %+v", value)
-	}
-	if value.DecisionContext.TargetMethod != constant.RequestMethodGrpcString || value.DecisionContext.TargetPath != "/acme.order.v1.OrderService/List" {
-		t.Fatalf("unexpected grouped decision target fields: %+v", value.DecisionContext)
-	}
-	if value.DecisionContext.InvokeAppId != "app-1" {
-		t.Fatalf("unexpected grouped decision invoke fields: %+v", value.DecisionContext)
-	}
-	if value.InvokeServiceAppId != "" {
-		t.Fatalf("expected user subject not to derive invoke service app id: %+v", value)
-	}
-	if value.TargetServiceAppId != "order-app" {
-		t.Fatalf("unexpected target service app id: %+v", value)
-	}
-	if len(value.OrgIds) != 2 || len(value.PostIds) != 1 || len(value.RoleIds) != 1 {
-		t.Fatalf("unexpected scope fields: %+v", value)
-	}
-}
-
-func TestBuildContext_UsesLocalServiceIdentityOptions(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.ServiceAppId, "forged-service-app",
-		constant.ServiceInstanceId, "forged-instance",
-	))
-
-	value := BuildContext(ctx, BuildContextOptions{
-		ServiceAppId:      "local-service-app",
-		ServiceInstanceId: "local-instance",
-	})
-	if value.ServiceAppId != "local-service-app" || value.ServiceInstanceId != "local-instance" {
-		t.Fatalf("expected local service identity options to win, got %+v", value)
-	}
-}
-
-func TestBuildContext_IgnoresIncomingServiceIdentityWithoutOptions(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.ServiceAppId, "forged-service-app",
-		constant.ServiceInstanceId, "forged-instance",
-	))
-
-	value := BuildContext(ctx, BuildContextOptions{})
-	if value.ServiceAppId != "" || value.ServiceInstanceId != "" {
-		t.Fatalf("expected incoming service identity to be ignored without options, got %+v", value)
-	}
-}
-
-func TestBuildContext_DoesNotUseAppIdAsInvokeFallback(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AppId, "user-app",
-	))
-
-	value := BuildContext(ctx, BuildContextOptions{})
-	if value.AppId != "user-app" || value.InvokeAppId != "" {
-		t.Fatalf("expected user app id to stay separate from invoke app id: %+v", value)
-	}
-}
-
-func TestBuildContext_BuildsInvokeServiceAppIdForServiceSubject(t *testing.T) {
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.SubjectType, constant.SubjectTypeService,
-		constant.InvokeAppId, "service-a",
-		constant.TargetAppId, "service-b",
-	))
-
-	value := BuildContext(ctx, BuildContextOptions{})
-	if value.InvokeServiceAppId != "service-a" {
-		t.Fatalf("expected service subject to build invoke service app id: %+v", value)
-	}
-	if value.UserContext != nil {
-		t.Fatalf("expected service subject without user fields to keep user context empty: %+v", value.UserContext)
-	}
-}
-
-func TestBuildVerifiedContext_UsesServiceAppIdAsTargetExpectation(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	ctx, err := service.NewIncomingContext(context.Background(), md, o)
 	if err != nil {
-		t.Fatalf("generate key failed: %v", err)
+		t.Fatal(err)
 	}
+	return ctx
+}
 
-	now := time.Unix(1710000000, 0).UTC()
-	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
-		"iss":           testAuthzIssuer,
-		"sub":           "user-1",
-		"subject_type":  constant.SubjectTypeUser,
-		"invoke_app_id": "user-app",
-		"target_app_id": "svc-b",
-		"user_context": map[string]any{
-			"user_id": "user-1",
-			"app_id":  "user-app",
-		},
-		"target_service_app_id": "svc-b",
-		"route_method":          constant.RequestMethodGrpcString,
-		"route_path":            "/acme.test.v1.TestService/Get",
-		"decision":              testAuthzDecisionAllow,
-		"decision_id":           "decision-1",
-		"iat":                   now.Unix(),
-		"exp":                   now.Add(time.Minute).Unix(),
-	})
-
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AuthzSign, raw,
-	))
-	_, err = BuildVerifiedContext(ctx, BuildContextOptions{
-		ServiceAppId: "svc-a",
-		AuthzVerification: &AuthzSignVerificationOptions{
-			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
-			Issuer:     testAuthzIssuer,
-			Now:        func() time.Time { return now },
-		},
-	})
-	if !errors.Is(err, ErrAuthzSignInvalidClaims) {
-		t.Fatalf("expected target app mismatch to be rejected, got %v", err)
+// 不验签的独立入口不能从伪造用户、Invoke 或本地服务头建立可信身份。
+func TestIncomingDoesNotTrustObservation(t *testing.T) {
+	md := metadata.Pairs(constant.UserId, "forged", constant.Session, "secret", constant.InvokeMethod, "GET", constant.InvokePath, "/forged",
+		"x-firefly-service-app-id", "fake", constant.ServiceAuthority, "service-secret", constant.UserAuthority, "user-secret", constant.AcceptLanguage, "zh-CN, en;q=0.5")
+	ctx := entry(t, md, false)
+	c := service.MustFromContext(ctx)
+	if c.UserContext != nil || c.AuthzSignContext != nil || c.InvokeAppId != "" || c.InvokePath != "" ||
+		c.ServiceAppId != "B" || c.AppLanguage != "zh-CN" {
+		t.Fatalf("untrusted projection: %+v", c)
+	}
+	public, _ := metadata.FromIncomingContext(ctx)
+	for _, k := range []string{constant.UserAuthority, constant.ServiceAuthority, constant.AuthzSign, "x-firefly-service-app-id"} {
+		if len(public.Get(k)) != 0 {
+			t.Fatal(k)
+		}
+	}
+	encoded, _ := json.Marshal(c)
+	if strings.Contains(string(encoded), "secret") {
+		t.Fatal("credential in business context")
 	}
 }
 
-func TestBuildVerifiedContext_RequiresServiceAppIdWhenVerificationEnabled(t *testing.T) {
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("generate key failed: %v", err)
+// 验证双身份保留、读取副本隔离、并发出站白名单和当次活动 span。
+func TestVerifiedProjectionAndOutgoingIsolation(t *testing.T) {
+	md := metadata.Pairs(constant.AuthzSign, contexttest.Sign(contexttest.Claims("service", true)),
+		constant.UserAuthority, "user-secret", constant.InvokeMethod, "POST", constant.InvokePath, "/a", constant.AppVersion, "1",
+		"x-firefly-unknown", "forged", constant.TraceParent, "forged-trace", constant.XRealIp, "forged-ip")
+	ctx := entry(t, md, true)
+	c := service.MustFromContext(ctx)
+	if c.InvokeAppId != "A" || c.UserContext.AppId != "login-app" || c.AuthzSignContext.SubjectAppId != "A" {
+		t.Fatal("lost dual identity")
 	}
-
-	now := time.Unix(1710000000, 0).UTC()
-	raw := signTestAuthzSign(t, privateKey, testAuthzKid, map[string]any{
-		"iss":           testAuthzIssuer,
-		"sub":           "user-1",
-		"subject_type":  constant.SubjectTypeUser,
-		"invoke_app_id": "user-app",
-		"target_app_id": "svc-a",
-		"user_context": map[string]any{
-			"user_id": "user-1",
-			"app_id":  "user-app",
-		},
-		"target_service_app_id": "svc-a",
-		"route_method":          constant.RequestMethodGrpcString,
-		"route_path":            "/acme.test.v1.TestService/Get",
-		"decision":              testAuthzDecisionAllow,
-		"decision_id":           "decision-1",
-		"iat":                   now.Unix(),
-		"exp":                   now.Add(time.Minute).Unix(),
-	})
-
-	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
-		constant.AuthzSign, raw,
-	))
-	_, err = BuildVerifiedContext(ctx, BuildContextOptions{
-		AuthzVerification: &AuthzSignVerificationOptions{
-			PublicKeys: map[string]ed25519.PublicKey{testAuthzKid: publicKey},
-			Issuer:     testAuthzIssuer,
-			Now:        func() time.Time { return now },
-		},
-	})
-	if !errors.Is(err, ErrAuthzSignInvalidClaims) {
-		t.Fatalf("expected missing local service app id to be rejected, got %v", err)
+	original := c.UserContext.UserId
+	// 修改读取副本不能污染存储视图，后续出站也不读取这个可变副本。
+	c.UserContext.UserId = "changed"
+	if service.MustFromContext(ctx).UserContext.UserId != original {
+		t.Fatal("shared runtime pointer")
 	}
-}
-
-func TestBuildContext_UsesTraceSpan(t *testing.T) {
-	provider := trace.NewTracerProvider()
-	defer func() { _ = provider.Shutdown(context.Background()) }()
-
-	tracer := provider.Tracer("service-test")
-	ctx, span := tracer.Start(context.Background(), "build-context")
-	defer span.End()
-
-	value := BuildContext(ctx, BuildContextOptions{})
-	if value.TraceId == "" {
-		t.Fatal("expected trace id to be populated from active span")
+	if strings.Contains(fmt.Sprintf("%+v", c.UserContext), "secret-session") {
+		t.Fatal("session in default formatting")
+	}
+	sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled})
+	ctx = trace.ContextWithSpanContext(ctx, sc)
+	var wg sync.WaitGroup
+	// 同一入口并发访问不同目标，目标和 metadata 必须由各次调用独占。
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			path := fmt.Sprintf("/C/%d", i)
+			out, err := service.BuildOutgoingContext(ctx, service.OutgoingTarget{TargetAppId: "C", TargetMethod: "GRPC", TargetPath: path}, "B-token")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			outMD := out.Metadata()
+			if out.TargetPath != path || out.InvokePath != "/items.Service/Get" || outMD.Get(constant.UserAuthority)[0] != "user-secret" ||
+				outMD.Get(constant.ServiceAuthority)[0] != "B-token" || !strings.Contains(out.TraceParent, sc.SpanID().String()) {
+				t.Error("wrong outgoing")
+			}
+			for _, k := range []string{constant.AuthzSign, constant.XRealIp, constant.UserId, constant.AcceptLanguage, "x-firefly-unknown"} {
+				if len(outMD.Get(k)) != 0 {
+					t.Error("propagated " + k)
+				}
+			}
+			outMD.Set(constant.AppVersion, "mutated")
+		}(i)
+	}
+	wg.Wait()
+	if service.MustFromContext(ctx).ServicePath != "/items.Service/Get" || md.Get(constant.AppVersion)[0] != "1" {
+		t.Fatal("outbound modified input")
 	}
 }
 
-func TestWithContextAndFromContext(t *testing.T) {
-	base := context.Background()
-	withValue := WithContext(base, &Context{UserId: "user-1"})
+// 重复标量、控制字符和越界长度直接拒绝，不采用静默截断或取首值。
+func TestIncomingScalarLimits(t *testing.T) {
+	for _, v := range []metadata.MD{
+		metadata.Pairs(constant.InvokeMethod, "GET", constant.InvokeMethod, "POST"),
+		metadata.Pairs(constant.InvokePath, "/bad\npath"),
+		metadata.Pairs(constant.InvokeMethod, strings.Repeat("x", 33)),
+		metadata.Pairs(constant.InvokePath, strings.Repeat("x", 2049)),
+	} {
+		if _, err := service.CollectIncomingContext(v, "GRPC", "/entry", ""); err == nil {
+			t.Fatal("accepted invalid input")
+		}
+	}
+}
 
-	value, ok := FromContext(withValue)
-	if !ok {
-		t.Fatal("expected service context in context")
+// TestOutgoingRequiresExplicitContext 验证出站构建不将 nil 伪装成无请求身份的后台调用。
+func TestOutgoingRequiresExplicitContext(t *testing.T) {
+	target := service.OutgoingTarget{TargetMethod: "GRPC", TargetPath: "/B/Get"}
+	if _, err := service.BuildOutgoingContext(context.Background(), target, "A-token"); err != nil {
+		t.Fatalf("explicit background context failed: %v", err)
 	}
-	if value.UserId != "user-1" {
-		t.Fatalf("unexpected user id: %+v", value)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("nil context was silently accepted")
+		}
+	}()
+	_, _ = service.BuildOutgoingContext(nil, target, "A-token")
 }
