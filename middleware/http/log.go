@@ -1,13 +1,7 @@
 package hm
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
 	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/fireflycore/go-micro/constant"
@@ -15,82 +9,32 @@ import (
 	"go.uber.org/zap"
 )
 
-// NewAccessLogger 访问日志中间件
-func NewAccessLogger(log *logger.AccessLogger) func(next http.Handler) http.Handler {
+// NewAccessLogger 记录实际 HTTP 入口与结构化可信身份，不读取原始 token 或请求体。
+// log 必须非 nil；关闭访问日志应由装配层明确不安装中间件。
+func NewAccessLogger(log *logger.AccessLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if log == nil {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
+			sw := &HttpStatusResponseWriter{ResponseWriter: w, status: http.StatusOK}
 
-			var req []byte
-			if request.Method != http.MethodGet {
-				req, _ = io.ReadAll(request.Body)
-				request.Body = io.NopCloser(bytes.NewBuffer(req))
-			} else {
-				query := request.URL.RawQuery
-				query, _ = url.QueryUnescape(query)
-				split := strings.Split(query, "&")
-				m := make(map[string]string)
-				for _, v := range split {
-					kv := strings.Split(v, "=")
-					if len(kv) == 2 {
-						m[kv[0]] = kv[1]
-					}
-				}
-				req, _ = json.Marshal(&m)
-			}
+			next.ServeHTTP(sw, r)
 
-			sw := &HttpStatusResponseWriter{writer, http.StatusOK, &bytes.Buffer{}}
-
-			next.ServeHTTP(sw, request)
-
-			status := sw.status
-			elapsed := time.Since(start)
-
-			method, ok := constant.RequestMethodStringMap[request.Method]
-			if !ok {
-				method = 0
-			}
-
-			clientType, ce := strconv.ParseInt(request.Header.Get(constant.ClientType), 10, 32)
-			if ce != nil {
-				clientType = 0
-			}
-			systemType, se := strconv.ParseInt(request.Header.Get(constant.SystemType), 10, 32)
-			if se != nil {
-				systemType = 0
-			}
-
-			fields := make([]zap.Field, 0, 24)
-			fields = append(fields,
+			fields := []zap.Field{
 				zap.String("log_type", "access"),
 				zap.String("protocol", "http"),
-				zap.Uint32("method", method),
-				zap.String("path", request.URL.Path),
-				zap.Uint64("duration", uint64(elapsed.Microseconds())),
-				zap.Uint32("status", uint32(status)),
-				zap.String("request", string(req)),
-				zap.String("response", sw.resp.String()),
-				zap.Uint32("client_type", uint32(clientType)),
-				zap.String("client_name", request.Header.Get(constant.ClientName)),
-				zap.String("client_version", request.Header.Get(constant.ClientVersion)),
-				zap.Uint32("system_type", uint32(systemType)),
-				zap.String("system_name", request.Header.Get(constant.SystemName)),
-				zap.String("system_version", request.Header.Get(constant.SystemVersion)),
-				zap.String("app_version", request.Header.Get(constant.AppVersion)),
-				zap.String("client_ip", request.Header.Get(constant.XRealIp)),
-			)
+				zap.String("method", r.Method),
+				zap.String("path", r.URL.Path),
+				zap.Uint64("duration", uint64(time.Since(start).Microseconds())),
+				zap.Int("status", sw.status),
+			}
+			fields = append(fields, logger.ContextFields(r.Context())...)
 
-			if status >= 500 {
-				log.WithContextError(request.Context(), constant.HttpAccessLog, fields...)
-			} else if status >= 400 {
-				log.WithContextWarn(request.Context(), constant.HttpAccessLog, fields...)
+			if sw.status >= 500 {
+				log.WithContextError(r.Context(), constant.HttpAccessLog, fields...)
+			} else if sw.status >= 400 {
+				log.WithContextWarn(r.Context(), constant.HttpAccessLog, fields...)
 			} else {
-				log.WithContextInfo(request.Context(), constant.HttpAccessLog, fields...)
+				log.WithContextInfo(r.Context(), constant.HttpAccessLog, fields...)
 			}
 		})
 	}
