@@ -60,12 +60,16 @@
 
 负责底层真实调用：
 
-- 复用当前链路 metadata
-- 保留用户 authority 与短 TTL authz sign，清理上一跳 authz 注入的普通身份 metadata
+- 从运行时和框架私有用户凭证建立当次出站白名单，不复制原始 metadata
+- 不发送上一跳 AuthzSign、普通身份、组件 IP 头
 - 每一跳覆盖 `X-Firefly-Service-Authority`
-- 普通业务服务应初始化 ServiceToken 管理器并启动后台刷新；获取 service token 的启动链路或测试链路可不配置 provider
+- provider 缺失、空 token 或获取失败即拒绝，不降级成用户直调
+- 凭证启动链使用独立且绑定单个入口的 `NewBootstrapUnaryInvoker`，不继承入站凭证
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
+
+调用必须显式传入非 nil 的父 context，框架不以 `context.Background()` 替换丢失的请求上下文。
+后台任务由调用方明确选择生命周期 context；nil 属于调用错误，沿底层 context 调用自然失败。
 
 ### `RemoteServiceCaller`
 

@@ -59,8 +59,8 @@
 底层统一调用器，负责：
 
 - 获取连接
-- 复用当前链路 metadata
-- 保留用户 authority 与短 TTL `x-firefly-authz-sign`，清理上一跳 authz 普通身份 metadata
+- 每次独立构建 `OutgoingContext` 和精确允许列表，不复制原始 metadata
+- 用户 authority 由框架私有路径继承，不传播上一跳 `x-firefly-authz-sign`
 - 每一跳覆盖 `X-Firefly-Service-Authority`
 - 使用初始化时注入的统一 timeout
 - 发起真实 gRPC unary 调用
@@ -125,10 +125,10 @@ auth.default.svc.cluster.local:9090
 
 当前调用侧统一约束如下：
 
-- `UnaryInvoker` 直接复用当前链路 metadata
-- `UnaryInvoker` 会保留用户 authority 和短 TTL `x-firefly-authz-sign`，清理上一跳 authz 注入的普通身份 metadata
-- 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
-- 普通业务服务应初始化 ServiceToken 管理器并启动后台刷新；获取 service token 的启动链路或测试链路可不配置 provider
+- `UnaryInvoker` 每次独立生成允许列表，用户 authority 私有继承，旧 AuthzSign 不出站
+- `InvokeMethod / InvokePath` 来自当前实际入口，OTel 从当前活动 span 注入
+- `ServiceAuthorityProvider` 为必需配置，每一跳使用当前服务凭证；缺失、空值或失败均拒绝
+- 认证启动调用使用独立且绑定单个方法的 `BootstrapUnaryInvoker`，不让普通调用器豁免凭证
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 未显式配置 timeout 时，默认使用 `5s`
 - 不再暴露 metadata / timeout 的单次调用覆盖能力
@@ -183,9 +183,9 @@ sequenceDiagram
     Repo->>RSC: Invoke(ctx, fullMethod, req, resp)
 
     RSC->>UI: Invoke(ctx, dns, fullMethod, req, resp)
-    UI->>UI: 复用 incoming/outgoing metadata
-    UI->>UI: 保留用户 authority/AuthzSign，清理普通身份 metadata
-    UI->>UI: 透传 UserAuthority 并覆盖 ServiceAuthority
+    UI->>UI: 独立构建 OutgoingContext 与允许列表
+    UI->>UI: 私有继承 UserAuthority，排除旧 AuthzSign
+    UI->>UI: 获取当前服务凭证，注入当前入口和活动 span
     UI->>UI: 基于统一 timeout 构造 outgoing ctx
     UI->>CM: Dial(ctx, dns)
     CM->>DM: Build(dns)
@@ -216,7 +216,7 @@ generated gRPC client 更适合解决“已经拿到 `grpc.ClientConn` 之后如
 
 - 业务服务 DNS 如何表达
 - 连接如何统一复用
-- metadata 如何统一透传
+- metadata 如何按允许列表逐次构建
 - OTel 如何统一接入
 
 因此当前推荐是：

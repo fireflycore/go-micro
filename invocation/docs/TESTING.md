@@ -1,6 +1,9 @@
 # Invocation Testing
 
-本文档记录 `invocation` 迁移后的最新测试执行结果。
+2026-10-22 Context 核心改造已通过整仓 `go test -race ./...`、`go vet ./...` 和 `go build ./...`。
+新增测试覆盖出站白名单、provider 失败、顺序/并发隔离、取消和超时。旧签名不再传播。
+
+下文是此前 DNS 迁移时的历史测试结果，覆盖率数值不代表本次 Context 改造。
 
 ## 测试范围
 
@@ -15,7 +18,7 @@
 - `DNS` / `DNSManager` 的默认值补齐、地址构建与目标构建
 - `Target` 的地址拼接与派生字符串缓存
 - `ConnectionManager` 的连接缓存、关闭与默认拨号逻辑
-- `UnaryInvoker` 的 metadata 透传、超时控制与默认调用路径
+- `UnaryInvoker` 的出站 metadata 构建、超时控制与默认调用路径
 - `RemoteServiceCaller` 与 `RemoteServiceManaged` 的装配与调用路径
 
 ## 测试环境
@@ -129,9 +132,9 @@ total:                                                  (statements)   91.2%
 - `Invoker`、`Target`、`ServiceManaged` 主流程覆盖完整
 - 剩余未打满部分仍主要集中在 `ConnectionManager` 的并发与关闭竞争分支
 
-## 当前结论
+## DNS 迁移历史结论
 
 - 迁移后的整仓回归通过
 - `invocation` 包覆盖率维持在 `91.2%`
 - 新增 `DNS` 模型方法已纳入测试基线
-- 当前结果可以作为发布前的回归与性能对照基线
+- 历史结果仅供对照，不代替当前代码的重新验证

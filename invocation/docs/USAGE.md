@@ -137,10 +137,10 @@ func ExampleSingleCaller(manager *invocation.ConnectionManager, provider authz.S
 
 当前调用模型下：
 
-- `UnaryInvoker` 直接复用当前链路 metadata
-- `UnaryInvoker` 会保留用户 authority 和短 TTL `x-firefly-authz-sign`，清理上一跳 authz 普通身份 metadata
-- 配置 `ServiceAuthorityProvider` 后，`UnaryInvoker` 每一跳覆盖 `X-Firefly-Service-Authority`
-- 普通业务服务应初始化 ServiceToken 管理器并启动后台刷新；获取 service token 的启动链路或测试链路可不配置 provider
+- `UnaryInvoker` 每次新建允许列表，不复用原始 metadata 或上一跳 AuthzSign
+- 用户 authority 由框架私有继承；`InvokeMethod / InvokePath` 从当前实际入口生成，OTel 使用活动 span
+- 必须配置 `ServiceAuthorityProvider`；缺失、空值或失败均拒绝，不回退用户直调
+- 获取 service token 的启动链使用独立且绑定单个方法的 `BootstrapUnaryInvoker`
 - timeout 在 `NewUnaryInvoker(...)` 初始化时注入
 - 不再暴露 metadata / timeout 的单次调用覆盖能力
 

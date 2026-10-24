@@ -6,9 +6,10 @@
 
 ## 当前边界
 
-- 服务端入站 metadata 的解析与服务内主上下文建立，统一由 `middleware/grpc` 负责
+- 服务端入站解析与服务内主上下文建立由 `middleware/grpc` 或 `middleware/http` 负责
 - 服务内代码只读取进程内 `service.Context`
-- 出站调用只复用当前链路 metadata，并使用 `UnaryInvoker` 初始化时注入的统一 timeout
+- 出站每次独立构建允许列表、私有继承用户凭证、获取当前服务凭证，不传播旧 AuthzSign
+- 取消和期限沿原生 context 传递，使用 `UnaryInvoker` 初始化时注入的统一 timeout
 
 ## 当前推荐入口
 
