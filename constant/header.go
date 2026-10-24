@@ -2,9 +2,9 @@
 package constant
 
 const (
-	// XRealIp 表示入口代理透传的真实客户端 IP，通常由 Nginx / Ingress 写入。
+	// XRealIp 是代理输入；只有显式验证代理可信后才能提取，不通用透传。
 	XRealIp = "x-real-ip"
-	// XForwardedFor 表示标准代理链路 IP 列表，authz 可读取第一个地址作为原始客户端 IP。
+	// XForwardedFor 是代理链输入，必须结合连接对端和可信代理策略解释。
 	XForwardedFor = "x-forwarded-for"
 	// TraceParent 是 W3C Trace Context 中承载 trace_id/span_id/parent 关系的标准头。
 	TraceParent = "traceparent"
@@ -56,51 +56,22 @@ const (
 )
 
 const (
-	// ServiceAppId 表示当前业务服务自身的应用 ID，只由本服务入口注入到本地上下文。
-	//
-	// 它不参与 authz 权限元组，也不允许跨服务出站透传。
-	ServiceAppId = HeaderPrefix + "service-app-id"
-	// ServiceInstanceId 表示当前业务服务自身的实例 ID，只由本服务入口注入到本地上下文。
-	//
-	// 它用于日志、OTel 和数据库链路排障，不参与 authz 权限元组，也不允许跨服务出站透传。
-	ServiceInstanceId = HeaderPrefix + "service-instance-id"
+	// AcceptLanguage 仅作为入站语言备用输入，出站统一使用 AppLanguage。
+	AcceptLanguage = "accept-language"
+	// InvokeMethod 是上一跳上报方法，仅供观测，不是授权动作。
+	InvokeMethod = HeaderPrefix + "invoke-method"
+	// InvokePath 是上一跳上报入口，不是实际入口或本次目标。
+	InvokePath = HeaderPrefix + "invoke-path"
 )
 
-// 以下字段由 authz 从 X-Firefly-User-Authority 中解析后注入，业务侧按 UserContext 读取。
+// 以下明文头仅供观测；业务 UserContext 必须从验签后的 payload 构建。
 const (
-	// UserId 表示用户主体 ID，服务主体或匿名主体为空。
+	// UserId 是明文用户标识观测头；服务主体携带用户时也可存在。
 	UserId = HeaderPrefix + "user-id"
-	// Session 表示用户 token 关联的会话标识。
+	// Session 是明文会话观测头，不能据此建立会话或默认写入日志。
 	Session = HeaderPrefix + "session"
-	// OrgIds 表示用户关联的组织 ID 列表。
-	OrgIds = HeaderPrefix + "org-ids"
-	// PostIds 表示用户关联的岗位 ID 列表。
-	PostIds = HeaderPrefix + "post-ids"
-	// RoleIds 表示用户关联的角色 ID 列表。
-	RoleIds = HeaderPrefix + "role-ids"
 	// AppId 表示用户身份中的应用 ID，不表达服务调用方。
 	AppId = HeaderPrefix + "app-id"
 	// TenantId 表示用户所属租户 ID。
 	TenantId = HeaderPrefix + "tenant-id"
-)
-
-const (
-	// InvokeAppId 表示 authz 本次授权元组中的调用方 app_id。
-	//
-	// 用户入口请求没有服务身份时可来自 UserContext.app_id；
-	// 服务间调用时来自 InvokeServiceAppId。
-	InvokeAppId = HeaderPrefix + "invoke-app-id"
-	// TargetAppId 表示 authz 从 route.app_id 映射出的被访问服务 app_id。
-	TargetAppId = HeaderPrefix + "target-app-id"
-)
-
-const (
-	// RouteMethod 表示当前授权检查命中的 route 动作，例如 GET/POST/GRPC。
-	RouteMethod = HeaderPrefix + "route-method"
-	// RoutePath 表示当前授权检查命中的 route 路径，HTTP 为 path，gRPC 为 FullMethod。
-	RoutePath = HeaderPrefix + "route-path"
-	// TargetMethod 表示授权结果最终投递到后端服务的目标动作。
-	TargetMethod = HeaderPrefix + "target-method"
-	// TargetPath 表示授权结果最终投递到后端服务的目标资源。
-	TargetPath = HeaderPrefix + "target-path"
 )
