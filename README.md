@@ -30,8 +30,9 @@
 - ServiceToken 管理器在启动后后台异步获取和刷新 token；获取失败不阻塞服务启动，缺少有效 token 时下游 Firefly 服务调用返回不可用错误
 - 出站每次独立构建 `OutgoingContext`；继承私有用户 authority、覆盖当前服务 authority，不传播上一跳签名、普通身份或组件头
 
-当前工作区实现了破坏性 Context 新协议，详见 [service](./service/README.md)。
-核心版本尚待发布与消费方迁移，不能和旧 authz 签发协议混用。
+本版采用破坏性的 Context 新协议，详见 [service](./service/README.md)。
+升级时需要同步迁移 authz 签发端、全部验签端及消费方，不能与旧签名协议混用。
+基础库发布不代表消费方接线或线上协议切换已经验收。
 
 ## 安装
 

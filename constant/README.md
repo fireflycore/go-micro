@@ -1,59 +1,52 @@
 # Constant
 
-`constant` 包只定义 go-micro 多个子包和业务服务共同依赖的公共协议常量。
+`constant` 包定义 go-micro 多个子包和业务服务共同依赖的公共协议常量，不集中存放业务错误码、组件私有白名单或测试辅助值。
 
-它不是“所有常量”的集中存放处。错误码、错误原因、authz 服务内部响应头、组件私有白名单和测试辅助值都应留在各自包或服务中。
+## 当前核心常量
 
-## 当前保留的核心常量
+- `UserAuthority` / `ServiceAuthority`：跨进程传给 authz 校验的凭证头。用户凭证通过框架私有路径继承，服务凭证每一跳由当前服务 provider 提供；provider 缺失或失败时拒绝调用。
+- `AuthzSign`：本跳入口的短时 compact JWS 验签输入，每跳重新签发，固定 60 秒；原文不进入公开业务上下文，不向下一跳传播。
+- `Session` / `UserId` / `AppId` / `TenantId` / `SubjectType` / `DecisionId`：六项明文 authz 观测头，不能据此建立身份或进行权限判断。用户身份只从验签结果建立，session 不默认写入日志。
+- `InvokeMethod` / `InvokePath`：上一跳服务入口观测头；出站以当前实际 `ServiceMethod / ServicePath` 覆盖，不作为授权或投递绑定。
+- `AppLanguage` / `AppVersion`、`SystemType` / `SystemName` / `SystemVersion`、`ClientType` / `ClientName` / `ClientVersion`：八项允许继承的客户端环境字段，不表达可信身份。
+- `AcceptLanguage`：只在入站缺少 Firefly 语言头时归一为语言偏好，不直接透传。
+- `TraceParent` / `TraceState` / `Baggage`：标准 OTel/W3C 传播头。每次出站从当前活动 span/context 注入，不复制入口 trace 快照。
+- `XRealIp` / `XForwardedFor`：受控入口适配所需的代理输入；必须先验证连接对端及代理可信性，不进入通用上下文入站/出站允许列表。
+- `RequestMethod*` / `RequestMethod*String`：HTTP/gRPC 方法枚举。签名中的授权 `Method / Path` 与本地实际 `ServiceMethod / ServicePath` 分别表达，不互相回填。
+- `SubjectTypeAnonymous` / `SubjectTypeUser` / `SubjectTypeService`：匿名、用户、服务主体类型。服务主体可以独立保留四字段用户上下文。
+- `JWSAlgorithmEdDSA` / `JWSTypeJWT` / `AuthzSignDefault*` / `AuthzSignDecisionAllow` / `AuthzSignClaim*`：JOSE、默认 kid/issuer 及新签名 claim 的共享常量。
+- `ExtAuthzContext*`：路由组件传给 ext_authz 的 `context_extensions` key；其中 `route_method / route_path` 与 `target_method / target_path` 仍是组件适配协议，不是普通业务请求头。
 
-- `UserAuthority` / `ServiceAuthority`：跨进程传给 authz 校验的 authority header；用户 authority 可透传，服务 authority 每一跳由当前服务覆盖。
-- `XRealIp` / `XForwardedFor`：入口代理透传的客户端 IP 事实，用于访问日志和 authz token 状态校验。
-- `TraceParent` / `TraceState` / `Baggage`：OTEL / W3C Trace Context 传播头。
-- `AppLanguage` / `AppVersion`：客户端应用上下文。
-- `ServiceAppId` / `ServiceInstanceId`：当前业务服务自身身份字段，只在服务入口注入本地上下文，用于日志、OTel 和数据库链路排障；它们不是 authz 权限元组字段，也不允许出站透传。
-- `Session`、`UserId` / `AppId` / `TenantId` / `OrgIds` / `PostIds` / `RoleIds`：authz 解析用户 authority 后注入的普通身份 metadata key，其中 `AppId` 只表示用户身份中的 app_id。
-- `SubjectType` / `InvokeAppId` / `TargetAppId` / `RouteMethod` / `RoutePath` / `TargetMethod` / `TargetPath` / `DecisionId`：authz allow 后写回的普通上下文字段，便于业务日志和排障读取；服务权限粒度当前固定到 app_id，不再注入 invoke/target instance 字段。
-- `AuthzSign`：`x-firefly-authz-sign` metadata key，对应 authz 写回的短有效期 compact JWS；可信上下文只从验签后的 JWS payload 读取。
-- `RequestMethod*` / `RequestMethod*String`：访问日志和权限资源动作共用的 HTTP/gRPC method 枚举。
-- `SubjectTypeAnonymous` / `SubjectTypeUser` / `SubjectTypeService`：authz JWS payload 和服务内上下文共用的主体类型。
-- `JWSAlgorithmEdDSA` / `JWSTypeJWT` / `AuthzSignDefault*` / `AuthzSignDecisionAllow` / `AuthzSignClaim*`：服务侧验签和 authz 签发 `x-firefly-authz-sign` 时使用的公共 JOSE / claim 字段值。
-- `ExtAuthzContext*`：api-gateway / sidecar-agent 写入 Envoy `ext_authz context_extensions`、authz 读取 route 事实时共用的 key；新链路使用 `route_method` / `route_path` 与 `target_method` / `target_path` 成对表达命中的 route 授权事实和后端目标。
+## 签名与本地身份
 
-## 已移除的旧字段
+授权主体应用使用 `subject_app_id`，上一跳已认证服务保留 `invoke_service_app_id`；运行时 `InvokeAppId` 只能由后者派生，不接受普通头自报。
 
-以下字段属于旧网关链路或旧客户端协议，不再作为 go-micro current 协议继续保留：
+授权 API 使用 `method / path`；实际投递绑定使用 `service_app_id / service_method / service_path`。本地 `ServiceAppId / ServiceInstanceId` 来自配置，实际入口来自 HTTP/gRPC 适配器，不使用签名或请求头反填实际值，也不生成对应的本地身份 metadata。
 
-- `x-firefly-access-method`
-- `x-firefly-route-method`
-- `x-firefly-http-gateway-sign`
-- `x-firefly-grpc-gateway-sign`
-- `x-firefly-gateway-auth-sign`
-- `x-firefly-service-auth`
-- `x-firefly-resource-type`
-- `x-firefly-resource-path`
-- `authorization` 作为 Firefly current 身份入口
-- `x-firefly-authz-error-code`
-- `x-firefly-authz-error-reason`
-- `x-firefly-token-refresh-required`
+公开业务视图保持 `service.Context`，其中用户视图仅含 `Session / UserId / AppId / TenantId`。ORM 由显式适配的可信 reader 读取最小身份，不解析原始 metadata、token 或签名。
 
-## 说明
+## 出站允许列表
 
-`go-micro` 不再把 `x-request-id` 作为业务主 trace 头；链路追踪统一使用 `traceparent` / `tracestate` / `baggage`。
+出站由 `service.OutgoingContext` 编码精确允许列表，`authz` 负责提供当前服务凭证及协议适配，不按 `x-firefly-*` 前缀整体放行：
 
-`x-firefly-route-method` / `x-firefly-route-path` 是入口权限检查使用的读取便利字段；`x-firefly-target-method` / `x-firefly-target-path` 是后端服务侧验签绑定字段。业务服务需要可信数据时必须优先验签 `x-firefly-authz-sign`。
+- `x-firefly-user-authority`：框架私有继承的用户凭证，有值时发送。
+- `x-firefly-service-authority`：当前服务 provider 提供的服务凭证，必须存在。
+- `x-firefly-invoke-method` / `x-firefly-invoke-path`：当前服务实际入口，有值时发送。
+- 八项客户端环境字段：有值时继承。
+- `traceparent` / `tracestate` / `baggage`：当前活动 OTel 上下文注入的标准传播值。
 
-`x-firefly-service-app-id` / `x-firefly-service-instance-id` 是当前服务自身的本地入口 metadata。它们可以被 gRPC 入口中间件写入当前请求上下文，供 gormx、日志或 OTel 相关组件读取；出站调用必须清理它们，不能把当前服务自身身份传播给下一跳。
+不发送旧 AuthzSign、六项明文身份/授权观测头、Accept-Language、代理 IP、组件头、本地服务身份、身份集合、标准 Authorization 或未知 Firefly 头。HTTP 当次显式上传/协议头不属于通用上下文继承，不因本次改造删除。
 
-`go-micro` 出站调用采用白名单策略，透传用户 authority 和短 TTL `x-firefly-authz-sign`，但不透传普通身份 metadata、当前服务自身 metadata、标准 `authorization` 头或未知业务 metadata。下一跳 Envoy ext_authz 仍必须按当前 route 重新计算权限，并由 authz 重新签名注入新的结果。
+## 已退出的旧协议
 
-当前业务服务出站白名单由 `authz` 包维护，保留范围为：
+以下项目不再作为通用服务上下文读取、注入或透传；入口清洗旧值不等于兼容接受：
 
-- `x-firefly-user-authority`
-- `x-firefly-authz-sign`
-- `traceparent` / `tracestate` / `baggage`
-- `x-real-ip` / `x-forwarded-for`
-- `x-firefly-app-language` / `x-firefly-app-version`
-- `x-firefly-system-type` / `x-firefly-system-name` / `x-firefly-system-version`
-- `x-firefly-client-type` / `x-firefly-client-name` / `x-firefly-client-version`
+- `OrgIds / PostIds / RoleIds` 等身份集合及其请求头。
+- 普通 `x-firefly-invoke-app-id / x-firefly-target-app-id`。
+- 普通 `x-firefly-route-method / x-firefly-route-path / x-firefly-target-method / x-firefly-target-path`。
+- `x-firefly-api-method / x-firefly-api-path / x-firefly-access-method`。
+- `x-firefly-service-app-id / x-firefly-service-instance-id` 和 invoke/target instance 头。
+- 旧网关签名、自定义 trace/span、service-auth、resource-type/resource-path 头。
+- `authorization` 作为 Firefly 业务身份入口，以及旧 authz-error-code/authz-error-reason/token-refresh-required 头。
 
-`x-firefly-service-authority` 不从上游继承，而是在当前这一跳由 go-micro 重新覆盖写入。`x-firefly-service-app-id` / `x-firefly-service-instance-id` 只允许作为当前服务入口本地 metadata 使用；`x-firefly-invoke-instance-id` / `x-firefly-target-instance-id` 不属于 current 权限协议，请求链路不再注入。
+组件层 `ExtAuthzContext*` 常量不因名称含 Route/Target 被删除；其边界与业务上下文头不同。组织、角色、岗位业务实体也不因身份集合退出而删除。

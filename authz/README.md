@@ -61,7 +61,7 @@ gm.NewServiceContextUnaryInterceptor(gm.ServiceContextInterceptorOptions{
 })
 ```
 
-当前只支持 EdDSA/Ed25519 JWS。`kid` 和 `issuer` 的默认值属于 `authz` 包内部配置语义，不放入 `constant` 公共常量。
+当前只支持 EdDSA/Ed25519 JWS。公共默认值由 `constant.AuthzSignDefaultKid` 和 `constant.AuthzSignDefaultIssuer` 定义，配置装配层使用这些默认值。
 
 ## Service Authority
 
@@ -102,5 +102,7 @@ invoker := invocation.NewUnaryInvoker(manager, timeout).
 管理端或排障接口可通过 `ServiceAuthorityStatus()` 读取安全状态快照。该快照只包含 `started`、`loaded`、`expires_at`、`expires_in_seconds`、`refresh_before` 和 `last_error`，不包含 service token 原文，适合挂到业务服务 `/info` 这类自管理接口。
 
 出站只继承框架私有用户 authority 和八个客户端环境字段，覆盖当前服务 authority 与当前实际入口的 Invoke 方法，使用活动 OTel span 注入 trace / baggage。不发送旧签名、普通身份、组件 IP、本地身份或未知 Firefly 头；Accept-Language 不透传。provider 缺失、空值或失败均拒绝业务调用。
+
+HTTP `AuthorityTransport` 仅用于调用方显式选择的内部目标，不应用作任意 URL 的通用客户端。自动重定向只允许同源：协议、主机和有效端口必须一致，省略端口与显式默认端口等价，主机名大小写不影响比较。跨主机（包括子域）、跨端口、HTTP/HTTPS 协议变化或上一跳请求事实缺失时，在获取凭证和发送前返回 `ErrAuthorityRedirectNotAllowed`。不通过清空头后继续重定向来降级为匿名调用，也不新增跨源放行配置；需要调用另一个内部目标时，应显式发起新的请求。
 
 凭证获取使用独立、绑定单个方法的 `invocation.NewBootstrapUnaryInvoker`，不通过缺省 provider 豁免业务调用。下一跳 authz 必须验证所有携带凭证及各自在线 session，选择本跳主体后重新签发 60 秒证明；本库不实现 authz 的在线认证或签发。
