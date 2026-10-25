@@ -22,6 +22,28 @@
 service 主体应用须等于已认证上一跳服务，且可同时保留 UserContext。
 业务服务不在线重查身份 session，该责任仍属于 authz。
 
+## 必需用户视图
+
+需要用户身份的用例使用 `RequireUserFromContext`，集中处理无用户场景：
+
+```go
+user, err := service.RequireUserFromContext(ctx)
+if err != nil {
+    return err
+}
+
+row.UserId = user.UserId
+row.AppId = user.AppId
+row.TenantId = user.TenantId
+```
+
+函数只读取已验证视图并返回副本，不解析原始 token/metadata，也不再次查询在线 session。
+匿名或纯服务请求没有用户时返回 `werror.Unauthenticated`，gRPC 出口识别为 `Unauthenticated`；
+服务主体同时携带用户时正常返回，不要求授权主体为 user。缺少 `service.Context` 仍沿用
+`MustFromContext` 暴露装配错误，不补空用户或默认上下文。
+允许无用户的接口继续通过 `FromContext` / `MustFromContext` 获取运行时视图，并按自身业务契约
+处理可选的 `UserContext`；不安装全局“必须有用户”规则，也不统一改变空列表等既有语义。
+
 ## 出站与日志
 
 `BuildOutgoingContext` 为单次 `OutgoingTarget{TargetAppId, TargetMethod, TargetPath}` 建立独立视图。

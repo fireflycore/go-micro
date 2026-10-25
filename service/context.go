@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/fireflycore/go-micro/werror"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -147,6 +148,17 @@ func MustFromContext(ctx context.Context) *Context {
 		panic("service: context not found in context")
 	}
 	return value
+}
+
+// RequireUserFromContext 返回已验证用户视图的副本，供明确需要用户身份的用例调用。
+// 纯服务或匿名请求没有用户时返回未认证错误；服务主体携带用户时正常返回。
+// 缺少运行时上下文仍由 MustFromContext 暴露装配错误，不从凭证或明文头补建用户。
+func RequireUserFromContext(ctx context.Context) (*UserContext, error) {
+	value := MustFromContext(ctx)
+	if value.UserContext == nil {
+		return nil, werror.Unauthenticated("user context is required")
+	}
+	return value.UserContext, nil
 }
 
 // BuildContext 不从普通 metadata 建立身份，可信身份只能来自本地验签。
